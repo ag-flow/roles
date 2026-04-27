@@ -8,6 +8,7 @@ import { useWebSocketEvent } from '@/lib/ws/hooks';
 import { DiscoverButton } from './DiscoverButton';
 import { ItemsTable } from './ItemsTable';
 import { ItemsFilters } from './ItemsFilters';
+import { SelectionActions } from './SelectionActions';
 
 export default function SourceDetailPage({
   params,
@@ -59,12 +60,13 @@ export default function SourceDetailPage({
       <h1>Source</h1>
       <DiscoverButton sourceId={params.sourceId} />
       <div style={{ marginTop: 16 }}>
-        <button onClick={handleIngest} disabled={selectedIds.size === 0}>
-          Lancer l'ingestion ({selectedIds.size})
-        </button>
-      </div>
-      <div style={{ marginTop: 16 }}>
         <ItemsFilters initial={filters} onChange={setFilters} />
+        <SelectionActions
+          items={items}
+          selectedIds={selectedIds}
+          onSetSelection={setSelectedIds}
+          onIngest={handleIngest}
+        />
         <ItemsTable
           items={items}
           selectedIds={selectedIds}
