@@ -98,6 +98,22 @@ async def update_source_item_status(
         )
 
 
+async def update_source_item_status_by_id(
+    item_id: UUID,
+    status: str,
+    *,
+    pool: asyncpg.Pool,
+) -> None:
+    """Update status d'un source_item par son id (helper Sprint 4 chunking)."""
+    query = (
+        "UPDATE source_items "
+        "SET status = $1, updated_at = now() "
+        "WHERE id = $2"
+    )
+    async with pool.acquire() as conn:
+        await conn.execute(query, status, item_id)
+
+
 async def list_items_by_source(
     source_id: UUID,
     *,
