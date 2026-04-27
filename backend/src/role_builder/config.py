@@ -38,5 +38,17 @@ class Settings(BaseSettings):
     disable_orchestrator: bool = False
     disable_ws_relay: bool = False
 
+    # Sprint 3 — Transcription (clés API SaaS, vides = fallback shared)
+    openai_api_key: str = ""
+    deepgram_api_key: str = ""
+    assemblyai_api_key: str = ""
+    speechmatics_api_key: str = ""
+    # Workers user (provisioning + auto-stop loop interne backend)
+    worker_auto_stop_threshold_s: int = 300
+    worker_auto_stop_period_s: int = 60
+    worker_image_tag: str = "latest"
+    ghcr_owner: str = ""
+    disable_worker_manager: bool = False
+
 
 settings = Settings()  # type: ignore[call-arg]
