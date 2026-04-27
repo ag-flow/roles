@@ -331,6 +331,65 @@
 
 ---
 
+## Sprint 4 — Décisions actées et observations
+
+- [x] **Mistral via ag.flow vs direct API**
+      → **Décision (sprint 4) :** abstraction `services/agflow_client.py` qui
+      appelle directement `api.mistral.ai` pour MVP. Quand l'OpenAPI ag.flow
+      sera figé, swap interne sans toucher aux callers (`embedder`,
+      `corpus_search`, et le futur pipeline de synthèse Sprint 5).
+      Méthodes : `invoke_embeddings(texts) → list[list[float]]` (auto-batch
+      32) et `invoke_chat(messages, model, response_format, temperature)
+      → ChatResult`.
+
+- [x] **Modèle d'embeddings**
+      → **Décision (sprint 4) :** `mistral-embed`, 1024 dim. La dimension
+      `vector(1024)` posée provisoirement migration 0004 Sprint 1 est
+      confirmée. Si Mistral change la dim plus tard, créer une migration
+      `00XX_resize_chunks_vector.sql`.
+
+- [x] **Worker chunking : container séparé ou interne backend**
+      → **Décision (sprint 4) :** asyncio task interne au backend FastAPI
+      (gardée par `DISABLE_CHUNKING_WORKER`). Pattern strict des Sprints
+      2/3 (orchestrator, ws_relay, worker_manager). L'opération est
+      CPU-bound léger (chunking string + appel Mistral réseau), pas la
+      peine d'un container dédié. Si volume devient critique, extraire
+      en container worker en Phase 2.
+
+- [x] **Câblage Sprint 3 → Sprint 4**
+      Le trou noté en Sprint 3 (`event_handlers ne crée pas
+      transcription_jobs`... NON, c'est `transcription-worker ne crée pas
+      chunking_job`) est comblé : le worker transcription insère un
+      `chunking_job` après `mark_job_done` (récupération role_project_id
+      + tenant_id via JOIN sources/source_items).
+
+- [x] **Index pgvector ivfflat lists=100 vs HNSW**
+      → **Décision (sprint 4) :** ivfflat retenu (déjà créé migration
+      0004). HNSW sera évalué Phase 2 si volume > 100k chunks (HNSW plus
+      rapide en query mais plus gourmand en RAM au build).
+
+- [x] **Multi-tenant routes corpus**
+      → **Décision (sprint 4) :** TODO commenté dans `routes/corpus.py`,
+      pas de vérification `user.user_id == role_projects.user_id` pour
+      MVP mono-tenant. À câbler quand on activera multi-tenant via claim
+      mapper Keycloak (cf. décision Auth Keycloak ci-dessous).
+
+- [ ] **Re-chunking d'un transcript existant (rebuild corpus)**
+      Reporté Phase 2. Endpoint admin "rebuild corpus" qui dropperait
+      `corpus_chunks` du projet et recréerait via les `chunking_jobs`.
+      Utile si on change la stratégie de chunking ou la dim d'embeddings.
+
+- [ ] **Déduplication de chunks similaires entre vidéos**
+      Reporté. Pour MVP on indexe tout. Plus tard, détection de chunks
+      très proches via similarity > seuil (ex: 0.95) et suppression.
+
+- [ ] **Streaming d'indexation (progression chunk par chunk côté UI)**
+      Reporté. Pour MVP, le PG NOTIFY `source_items_changes` (status →
+      `indexed`) suffit pour rafraîchir la liste. Granularité chunk-par-
+      chunk en Phase 2 si gros corpus.
+
+---
+
 ## Auth Keycloak — Phase 2 livrée (post-Sprint 3)
 
 - [x] **Authentification utilisateur via Keycloak**
