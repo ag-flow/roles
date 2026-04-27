@@ -84,9 +84,12 @@
       En attente de la stabilisation OIDC chez Beard. Mode AppRole en
       attendant.
 
-- [ ] **Mode dégradé en attendant l'OIDC**
+- [x] **Mode dégradé en attendant l'OIDC**
       Tokens AppRole : on génère un token de rôle pour le backend, on
       le stocke dans une variable d'env.
+      → **Décision (sprint 1) :** mode `dev` d'OpenBao avec token
+      statique `OPENBAO_DEV_TOKEN` en env var (`docker-compose.yml`).
+      AppRole / OIDC viendront avec l'effort d'auth utilisateur.
 
 - [ ] **UX d'upload des cookies**
       Drag-drop d'un fichier `cookies.txt` (MVP simple). Plus tard :
@@ -121,12 +124,17 @@
 
 ## Authentification de l'app elle-même (§ 02, § 10)
 
-- [ ] **Multi-utilisateur : SSO OIDC ou auth basique MVP ?**
+- [x] **Multi-utilisateur : SSO OIDC ou auth basique MVP ?**
       Pour le MVP mono-user (Beard) : auth basique suffisante. Multi-user
       via Keycloak homelab en Phase 2.
+      → **Décision (sprint 1) :** **aucune auth** dans le squelette
+      (CORS ouvert), à reprendre dès qu'une UI nécessite des actions
+      utilisateur (Sprint 6 "Ma stack" probablement). Keycloak homelab
+      pour Phase 2.
 
 - [ ] **Composant `<AuthGuard>` au layout root**
-      Implémentation à confirmer selon le choix d'auth.
+      Implémentation à confirmer selon le choix d'auth. Reporté au sprint
+      qui introduira l'auth.
 
 ---
 
@@ -215,13 +223,20 @@
 
 ## Modèle de données (§ 01)
 
-- [ ] **Dimension exacte des embeddings Mistral**
+- [x] **Dimension exacte des embeddings Mistral**
       À confirmer selon le modèle utilisé (probablement 1024). Adapter
       `corpus_chunks.embedding vector(N)` en conséquence.
+      → **Décision provisoire (sprint 1) :** `vector(1024)` posé dans
+      migration `0004_corpus_chunks.sql`. À reconfirmer Sprint 4 à la
+      lecture de l'OpenAPI ag.flow `/api/admin/llm/embeddings`. Si le
+      modèle Mistral retenu renvoie une autre dimension, ajouter une
+      migration `00XX_resize_chunks_vector.sql`.
 
-- [ ] **Soft-deletes vs hard-deletes**
+- [x] **Soft-deletes vs hard-deletes**
       Tables où ajouter `deleted_at` (sources, role_projects) ? Pour le
       MVP, hard-delete avec CASCADE.
+      → **Décision (sprint 1) :** hard-delete avec CASCADE comme dans la
+      spec. Soft-deletes considérés en Phase 2 selon retours utilisateur.
 
 - [ ] **Politiques de rétention**
       Combien de temps garde-t-on les `runs` archivés, transcripts,
@@ -230,13 +245,16 @@
 - [ ] **Seed des prompts système**
       Migration SQL `0012_seed_prompts.sql` ou commande Python séparée ?
       Recommandation : commande Python pour pouvoir versionner les
-      prompts dans des fichiers `.md`.
+      prompts dans des fichiers `.md`. À trancher Sprint 5.
 
 - [ ] **Politique CORS en prod**
-      Domaines autorisés à appeler l'API.
+      Domaines autorisés à appeler l'API. CORS ouvert (`*`) pour le MVP
+      Sprint 1, à restreindre avant prod.
 
-- [ ] **Image pgvector exacte**
+- [x] **Image pgvector exacte**
       `pgvector/pgvector:pg16` recommandée vs `ankane/pgvector`.
+      → **Décision (sprint 1) :** `pgvector/pgvector:pg16` retenu dans
+      `docker-compose.yml`. Image officielle, à jour, taggable.
 
 ---
 
@@ -245,8 +263,12 @@
 - [ ] **Choix précis de la library UI**
       Tailwind seul, shadcn/ui, autre ?
 
-- [ ] **Choix entre SWR et TanStack Query**
+- [x] **Choix entre SWR et TanStack Query**
       SWR plus léger, TanStack plus complet. SWR recommandé pour le MVP.
+      → **Décision (sprint 1) :** **SWR** retenu (pas encore installé en
+      Sprint 1 — le squelette n'a qu'un fetch direct côté server component
+      `app/page.tsx`). À ajouter en deps quand le premier appel client-side
+      arrivera (Sprint 2 — onglet Sources).
 
 - [ ] **Génération auto des types TypeScript depuis l'OpenAPI ?**
       Via `openapi-typescript` : recommandé. Économise du temps de sync
@@ -295,6 +317,51 @@
 
 - [ ] **Étendre à l'anglais en Phase 2 ?**
       MVP : français only. Anglais si traction.
+
+---
+
+## Sprint 1 — Observations émergentes (à reprendre en Phase 2)
+
+- [ ] **`Settings()` instancié au top-level dans `config.py`**
+      Pattern dicté par la spec 02 mais qui force l'instanciation à
+      l'import. Conséquence : `tests/conftest.py` doit faire un
+      `os.environ.setdefault(...)` au top du module pour que la collection
+      pytest n'explose pas (`ValidationError` sur les env vars manquantes).
+      → **À refactorer :** lazy init via fonction `get_settings()` ou
+      `@lru_cache` dès qu'on aura besoin de plus de flexibilité (Sprint 5
+      probablement, quand on ajoutera des configs LLM).
+
+- [ ] **TypeScript `5.4.0` introuvable sur npm**
+      Le plan détaillé Sprint 1 indiquait `typescript@5.4.0` mais cette
+      version n'existe pas (npm passe de `5.4.0-beta` à `5.4.2`). Pinné
+      sur `5.4.5` (dernière patch de la série 5.4).
+      → **Action :** mettre à jour le plan détaillé Sprint 1 si on le
+      référence comme template pour des plans futurs.
+
+- [ ] **Vulnérabilité Next.js 14.2.0**
+      `npm install` reporte un CVE sur `next@14.2.0`. Pas bloquant pour
+      Sprint 1 (squelette local), à patcher avant tout déploiement
+      public.
+      → **Action :** upgrade vers la dernière patch 14.2.x au début du
+      Sprint 2 ou 3 selon les retours sécurité.
+
+- [ ] **Vérification end-to-end Phase F8 partielle (pas de Docker)**
+      Environnement de dev Windows actuel n'a pas Docker installé. Les
+      vérifications passées : pytest backend (10/10), npm test (3/3),
+      typecheck, ruff. Non vérifiées : `docker compose up`, application
+      des migrations sur Postgres réel, création buckets MinIO,
+      activation OpenBao KV v2, healthcheck HTTP backend, page frontend
+      via navigateur.
+      → **Action :** installer Docker Desktop ou exécuter le sprint sur
+      la cible LXC pve1 pour valider la stack complète avant Sprint 2.
+
+- [ ] **Lock fichiers Windows par watchers IDE**
+      `npm install` initial a échoué sur ENOTEMPTY à cause de processes
+      node/IDE qui tenaient des fichiers `node_modules/next/dist/...`.
+      Workaround : renommer `node_modules` puis relancer (artefact
+      `node_modules_locked_*` resté dans `frontend/` à nettoyer).
+      → **Action :** ajouter `node_modules_locked_*/` au `.gitignore`
+      ou nettoyer manuellement quand l'IDE relâche les locks.
 
 ---
 
