@@ -81,6 +81,11 @@ services:
       WORKER_AUTO_STOP_PERIOD_S: ${WORKER_AUTO_STOP_PERIOD_S:-60}
       WORKER_IMAGE_TAG: ${IMAGE_TAG:-latest}
       GHCR_OWNER: ${GHCR_OWNER:-}
+      # Auth Keycloak — vide en mode tests/dev (DISABLE_AUTH=true)
+      KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
+      KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-}
+      DISABLE_AUTH: ${DISABLE_AUTH:-false}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
 
@@ -91,6 +96,13 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8000}
       BACKEND_INTERNAL_URL: http://backend:8000
+      # Auth.js + provider Keycloak (côté frontend Next.js)
+      KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-}
+      AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
 

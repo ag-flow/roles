@@ -331,6 +331,41 @@
 
 ---
 
+## Auth Keycloak — Phase 2 livrée (post-Sprint 3)
+
+- [x] **Authentification utilisateur via Keycloak**
+      → **Décision (post-Sprint 3) :** Authorization Code + PKCE via Auth.js v5
+      (frontend Next.js) + PyJWT côté backend (validation JWT RS256 avec
+      JWKS cache 1h). Issuer : `https://security.yoops.org/realms/yoops`,
+      client OIDC `agflow-roles` (client confidential, secret en env var
+      docker-compose, jamais commit).
+      Routes backend protégées : toutes sauf `/health/`. WS `/ws` non
+      protégé Phase 2 (auth WS = Phase 3, query param token + validation
+      identique).
+      Bypass via `DISABLE_AUTH=true` env var (utilisé par les tests pytest
+      via fixture `client` du conftest).
+
+- [x] **Multi-tenant via claim mapper Keycloak**
+      → **Décision (post-Sprint 3) :** Reporté Phase 2+. MVP utilise
+      `TENANT_ID_DEFAULT` constante (Sprint 1) pour tous les users. Pour
+      activer le multi-tenant, ajouter un User Attribute mapper Keycloak
+      sur le client `agflow-roles-dedicated` qui inject un claim `tenant_id`
+      dans l'access token, puis adapter `auth/dependencies.py` pour le lire.
+
+- [ ] **Refresh token rotation côté backend**
+      Reporté. Auth.js gère le refresh côté frontend (rotation par
+      Keycloak), le backend valide juste l'access token. Si on veut
+      étendre à des clients machine (CLI, agent), il faudra implémenter
+      le flow refresh côté backend.
+
+- [ ] **Auth WebSocket `/ws`**
+      Reporté Phase 3. Pattern prévu : query param `?token=<access_token>`,
+      validation via `KeycloakValidator.validate()` au moment du
+      `websocket.accept()`. Le frontend passera `session.accessToken` au
+      moment d'ouvrir la connexion WS.
+
+---
+
 ## CI Docker — Bugs initiaux corrigés (post-Sprint 3)
 
 Trois bugs introduits par Sprint 2 H + Sprint 3 H qui empêchaient les builds CI de fonctionner. Détectés à la relecture (Docker non disponible localement, donc bugs latents jusqu'au premier push).
