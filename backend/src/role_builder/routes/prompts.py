@@ -105,7 +105,10 @@ async def set_system_default(
     Désactive toutes les autres versions, puis active version_id.
     """
     pool = db_pool.pool
-    await prompts_helper.set_system_default(prompt_id, version_id, pool=pool)
+    try:
+        await prompts_helper.set_system_default(prompt_id, version_id, pool=pool)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="version not found for this prompt") from exc
     log.info(
         "api.prompts.system_default_updated",
         prompt_id=str(prompt_id),

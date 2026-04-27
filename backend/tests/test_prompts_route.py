@@ -138,3 +138,24 @@ def test_put_system_default_returns_204(
     assert resp.status_code == 204, resp.text
     assert called["prompt_id"] == prompt_id
     assert called["version_id"] == version_id
+
+
+def test_put_system_default_returns_404_when_version_not_in_prompt(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PUT system-default retourne 404 si version_id n'appartient pas au prompt."""
+    from role_builder.routes import prompts as prompts_route
+
+    prompt_id = uuid4()
+    wrong_version_id = uuid4()
+
+    async def fake_set_system_default_raises(pid: UUID, vid: UUID, *, pool: Any) -> None:
+        raise ValueError("version_id does not belong to prompt_id")
+
+    monkeypatch.setattr(
+        prompts_route.prompts_helper, "set_system_default", fake_set_system_default_raises
+    )
+
+    resp = client.put(f"/api/prompts/{prompt_id}/system-default/{wrong_version_id}")
+    assert resp.status_code == 404, resp.text
+    assert resp.json()["detail"] == "version not found for this prompt"

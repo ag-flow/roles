@@ -8,12 +8,30 @@ from uuid import uuid4
 import pytest
 
 
+class _StubTransactionCtx:
+    """Context manager no-op qui simule conn.transaction()."""
+
+    def __init__(self, conn: _StubConn) -> None:
+        self._conn = conn
+
+    async def __aenter__(self) -> _StubConn:
+        self._conn.transaction_count += 1
+        return self._conn
+
+    async def __aexit__(self, *_: Any) -> None:
+        return None
+
+
 class _StubConn:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, tuple[Any, ...]]] = []
         self.fetchval_return: Any = None
         self.fetchrow_return: Any = None
         self.fetch_return: list[Any] = []
+        self.transaction_count: int = 0
+
+    def transaction(self) -> _StubTransactionCtx:
+        return _StubTransactionCtx(self)
 
     async def fetchval(self, query: str, *args: Any) -> Any:
         self.calls.append(("fetchval", query, args))
@@ -230,3 +248,54 @@ async def test_get_version_by_id_returns_none_or_dict(stub_conn: _StubConn, stub
     stub_conn.calls.clear()
     result = await prompts.get_version_by_id(version_id, pool=stub_pool)
     assert result == row_data
+
+
+async def test_insert_prompt_version_system_default_uses_transaction(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """insert_prompt_version is_system_default=True : la séquence UPDATE+INSERT est dans une transaction."""
+    from role_builder.db_helpers import prompts
+
+    prompt_id = uuid4()
+    stub_conn.fetchval_return = uuid4()
+
+    await prompts.insert_prompt_version(
+        prompt_id=prompt_id,
+        version_number=3,
+        template="Template transactionnel",
+        is_system_default=True,
+        pool=stub_pool,
+    )
+
+    assert stub_conn.transaction_count == 1
+
+
+async def test_set_system_default_uses_transaction(stub_conn: _StubConn, stub_pool: Any) -> None:
+    """set_system_default ouvre une transaction pour les deux UPDATE."""
+    from role_builder.db_helpers import prompts
+
+    prompt_id = uuid4()
+    version_id = uuid4()
+    stub_conn.fetchval_return = version_id  # simule RETURNING id non-None
+
+    await prompts.set_system_default(prompt_id, version_id, pool=stub_pool)
+
+    assert stub_conn.transaction_count == 1
+    # Vérifie qu'on a bien 2 appels : execute (disable) + fetchval (activate)
+    assert len(stub_conn.calls) == 2
+    assert stub_conn.calls[0][0] == "execute"
+    assert stub_conn.calls[1][0] == "fetchval"
+
+
+async def test_set_system_default_raises_value_error_when_version_not_in_prompt(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """set_system_default lève ValueError si version_id n'appartient pas à prompt_id."""
+    from role_builder.db_helpers import prompts
+
+    prompt_id = uuid4()
+    wrong_version_id = uuid4()
+    stub_conn.fetchval_return = None  # RETURNING id retourne None → version inconnue
+
+    with pytest.raises(ValueError, match="version_id does not belong to prompt_id"):
+        await prompts.set_system_default(prompt_id, wrong_version_id, pool=stub_pool)

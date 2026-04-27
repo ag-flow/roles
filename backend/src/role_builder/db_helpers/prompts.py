@@ -85,7 +85,8 @@ _DISABLE_ALL_SYSTEM_DEFAULTS_SQL = """
 _SET_VERSION_DEFAULT_SQL = """
     UPDATE prompt_versions
     SET is_system_default = true
-    WHERE id = $1
+    WHERE id = $1 AND prompt_id = $2
+    RETURNING id
 """
 
 
@@ -139,16 +140,27 @@ async def insert_prompt_version(
 
     async with pool.acquire() as conn:
         if is_system_default:
-            await conn.execute(_DISABLE_SYSTEM_DEFAULT_SQL, prompt_id)
-        result = await conn.fetchval(
-            _INSERT_VERSION_SQL,
-            prompt_id,
-            version_number,
-            template,
-            schema_json,
-            is_system_default,
-            created_by,
-        )
+            async with conn.transaction():
+                await conn.execute(_DISABLE_SYSTEM_DEFAULT_SQL, prompt_id)
+                result = await conn.fetchval(
+                    _INSERT_VERSION_SQL,
+                    prompt_id,
+                    version_number,
+                    template,
+                    schema_json,
+                    is_system_default,
+                    created_by,
+                )
+        else:
+            result = await conn.fetchval(
+                _INSERT_VERSION_SQL,
+                prompt_id,
+                version_number,
+                template,
+                schema_json,
+                is_system_default,
+                created_by,
+            )
     return UUID(str(result)) if not isinstance(result, UUID) else result
 
 
@@ -193,5 +205,8 @@ async def set_system_default(
     Désactive toutes les autres versions du même prompt, puis active version_id.
     """
     async with pool.acquire() as conn:
-        await conn.execute(_DISABLE_ALL_SYSTEM_DEFAULTS_SQL, prompt_id, version_id)
-        await conn.execute(_SET_VERSION_DEFAULT_SQL, version_id)
+        async with conn.transaction():
+            await conn.execute(_DISABLE_ALL_SYSTEM_DEFAULTS_SQL, prompt_id, version_id)
+            result = await conn.fetchval(_SET_VERSION_DEFAULT_SQL, version_id, prompt_id)
+            if result is None:
+                raise ValueError("version_id does not belong to prompt_id")
