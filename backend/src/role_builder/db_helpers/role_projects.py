@@ -26,3 +26,27 @@ async def get_by_id(role_project_id: UUID, *, pool: asyncpg.Pool) -> dict | None
     async with pool.acquire() as conn:
         row = await conn.fetchrow(query, role_project_id)
     return dict(row) if row else None
+
+
+async def update_identity(
+    role_project_id: UUID,
+    identity: str,
+    *,
+    pool: asyncpg.Pool,
+) -> None:
+    """UPDATE role_projects SET identity = $2, updated_at = now() WHERE id = $1.
+
+    Lève ValueError si aucune ligne touchée.
+    """
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE role_projects SET identity = $2, updated_at = now() WHERE id = $1",
+            role_project_id,
+            identity,
+        )
+    try:
+        rows = int(result.split()[-1])
+    except (IndexError, ValueError):
+        rows = 0
+    if rows == 0:
+        raise ValueError(f"role_project {role_project_id} not found")
