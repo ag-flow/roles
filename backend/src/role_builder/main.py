@@ -13,6 +13,7 @@ from role_builder.config import settings
 from role_builder.db import db_pool
 from role_builder.logging_setup import configure_logging
 from role_builder.routes import health, me, scraping_jobs, sources, websocket
+from role_builder.services.chunking_worker import ChunkingWorker
 from role_builder.services.scraper_orchestrator import ScraperOrchestrator
 from role_builder.services.worker_manager import WorkerManager
 from role_builder.services.ws_relay import ws_relay
@@ -52,6 +53,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         log.info("worker_manager.started")
 
+    chunking_worker_task: asyncio.Task[None] | None = None
+    if not settings.disable_chunking_worker:
+        chunking_worker = ChunkingWorker(pool=db_pool.pool)
+        chunking_worker_task = asyncio.create_task(
+            chunking_worker.run_loop(stop),
+            name="chunking-worker",
+        )
+        log.info("chunking_worker.started")
+
     try:
         yield
     finally:
@@ -66,6 +76,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await worker_manager_task
             except Exception:  # noqa: BLE001 — shutdown best-effort
                 log.exception("worker_manager.shutdown_error")
+        if chunking_worker_task is not None:
+            try:
+                await chunking_worker_task
+            except Exception:  # noqa: BLE001 — shutdown best-effort
+                log.exception("chunking_worker.shutdown_error")
         if not settings.disable_ws_relay:
             try:
                 await ws_relay.stop()
