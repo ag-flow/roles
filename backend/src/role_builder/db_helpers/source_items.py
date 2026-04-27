@@ -54,6 +54,24 @@ async def insert_source_items_bulk(
     return len(rows)
 
 
+async def get_by_platform_id(
+    source_id: UUID,
+    platform_item_id: str,
+    *,
+    pool: asyncpg.Pool,
+) -> dict[str, Any] | None:
+    """Lookup un source_item par sa clé naturelle (source_id, platform_item_id)."""
+    query = (
+        "SELECT * FROM source_items "
+        "WHERE source_id = $1 AND platform_item_id = $2"
+    )
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(query, source_id, platform_item_id)
+    if row is None:
+        return None
+    return dict(row) if not isinstance(row, dict) else row
+
+
 async def update_source_item_status(
     source_id: UUID,
     platform_item_id: str,

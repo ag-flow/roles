@@ -13,8 +13,11 @@ from typing import Any
 import asyncpg
 import structlog
 
+from role_builder.db_helpers import role_projects as rp
 from role_builder.db_helpers import source_items as si
 from role_builder.db_helpers import sources as sm
+from role_builder.db_helpers import transcription_jobs as tj
+from role_builder.db_helpers import transcription_keys as tk
 
 log = structlog.get_logger(__name__)
 
@@ -70,13 +73,7 @@ async def handle_scraper_event(
         return
 
     if etype == "item_done":
-        await si.update_source_item_status(
-            job["source_id"],
-            event["item_id"],
-            "audio_ready",
-            audio_s3_key=event.get("audio_s3_key"),
-            pool=pool,
-        )
+        await _handle_item_done(event, job, pool=pool)
         return
 
     if etype == "item_failed":
@@ -111,3 +108,71 @@ async def handle_scraper_event(
         return
 
     log.warning("scraper.unknown_event", job_id=str(job["id"]), payload=event)
+
+
+async def _handle_item_done(
+    event: dict[str, Any],
+    job: dict[str, Any],
+    *,
+    pool: asyncpg.Pool,
+) -> None:
+    """Sur `item_done` : enqueue un transcription_job + bascule l'item à
+    'queued_transcription'.
+
+    Worker_pool_id :
+      - `user_<user_id>` si le user a une primary key transcription active
+      - `shared_default` sinon (faster-whisper sur pve2)
+    """
+    platform_item_id = event["item_id"]
+    audio_s3_key = event.get("audio_s3_key")
+
+    source = await sm.get_source(job["source_id"], pool=pool)
+    role_project_id = source.get("role_project_id") if source else None
+    user_id = (
+        await rp.get_user_id_for_project(role_project_id, pool=pool)
+        if role_project_id is not None
+        else None
+    )
+
+    worker_pool_id = "shared_default"
+    if user_id is not None:
+        primary_key = await tk.get_primary_key(user_id, pool=pool)
+        if primary_key is not None:
+            worker_pool_id = f"user_{user_id}"
+
+    item_row = await si.get_by_platform_id(
+        job["source_id"], platform_item_id, pool=pool
+    )
+    if item_row is None:
+        log.error(
+            "scraper.item_done_lookup_failed",
+            job_id=str(job["id"]),
+            source_id=str(job["source_id"]),
+            platform_item_id=platform_item_id,
+        )
+        return
+
+    if audio_s3_key:
+        await tj.insert_job(
+            source_item_id=item_row["id"],
+            tenant_id=item_row.get("tenant_id") or job["tenant_id"],
+            audio_s3_key=audio_s3_key,
+            language=event.get("language"),
+            worker_pool_id=worker_pool_id,
+            priority=int(event.get("priority", 0) or 0),
+            pool=pool,
+        )
+        log.info(
+            "scraper.transcription_job_queued",
+            job_id=str(job["id"]),
+            source_item_id=str(item_row["id"]),
+            worker_pool_id=worker_pool_id,
+        )
+
+    await si.update_source_item_status(
+        job["source_id"],
+        platform_item_id,
+        "queued_transcription",
+        audio_s3_key=audio_s3_key,
+        pool=pool,
+    )
