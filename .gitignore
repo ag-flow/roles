@@ -43,3 +43,4 @@ openbao_data/
 # Caches divers
 frontend/tsconfig.tsbuildinfo
 frontend/node_modules_locked_*/
+frontend/next-env.d.ts

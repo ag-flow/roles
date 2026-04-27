@@ -285,24 +285,35 @@
 
 ## Scrapers (§ 03)
 
-- [ ] **Stratégie pour Instagram**
+- [x] **Stratégie pour Instagram**
       yt-dlp seul ou gallery-dl en complément ? Tester sur des reels
       publics réels.
+      → **Décision (sprint 2) :** yt-dlp seul pour MVP, container Instagram
+      livré comme stub contractuel. Câblage réel + évaluation gallery-dl
+      reportés Phase 2 selon retours qualité.
 
-- [ ] **Format de stockage des thumbnails**
+- [x] **Format de stockage des thumbnails**
       Récupérer + uploader vers MinIO ou juste stocker l'URL d'origine ?
       MVP : URL d'origine (gain de coût/complexité).
+      → **Décision (sprint 2) :** URL d'origine stockée dans
+      `source_items.thumbnail_url` (champ déjà existant). Pas d'upload MinIO.
 
 - [ ] **Stratégie de retry sur item failed**
       Combien de tentatives ? `max_attempts=3` dans le schéma, mais la
-      logique de retry reste à coder.
+      logique de retry reste à coder. Reportée — Sprint 2 ne fait pas de
+      retry automatique. À implémenter quand le retry sera nécessaire
+      (probablement après les premiers retours utilisateur réels).
 
-- [ ] **Distinction "expired" vs "geo-restricted" vs "private"**
+- [x] **Distinction "expired" vs "geo-restricted" vs "private"**
       Pour le MVP, traiter pareil. Plus tard, distinguer pour de meilleurs
       messages utilisateurs.
+      → **Décision (sprint 2) :** tout échec → `failed` avec message
+      texte. Distinction repoussée Phase 2.
 
-- [ ] **Cap à 5 containers simultanés : où configurable ?**
+- [x] **Cap à 5 containers simultanés : où configurable ?**
       Env var (recommandé) ou paramètre du tenant ?
+      → **Décision (sprint 2) :** env var `MAX_CONCURRENT_SCRAPERS=5`
+      (Pydantic Settings). Sémaphore asyncio dans `ScraperOrchestrator`.
 
 ---
 
@@ -317,6 +328,60 @@
 
 - [ ] **Étendre à l'anglais en Phase 2 ?**
       MVP : français only. Anglais si traction.
+
+---
+
+## Sprint 2 — Décisions actées et observations
+
+- [x] **OpenBao reportée pour les credentials de scraping**
+      → **Décision (sprint 2) :** cookies passés via env vars docker-compose
+      (`YOUTUBE_COOKIES_B64`, `INSTAGRAM_COOKIES_B64`, `TIKTOK_COOKIES_B64`).
+      Le backend lit ces env vars depuis Settings et les retransmet au
+      container scraper via `docker run -e ...`. Pas de table
+      `user_credentials` consultée Sprint 2. Rebranchage OpenBao prévu au
+      sprint "Ma stack" (spec 07).
+
+- [x] **Build images Docker hors local**
+      → **Décision (sprint 2) :** pas de `docker build` sur la machine de
+      dev Windows. Pipeline GitHub Actions construit les 4 images
+      (`base`, `youtube`, `instagram`, `tiktok`) et les pousse sur GHCR
+      (`ghcr.io/<owner>/agflow-scraper-{platform}`). Tags `:latest` /
+      `:sha-<short>` / `:vX.Y.Z`. Workflows : `.github/workflows/{tests,build-scrapers}.yml`.
+
+- [x] **Docker SDK : subprocess vs aiodocker**
+      → **Décision (sprint 2) :** `asyncio.create_subprocess_exec("docker",
+      ...)` conforme spec 03. `aiodocker` reste envisagé Phase 2 si la
+      complexité justifie (typing, gestion d'erreurs plus riche).
+
+- [ ] **`claim_next_pending_job` ne JOIN pas `sources`**
+      L'orchestrator fait un second `get_source(source_id)` après le claim.
+      2 round-trips au lieu d'1. Acceptable MVP, à fusionner via JOIN si
+      la latence devient sensible (charge >100 jobs/min).
+
+- [ ] **`docker_runner` ne draine pas stderr**
+      Le subprocess Docker écrit stderr sur PIPE jamais lu. Risque de
+      blocage du process si stderr volumineux (les scrapers émettent les
+      erreurs en NDJSON sur stdout, donc cas marginal). À durcir
+      ultérieurement avec lecture concurrente stderr → log warning.
+
+- [ ] **`event_handlers` ne crée pas de `transcription_jobs` sur `item_done`**
+      Comportement attendu : Sprint 3 (transcription) introduira ce
+      câblage. Items resteront en `audio_ready` après Sprint 2.
+
+- [ ] **Exit code `download.run` simplifié**
+      L'impl renvoie systématiquement `3` dès qu'un item échoue (au lieu
+      de `2` total / `3` partiel comme la spec). L'orchestrator lit
+      `complete.failed` / `complete.downloaded` pour distinguer.
+
+- [ ] **Pas de retry orchestrator sur job failed**
+      `mark_job_failed` est terminal. `attempts` est incrémenté par le
+      claim mais aucune logique ne re-met le job en `pending` après échec.
+      À ajouter selon spec retry plus tard.
+
+- [ ] **WebSocket heartbeat 30s**
+      Le subagent a ajouté un heartbeat `{"type": "ping"}` toutes les 30s
+      côté `ws_relay` (non spécifié, idiomatique FastAPI). À documenter
+      côté frontend si on veut filtrer les pings dans les abonnés.
 
 ---
 
