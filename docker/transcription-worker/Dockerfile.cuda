@@ -21,7 +21,10 @@ RUN apt-get update && \
 WORKDIR /app
 
 COPY pyproject.toml uv.lock /app/
-RUN uv pip install --system --python /usr/bin/python3.12 --no-cache .
+# --break-system-packages : Ubuntu 24.04 marque le Python système comme
+# "externally managed" (PEP 668). Le container est déjà un env isolé,
+# donc on by-pass cette protection plutôt que créer un venv intermédiaire.
+RUN uv pip install --system --break-system-packages --no-cache .
 
 COPY worker/ /app/worker/
 
