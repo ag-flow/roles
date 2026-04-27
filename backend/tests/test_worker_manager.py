@@ -7,7 +7,6 @@ from uuid import UUID, uuid4
 
 import pytest
 
-
 # --- Stubs asyncpg pool/conn ----------------------------------------------
 
 

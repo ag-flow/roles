@@ -16,7 +16,6 @@ from uuid import UUID
 
 import asyncpg
 
-
 _INSERT_SQL = """
     INSERT INTO transcription_jobs
         (source_item_id, tenant_id, audio_s3_key, language,
