@@ -1,7 +1,8 @@
 # Variante CUDA pour le pool shared sur pve2 (RTX 4090).
-# Tag NVIDIA vérifié sur Docker Hub : 12.4.1-cudnn-runtime-ubuntu24.04 existe.
-# Ubuntu 24.04 (noble) a python3.12 par défaut → pas besoin de PPA deadsnakes.
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu24.04
+# Tag confirmé via API Docker Hub JSON brut (pas un résumé LLM).
+# 12.8.1-cudnn-runtime-ubuntu24.04 : version stable récente, RTX 4090 supportée
+# (CUDA 12.x couvre Ada Lovelace SM 8.9), Ubuntu 24.04 a python3.12 natif.
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
