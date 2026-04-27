@@ -179,3 +179,22 @@ export interface RoleDocument {
   created_at: string;
   updated_at: string;
 }
+
+// ─── Prompts types ────────────────────────────────────────────────────────────
+
+export interface Prompt {
+  id: string;
+  name: string;
+  type: string;
+  target_section: string | null;
+  description: string | null;
+}
+
+export interface PromptVersion {
+  id: string;
+  prompt_id: string;
+  version_number: number;
+  template: string;
+  is_system_default: boolean;
+  created_at: string;
+}
