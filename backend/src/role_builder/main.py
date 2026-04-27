@@ -13,7 +13,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from role_builder.config import settings
 from role_builder.db import db_pool
 from role_builder.logging_setup import configure_logging
-from role_builder.routes import corpus, health, me, prompts, scraping_jobs, sources, websocket
+from role_builder.routes import (
+    corpus,
+    health,
+    me,
+    prompts,
+    scraping_jobs,
+    sources,
+    synthesis,
+    websocket,
+)
 from role_builder.services.chunking_worker import ChunkingWorker
 from role_builder.services.scraper_orchestrator import ScraperOrchestrator
 from role_builder.services.worker_manager import WorkerManager
@@ -109,4 +118,5 @@ app.include_router(sources.router, prefix="/api", tags=["sources"])
 app.include_router(scraping_jobs.router, prefix="/api", tags=["scraping-jobs"])
 app.include_router(corpus.router, prefix="/api", tags=["corpus"])
 app.include_router(prompts.router, prefix="/api/prompts", tags=["prompts"])
+app.include_router(synthesis.router, prefix="/api", tags=["synthesis"])
 app.include_router(websocket.router, tags=["websocket"])
