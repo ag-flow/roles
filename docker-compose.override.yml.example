@@ -1,0 +1,22 @@
+# Override pour build local (au lieu de pull GHCR).
+# Renommer en docker-compose.override.yml et ajuster.
+# Pas utilisé sur la machine de dev Windows (Docker mis de côté).
+#
+# Compose merge ce fichier avec docker-compose.yml : l'image GHCR du compose
+# principal sert de tag local après build (pas de push GHCR depuis ici).
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    volumes:
+      # Hot reload du code source (utile en dev)
+      - ./backend/src:/app/src
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/next.config.js:/app/next.config.js
