@@ -28,8 +28,10 @@ _SEMANTIC_SEARCH_SQL = """
         cc.text,
         cc.start_s,
         cc.end_s,
+        si.title AS source_title,
         (cc.embedding <=> $2::vector) AS distance
     FROM corpus_chunks cc
+    LEFT JOIN source_items si ON si.id = cc.source_item_id
     WHERE cc.role_project_id = $1
     ORDER BY cc.embedding <=> $2::vector ASC
     LIMIT $3
@@ -41,6 +43,17 @@ _LIST_BY_ITEM_SQL = """
     FROM corpus_chunks
     WHERE source_item_id = $1
     ORDER BY chunk_index ASC
+    LIMIT $2 OFFSET $3
+"""
+
+_LIST_BY_PROJECT_SQL = """
+    SELECT cc.id, cc.source_item_id, cc.role_project_id, cc.chunk_index,
+           cc.start_s, cc.end_s, cc.text, cc.created_at,
+           si.title AS source_title
+    FROM corpus_chunks cc
+    JOIN source_items si ON si.id = cc.source_item_id
+    WHERE cc.role_project_id = $1
+    ORDER BY cc.created_at DESC
     LIMIT $2 OFFSET $3
 """
 
@@ -129,6 +142,22 @@ async def list_by_item(
     """List chunks d'un source_item ordonnés par chunk_index."""
     async with pool.acquire() as conn:
         rows = await conn.fetch(_LIST_BY_ITEM_SQL, source_item_id, limit, offset)
+    return [dict(r) if not isinstance(r, dict) else r for r in rows]
+
+
+async def list_by_project(
+    role_project_id: UUID,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    pool: asyncpg.Pool,
+) -> list[dict[str, Any]]:
+    """List chunks d'un role_project (tous source_items confondus), récents d'abord.
+
+    Joint ``source_items`` pour exposer ``source_title`` côté API.
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(_LIST_BY_PROJECT_SQL, role_project_id, limit, offset)
     return [dict(r) if not isinstance(r, dict) else r for r in rows]
 
 

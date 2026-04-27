@@ -72,6 +72,38 @@ async def get_by_platform_id(
     return dict(row) if not isinstance(row, dict) else row
 
 
+async def get_by_id(
+    item_id: UUID, *, pool: asyncpg.Pool
+) -> dict[str, Any] | None:
+    """Fetch un source_item par son id ; renvoie ``None`` si absent."""
+    query = "SELECT * FROM source_items WHERE id = $1"
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(query, item_id)
+    if row is None:
+        return None
+    return dict(row) if not isinstance(row, dict) else row
+
+
+async def list_by_project(
+    role_project_id: UUID,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    pool: asyncpg.Pool,
+) -> list[dict[str, Any]]:
+    """List source_items d'un projet (toutes sources confondues), récents d'abord."""
+    query = (
+        "SELECT si.* FROM source_items si "
+        "JOIN sources s ON s.id = si.source_id "
+        "WHERE s.role_project_id = $1 "
+        "ORDER BY si.published_at DESC NULLS LAST "
+        "LIMIT $2 OFFSET $3"
+    )
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query, role_project_id, limit, offset)
+    return [dict(r) if not isinstance(r, dict) else r for r in rows]
+
+
 async def update_source_item_status(
     source_id: UUID,
     platform_item_id: str,
