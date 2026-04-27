@@ -7,13 +7,14 @@ import type { SourceItem, ItemsFilter } from '@/lib/types';
 import { useWebSocketEvent } from '@/lib/ws/hooks';
 import { DiscoverButton } from './DiscoverButton';
 import { ItemsTable } from './ItemsTable';
+import { ItemsFilters } from './ItemsFilters';
 
 export default function SourceDetailPage({
   params,
 }: {
   params: { id: string; sourceId: string };
 }) {
-  const [filters] = useState<ItemsFilter>({ limit: 50, offset: 0 });
+  const [filters, setFilters] = useState<ItemsFilter>({ limit: 50, offset: 0 });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const { data: items = [], mutate } = useSWR<SourceItem[]>(
@@ -63,6 +64,7 @@ export default function SourceDetailPage({
         </button>
       </div>
       <div style={{ marginTop: 16 }}>
+        <ItemsFilters initial={filters} onChange={setFilters} />
         <ItemsTable
           items={items}
           selectedIds={selectedIds}
