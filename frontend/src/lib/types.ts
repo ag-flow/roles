@@ -72,3 +72,40 @@ export type WSChannel =
   | 'runs_changes'
   | 'workers_changes'
   | 'keys_changes';
+
+export interface Chunk {
+  chunk_id: string;
+  source_item_id: string;
+  source_title: string | null;
+  text: string;
+  start_s: number | null;
+  end_s: number | null;
+}
+
+export interface SearchResult extends Chunk {
+  similarity: number;
+}
+
+export interface SearchResponse {
+  query: string;
+  results: SearchResult[];
+}
+
+export interface AudioUrlResponse {
+  item_id: string;
+  url: string;
+  expires_in_s: number;
+}
+
+export interface TranscriptSegment {
+  start: number;
+  end: number;
+  text: string;
+  id?: number;
+}
+
+export interface TranscriptResponse {
+  item_id: string;
+  s3_key: string;
+  pivot: { segments: TranscriptSegment[]; [k: string]: unknown };
+}
