@@ -1,0 +1,317 @@
+# 12 — Décisions ouvertes (TODO consolidé)
+
+> Ce document agrège tous les TODO disséminés dans les autres blocs. Il
+> sert de checklist unique pour suivre les décisions à trancher pendant
+> l'implémentation. À mettre à jour au fil des sprints quand une décision
+> est prise (cocher la case + ajouter la décision en commentaire).
+
+## Méta
+
+- À chaque fin de sprint, mettre à jour ce fichier :
+  - Cocher les cases tranchées
+  - Ajouter `→ Décision : ...` sous l'item
+  - Ajouter les nouvelles questions émergées dans la section appropriée
+
+---
+
+## Pipeline de synthèse (§ 06)
+
+- [ ] **Mécanisme exact d'invocation Mistral via ag.flow**
+      Endpoint, format de requête, gestion du streaming. Lire l'OpenAPI
+      réel `https://docker-agflow.yoops.org/openapi.json` au début du
+      sprint 5.
+
+- [ ] **Format JSON exact en sortie du decomposer**
+      Définir un JSON Schema strict à valider avant de stocker. Test sur
+      un corpus réel avant de figer.
+
+- [ ] **Taxonomie des signaux**
+      La liste actuelle (heuristique/anecdote/vocab/cadre/opinion) est-elle
+      suffisante ? Tester sur un corpus réel (Clea UX) avant de figer.
+
+- [ ] **Stratégie de chunking pour l'extractor**
+      Taille de chunks à envoyer à l'extractor : on envoie 5 chunks à la
+      fois ? 10 ? Selon la taille du contexte Mistral et la qualité de
+      l'extraction.
+
+- [ ] **Map-reduce pour les gros corpus**
+      Si un projet a 500 chunks, l'extractor ne peut pas tout passer d'un
+      coup. Stratégie batch déjà prévue, mais à régler la taille de batch
+      selon les retours qualité.
+
+- [ ] **Pipeline complet en une commande ?**
+      Faut-il un endpoint `/runs/full-pipeline` qui enchaîne tout, ou
+      laisser l'utilisateur contrôler chaque étape ?
+
+- [ ] **Stratégie de cache automatique**
+      Si l'utilisateur modifie les directives globales, les anciens runs
+      sont-ils marqués "obsolètes" ? Pour le MVP, rien d'automatique,
+      mais à ajouter en Phase 2.
+
+- [ ] **Diff visuel des role_documents (versions)**
+      Algorithme à utiliser : diff-match-patch, jsdiff, autre ?
+
+- [ ] **Edition manuelle d'un role_document après génération**
+      Flag `locked=true` pour empêcher l'écrasement par régénération
+      automatique. UI à designer pour le toggle.
+
+---
+
+## Sections custom (§ 02, § 06)
+
+- [ ] **UX d'ajout d'une section custom**
+      Libre, ou suggestion par l'IA basée sur le corpus ?
+
+- [ ] **Limite de nombre de sections custom**
+      Plafond technique à fixer (3 ? 5 ? illimité ?).
+
+---
+
+## Comparaison de runs (§ 06)
+
+- [ ] **Diff side-by-side dans l'UI ou simple historique ?**
+      MVP : historique seul. Side-by-side en Phase 2 si demandé.
+
+- [ ] **Métriques de comparaison automatiques**
+      Longueur, lisibilité (Flesch), couverture des signaux ? Pas pour le
+      MVP.
+
+---
+
+## Stockage des credentials (§ 02, § 05, § 07)
+
+- [ ] **Finaliser l'intégration OpenBao**
+      En attente de la stabilisation OIDC chez Beard. Mode AppRole en
+      attendant.
+
+- [ ] **Mode dégradé en attendant l'OIDC**
+      Tokens AppRole : on génère un token de rôle pour le backend, on
+      le stocke dans une variable d'env.
+
+- [ ] **UX d'upload des cookies**
+      Drag-drop d'un fichier `cookies.txt` (MVP simple). Plus tard :
+      extension navigateur dédiée pour automatiser ?
+
+---
+
+## Sessions ag.flow (§ 00, § 08)
+
+- [ ] **Test du rôle directement depuis l'app**
+      Possible via `/api/admin/agents/{agent_slug}/task` d'ag.flow. Quand
+      l'ajouter ? Pas pour le MVP, mais utile en Phase 2 pour itérer plus
+      vite sur les prompts.
+
+---
+
+## Découverte avancée (§ 03)
+
+- [ ] **Exploration sémantique pour suggérer du contenu**
+      Suggérer d'autres contenus pertinents en fonction du corpus existant
+      (Phase 2+). Out of scope MVP.
+
+---
+
+## Test du rôle généré (§ 08)
+
+- [ ] **Smoke test automatique après push**
+      Invoquer l'agent ag.flow avec quelques questions canoniques pour
+      vérifier la qualité ? Pas pour le MVP, mais à designer.
+
+---
+
+## Authentification de l'app elle-même (§ 02, § 10)
+
+- [ ] **Multi-utilisateur : SSO OIDC ou auth basique MVP ?**
+      Pour le MVP mono-user (Beard) : auth basique suffisante. Multi-user
+      via Keycloak homelab en Phase 2.
+
+- [ ] **Composant `<AuthGuard>` au layout root**
+      Implémentation à confirmer selon le choix d'auth.
+
+---
+
+## Versioning des Dockerfiles scrapers (§ 03, § 10 phasage)
+
+- [ ] **Stratégie de canaux à formaliser**
+      Qui décide qu'un `:latest` devient `:stable` ? Tests automatiques ?
+      Validation manuelle ?
+
+- [ ] **CI corrective sur les nouvelles releases yt-dlp**
+      Watcher CI sur les releases upstream, rebuild auto, push registry
+      privé. Phase 2.
+
+---
+
+## Providers de transcription (§ 04, § 07)
+
+- [ ] **Stratégie de garde-fou coût quand un cap est atteint**
+      Job mis en pause, bascule shared, échec, notification ? Décision
+      MVP : pause + bascule shared + notification.
+
+- [ ] **Diarization : nécessaire pour le use case ?**
+      Pour des interviews à plusieurs voix, oui. À évaluer selon les
+      premiers retours utilisateurs.
+
+- [ ] **Tests de qualité comparatifs entre providers**
+      Process pour comparer la qualité sur un set de référence (audio
+      étalon). Pas MVP, mais utile pour piloter le choix de provider.
+
+- [ ] **Détection automatique de la langue : auto-detect ou override ?**
+      Pour le MVP, auto-detect par faster-whisper. Override possible au
+      niveau du projet.
+
+- [ ] **Stratégie de retry sur erreur transitoire**
+      Exponential backoff, combien de tentatives ? Décision MVP : 3
+      tentatives, backoff x2.
+
+- [ ] **Gestion des audios longs (> 25 MB pour OpenAI)**
+      OpenAI Whisper a une limite de 25 MB par fichier. Découper côté
+      worker ou refuser ces audios ?
+
+---
+
+## GitHub publication (§ 09)
+
+- [ ] **Modération et vitrine officielle**
+      Phase ultérieure, à designer séparément.
+
+- [ ] **Format final du README**
+      Ajouter des badges (shields.io) ? Stats du corpus ? Pour le MVP, le
+      template simple proposé.
+
+- [ ] **Licence par défaut suggérée**
+      CC-BY ? MIT ? Apache 2.0 ? À discuter avec Beard.
+
+- [ ] **Tag/release par version au lieu de commits simples ?**
+      Pour le MVP, juste commits. Tags en Phase 2 si pertinent.
+
+- [ ] **Optimisation push : API Trees pour 1 commit unique**
+      Pour le MVP, N PUT séquentiels. Pour la Phase 2, utiliser l'API
+      `git_data` pour faire un seul commit avec tous les fichiers.
+
+- [ ] **Multi-comptes GitHub par user**
+      Pour le MVP, 1 seul compte par user. À étendre en Phase 2 si besoin.
+
+- [ ] **State CSRF en mémoire vs persistant**
+      In-memory pour le MVP (mono-instance). Pour la prod multi-instance,
+      migrer vers Redis ou table PG temporaire.
+
+---
+
+## Monitoring de crédit SaaS (§ 04, § 07)
+
+- [ ] **Implémentation polling Deepgram**
+      Premier provider à instrumenter (le seul qui expose la balance API).
+
+- [ ] **Stratégie fallback de classification d'erreurs**
+      Si l'erreur n'est pas reconnue, considère-t-on comme transitoire ou
+      permanente ? Décision MVP : transitoire (retry), max_attempts gère
+      la cap.
+
+- [ ] **Format précis des `error_history` sur transcription_jobs**
+      On garde combien d'entrées max ? 10 dernières, ou rotation FIFO ?
+
+---
+
+## Modèle de données (§ 01)
+
+- [ ] **Dimension exacte des embeddings Mistral**
+      À confirmer selon le modèle utilisé (probablement 1024). Adapter
+      `corpus_chunks.embedding vector(N)` en conséquence.
+
+- [ ] **Soft-deletes vs hard-deletes**
+      Tables où ajouter `deleted_at` (sources, role_projects) ? Pour le
+      MVP, hard-delete avec CASCADE.
+
+- [ ] **Politiques de rétention**
+      Combien de temps garde-t-on les `runs` archivés, transcripts,
+      audios bruts ? À décider selon usage et coût stockage MinIO.
+
+- [ ] **Seed des prompts système**
+      Migration SQL `0012_seed_prompts.sql` ou commande Python séparée ?
+      Recommandation : commande Python pour pouvoir versionner les
+      prompts dans des fichiers `.md`.
+
+- [ ] **Politique CORS en prod**
+      Domaines autorisés à appeler l'API.
+
+- [ ] **Image pgvector exacte**
+      `pgvector/pgvector:pg16` recommandée vs `ankane/pgvector`.
+
+---
+
+## Frontend (§ 10)
+
+- [ ] **Choix précis de la library UI**
+      Tailwind seul, shadcn/ui, autre ?
+
+- [ ] **Choix entre SWR et TanStack Query**
+      SWR plus léger, TanStack plus complet. SWR recommandé pour le MVP.
+
+- [ ] **Génération auto des types TypeScript depuis l'OpenAPI ?**
+      Via `openapi-typescript` : recommandé. Économise du temps de sync
+      backend ↔ frontend.
+
+- [ ] **Stratégie ErrorBoundary**
+      Par page, par tab, ou global ?
+
+- [ ] **Pagination ou virtualisation pour grandes listes**
+      Pour les chunks d'un corpus (potentiellement 1000+) : virtualisation
+      via `react-virtuoso` ou pagination simple ?
+
+---
+
+## Scrapers (§ 03)
+
+- [ ] **Stratégie pour Instagram**
+      yt-dlp seul ou gallery-dl en complément ? Tester sur des reels
+      publics réels.
+
+- [ ] **Format de stockage des thumbnails**
+      Récupérer + uploader vers MinIO ou juste stocker l'URL d'origine ?
+      MVP : URL d'origine (gain de coût/complexité).
+
+- [ ] **Stratégie de retry sur item failed**
+      Combien de tentatives ? `max_attempts=3` dans le schéma, mais la
+      logique de retry reste à coder.
+
+- [ ] **Distinction "expired" vs "geo-restricted" vs "private"**
+      Pour le MVP, traiter pareil. Plus tard, distinguer pour de meilleurs
+      messages utilisateurs.
+
+- [ ] **Cap à 5 containers simultanés : où configurable ?**
+      Env var (recommandé) ou paramètre du tenant ?
+
+---
+
+## Service email (§ 07)
+
+- [ ] **SMTP local, SendGrid, Mailgun, Postmark ?**
+      Choix à faire selon ce que Beard a en homelab.
+
+---
+
+## Internationalisation (§ 10)
+
+- [ ] **Étendre à l'anglais en Phase 2 ?**
+      MVP : français only. Anglais si traction.
+
+---
+
+## Convention de naming
+
+Pour cocher un item dans ce fichier, préférer le format :
+
+```markdown
+- [x] **Question initiale**
+      Description originale.
+      → **Décision (sprint X) :** [résumé en 1-2 phrases].
+```
+
+Cela permet de tracer l'historique des décisions sans perdre le contexte.
+
+---
+
+**Document précédent :** `11-sequence-diagrams.md`
+
+**Fin de la spec.**
