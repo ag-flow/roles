@@ -40,6 +40,11 @@ def test_settings_loads_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.worker_image_tag == "latest"
     assert s.ghcr_owner == ""
     assert s.disable_worker_manager is False
+    # Auth Keycloak — Phase A
+    assert s.keycloak_issuer_url == ""
+    assert s.keycloak_client_id == ""
+    assert s.keycloak_audience == ""
+    assert s.disable_auth is False
 
 
 def test_settings_sprint2_overrides(monkeypatch: pytest.MonkeyPatch) -> None:

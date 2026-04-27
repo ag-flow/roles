@@ -50,5 +50,11 @@ class Settings(BaseSettings):
     ghcr_owner: str = ""
     disable_worker_manager: bool = False
 
+    # Phase A — Auth Keycloak
+    keycloak_issuer_url: str = ""
+    keycloak_client_id: str = ""
+    keycloak_audience: str = ""
+    disable_auth: bool = False
+
 
 settings = Settings()  # type: ignore[call-arg]
