@@ -1,14 +1,41 @@
-"""MinIO upload helper for the YouTube scraper container (stub, see Task A6)."""
+"""MinIO upload helper for the YouTube scraper container."""
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+
+from minio import Minio
+
+
+def _build_client(cfg: dict[str, Any]) -> Minio:
+    """Construct a Minio client from the task's output config."""
+    parsed = urlparse(cfg["endpoint"])
+    secure = parsed.scheme == "https"
+    netloc = parsed.netloc or parsed.path
+    return Minio(
+        netloc,
+        access_key=cfg["access_key"],
+        secret_key=cfg["secret_key"],
+        secure=secure,
+    )
 
 
 def upload_audio(local_path: Path, cfg: dict[str, Any], item_id: str) -> str:
-    """Placeholder for the upload helper. Real implementation in Task A6.
+    """Upload an MP3 audio to MinIO and return its s3_key.
 
-    This stub exists so that ``download.py`` can import the module (and tests can
-    monkeypatch the symbol) before A6 ships the actual MinIO logic.
+    Key layout : {prefix}{item_id}.mp3 (slash inserted between prefix and item_id if missing).
     """
-    raise NotImplementedError("upload_audio: see Task A6")
+    client = _build_client(cfg)
+    prefix = cfg["prefix"]
+    if prefix and not prefix.endswith("/"):
+        prefix = prefix + "/"
+    key = f"{prefix}{item_id}.mp3"
+
+    client.fput_object(
+        cfg["bucket"],
+        key,
+        str(local_path),
+        content_type="audio/mpeg",
+    )
+    return key
