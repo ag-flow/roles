@@ -162,6 +162,55 @@ async def reassign_pending_to_shared(
     return int(count or 0)
 
 
+# ─── Chunking handoff (Sprint 4) ────────────────────────────────────────────
+
+_INSERT_CHUNKING_JOB_SQL = """
+    INSERT INTO chunking_jobs
+        (source_item_id, role_project_id, tenant_id, transcript_s3_key, status)
+    VALUES ($1, $2, $3, $4, 'pending')
+    RETURNING id
+"""
+
+
+_LOOKUP_PROJECT_FROM_ITEM_SQL = """
+    SELECT s.role_project_id AS role_project_id, si.tenant_id AS tenant_id
+    FROM source_items si
+    JOIN sources s ON s.id = si.source_id
+    WHERE si.id = $1
+"""
+
+
+async def lookup_role_project_for_item(
+    source_item_id: UUID, *, pool: asyncpg.Pool
+) -> dict[str, Any] | None:
+    """Récupère (role_project_id, tenant_id) à partir d'un source_item_id."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(_LOOKUP_PROJECT_FROM_ITEM_SQL, source_item_id)
+    if row is None:
+        return None
+    return dict(row) if not isinstance(row, dict) else row
+
+
+async def insert_chunking_job(
+    *,
+    source_item_id: UUID,
+    role_project_id: UUID,
+    tenant_id: UUID,
+    transcript_s3_key: str,
+    pool: asyncpg.Pool,
+) -> UUID:
+    """Crée un chunking_job après que le transcript a été uploadé (Sprint 4)."""
+    async with pool.acquire() as conn:
+        new_id = await conn.fetchval(
+            _INSERT_CHUNKING_JOB_SQL,
+            source_item_id,
+            role_project_id,
+            tenant_id,
+            transcript_s3_key,
+        )
+    return new_id  # type: ignore[no-any-return]
+
+
 # ─── Workers ─────────────────────────────────────────────────────────────────
 
 _REGISTER_WORKER_SQL = """

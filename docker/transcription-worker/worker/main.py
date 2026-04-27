@@ -27,6 +27,8 @@ import structlog
 from worker.config import Settings, settings
 from worker.db import (
     claim_next_job,
+    insert_chunking_job,
+    lookup_role_project_for_item,
     mark_job_done,
     mark_job_failed,
     register_worker,
@@ -94,6 +96,24 @@ async def process_job(
         await update_source_item_to_transcribed(
             job["source_item_id"], transcript_key, pool=pool,
         )
+
+        # Sprint 4 : enchaîne sur un chunking_job pour indexation pgvector.
+        project_row = await lookup_role_project_for_item(
+            job["source_item_id"], pool=pool,
+        )
+        if project_row is not None:
+            await insert_chunking_job(
+                source_item_id=job["source_item_id"],
+                role_project_id=project_row["role_project_id"],
+                tenant_id=project_row["tenant_id"],
+                transcript_s3_key=transcript_key,
+                pool=pool,
+            )
+        else:
+            log.warning(
+                "transcription_chunking_job_skipped_no_project",
+                source_item_id=str(job["source_item_id"]),
+            )
     finally:
         audio_path.unlink(missing_ok=True)
 

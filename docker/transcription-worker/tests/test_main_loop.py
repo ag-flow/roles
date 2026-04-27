@@ -55,6 +55,7 @@ def patched_calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
     calls: dict[str, list[Any]] = {
         "download": [], "upload": [], "mark_done": [],
         "mark_failed": [], "update_item": [],
+        "lookup_project": [], "insert_chunking_job": [],
     }
 
     def fake_download(s3_key: str, dest: Path) -> None:
@@ -73,11 +74,36 @@ def patched_calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
     async def fake_update_item(item_id: Any, key: str, **kwargs: Any) -> None:
         calls["update_item"].append({"item_id": item_id, "key": key})
 
+    async def fake_lookup(item_id: Any, *, pool: Any) -> dict[str, Any] | None:
+        calls["lookup_project"].append(item_id)
+        return {
+            "role_project_id": uuid4(),
+            "tenant_id": uuid4(),
+        }
+
+    async def fake_insert_chunking(
+        *,
+        source_item_id: Any,
+        role_project_id: Any,
+        tenant_id: Any,
+        transcript_s3_key: str,
+        pool: Any,
+    ) -> Any:
+        calls["insert_chunking_job"].append({
+            "source_item_id": source_item_id,
+            "role_project_id": role_project_id,
+            "tenant_id": tenant_id,
+            "transcript_s3_key": transcript_s3_key,
+        })
+        return uuid4()
+
     monkeypatch.setattr(wm, "download_audio", fake_download)
     monkeypatch.setattr(wm, "upload_transcript", fake_upload)
     monkeypatch.setattr(wm, "mark_job_done", fake_mark_done)
     monkeypatch.setattr(wm, "mark_job_failed", fake_mark_failed)
     monkeypatch.setattr(wm, "update_source_item_to_transcribed", fake_update_item)
+    monkeypatch.setattr(wm, "lookup_role_project_for_item", fake_lookup)
+    monkeypatch.setattr(wm, "insert_chunking_job", fake_insert_chunking)
     return calls
 
 
@@ -218,6 +244,32 @@ async def test_handle_error_generic_exception_marks_failed_unknown_or_transient(
     entry = failed["error_history_entry"]
     assert entry["category"] in ("transient", "unknown")
     assert "boom" in entry["message"]
+
+
+async def test_process_job_inserts_chunking_job_after_mark_done(
+    patched_calls: dict[str, list[Any]],
+) -> None:
+    """Sprint 4 : après mark_job_done, le worker enchaîne insert_chunking_job."""
+    from worker import main as wm
+
+    item_id = uuid4()
+    job = {
+        "id": uuid4(),
+        "source_item_id": item_id,
+        "audio_s3_key": "corpus-audio/yt/podcast/abc.mp3",
+        "language": "fr",
+    }
+    provider = _StubProvider()
+
+    await wm.process_job(job, provider, pool=object(), settings=wm.settings)
+
+    # mark_done puis lookup puis insert
+    assert len(patched_calls["mark_done"]) == 1
+    assert patched_calls["lookup_project"] == [item_id]
+    assert len(patched_calls["insert_chunking_job"]) == 1
+    inserted = patched_calls["insert_chunking_job"][0]
+    assert inserted["source_item_id"] == item_id
+    assert inserted["transcript_s3_key"] == "corpus-transcripts/yt/podcast/abc.json"
 
 
 def test_build_provider_returns_correct_class_or_raises() -> None:

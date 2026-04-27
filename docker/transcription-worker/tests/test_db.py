@@ -254,6 +254,64 @@ async def test_register_worker_inserts_row_with_provider_and_status(
     assert "pve2" in args
 
 
+async def test_insert_chunking_job_returns_uuid(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """insert_chunking_job persiste un row pending et retourne l'id généré."""
+    from worker import db
+
+    new_id = uuid4()
+    stub_conn.fetchval_return = new_id
+
+    item_id = uuid4()
+    project_id = uuid4()
+    tenant_id = uuid4()
+
+    result = await db.insert_chunking_job(
+        source_item_id=item_id,
+        role_project_id=project_id,
+        tenant_id=tenant_id,
+        transcript_s3_key="corpus-transcripts/x.json",
+        pool=stub_pool,
+    )
+
+    assert result == new_id
+    method, query, args = stub_conn.calls[0]
+    assert method == "fetchval"
+    assert "INSERT INTO chunking_jobs" in query
+    assert "RETURNING id" in query
+    assert item_id in args
+    assert project_id in args
+    assert tenant_id in args
+    assert "corpus-transcripts/x.json" in args
+
+
+async def test_lookup_role_project_for_item_joins_sources(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """lookup_role_project_for_item fait un JOIN sources pour ramener role_project_id + tenant_id."""
+    from worker import db
+
+    item_id = uuid4()
+    project_id = uuid4()
+    tenant_id = uuid4()
+    stub_conn.fetchrow_return = {
+        "role_project_id": project_id,
+        "tenant_id": tenant_id,
+    }
+
+    result = await db.lookup_role_project_for_item(item_id, pool=stub_pool)
+    assert result is not None
+    assert result["role_project_id"] == project_id
+    assert result["tenant_id"] == tenant_id
+
+    method, query, args = stub_conn.calls[0]
+    assert method == "fetchrow"
+    assert "FROM source_items" in query
+    assert "JOIN sources" in query
+    assert item_id in args
+
+
 async def test_update_worker_status_writes_status_and_optional_timestamps(
     stub_conn: _StubConn, stub_pool: Any
 ) -> None:
