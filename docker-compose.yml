@@ -42,7 +42,9 @@ services:
     ports:
       - "${OPENBAO_PORT:-8200}:8200"
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8200/v1/sys/health"]
+      # 127.0.0.1 explicite — `localhost` peut résoudre en IPv6 (::1) alors
+      # qu'OpenBao écoute uniquement en IPv4 (0.0.0.0:8200) → connection refused.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8200/v1/sys/health"]
       interval: 10s
       timeout: 5s
       retries: 5
