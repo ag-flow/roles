@@ -5,12 +5,13 @@ GET /api/scraping-jobs?status=pending&limit=50 → liste des jobs (UI suivi).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
+from role_builder.auth.dependencies import CurrentUser, get_current_user
 from role_builder.db import db_pool
 from role_builder.db_helpers import scraping_jobs as jobs_helper
 
@@ -36,6 +37,7 @@ class ScrapingJobResponse(BaseModel):
 
 @router.get("/scraping-jobs", response_model=list[ScrapingJobResponse])
 async def list_scraping_jobs(
+    user: Annotated[CurrentUser, Depends(get_current_user)],
     status: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[ScrapingJobResponse]:

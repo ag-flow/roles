@@ -6,19 +6,19 @@ Routes :
 - GET  /api/sources/{source_id}/items
 - POST /api/sources/{source_id}/items/select
 
-Authentification : non implémentée en MVP. Le tenant_id est dérivé de la
-constante `TENANT_ID_DEFAULT` (cf. config.py).
+Authentification : Keycloak Bearer (Phase A). Le `tenant_id` provient du
+`CurrentUser` (constante `TENANT_ID_DEFAULT` MVP, multi-tenant Phase 2).
 """
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from role_builder.config import TENANT_ID_DEFAULT
+from role_builder.auth.dependencies import CurrentUser, get_current_user
 from role_builder.db import db_pool
 from role_builder.db_helpers import scraping_jobs as jobs_helper
 from role_builder.db_helpers import source_items as items_helper
@@ -36,12 +36,16 @@ router = APIRouter()
     status_code=status.HTTP_201_CREATED,
     response_model=SourceResponse,
 )
-async def create_source(role_project_id: UUID, body: CreateSourceRequest) -> SourceResponse:
+async def create_source(
+    role_project_id: UUID,
+    body: CreateSourceRequest,
+    user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> SourceResponse:
     """Create a new source row, return it as SourceResponse."""
     pool = db_pool.pool
     new_id = await sources_helper.insert_source(
         role_project_id=role_project_id,
-        tenant_id=TENANT_ID_DEFAULT,
+        tenant_id=user.tenant_id,
         platform=body.platform,
         source_type=body.source_type,
         url=str(body.url),
@@ -58,7 +62,10 @@ async def create_source(role_project_id: UUID, body: CreateSourceRequest) -> Sou
     "/sources/{source_id}/discover",
     status_code=status.HTTP_202_ACCEPTED,
 )
-async def discover_source(source_id: UUID) -> dict[str, str]:
+async def discover_source(
+    source_id: UUID,
+    user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> dict[str, str]:
     """Create a scraping_jobs row with command='discover' for this source."""
     pool = db_pool.pool
     source = await sources_helper.get_source(source_id, pool=pool)
@@ -68,7 +75,7 @@ async def discover_source(source_id: UUID) -> dict[str, str]:
     job_id = await jobs_helper.insert_job(
         source_id=source_id,
         source_item_id=None,
-        tenant_id=TENANT_ID_DEFAULT,
+        tenant_id=user.tenant_id,
         command="discover",
         credentials_id=source.get("credentials_id"),
         priority=0,
@@ -84,6 +91,7 @@ async def discover_source(source_id: UUID) -> dict[str, str]:
 )
 async def list_source_items(
     source_id: UUID,
+    user: Annotated[CurrentUser, Depends(get_current_user)],
     min_duration_s: int | None = Query(default=None, ge=0),
     since_date: datetime | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
@@ -107,7 +115,11 @@ async def list_source_items(
 
 
 @router.post("/sources/{source_id}/items/select")
-async def select_items(source_id: UUID, body: SelectItemsRequest) -> dict[str, int]:
+async def select_items(
+    source_id: UUID,
+    body: SelectItemsRequest,
+    user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> dict[str, int]:
     """Mark items as selected, then create one download job per selected item."""
     pool = db_pool.pool
     source = await sources_helper.get_source(source_id, pool=pool)
@@ -126,7 +138,7 @@ async def select_items(source_id: UUID, body: SelectItemsRequest) -> dict[str, i
         await jobs_helper.insert_job(
             source_id=source_id,
             source_item_id=item_id,
-            tenant_id=TENANT_ID_DEFAULT,
+            tenant_id=user.tenant_id,
             command="download",
             credentials_id=source.get("credentials_id"),
             priority=0,
