@@ -109,3 +109,73 @@ export interface TranscriptResponse {
   s3_key: string;
   pivot: { segments: TranscriptSegment[]; [k: string]: unknown };
 }
+
+// ─── Synthesis types ──────────────────────────────────────────────────────────
+
+export type RunStatus = 'pending' | 'running' | 'done' | 'failed';
+
+export interface Run {
+  id: string;
+  role_project_id: string;
+  prompt_version_id: string;
+  status: RunStatus;
+  output: string | null;
+  llm_provider: string | null;
+  llm_model: string | null;
+  tokens_input: number | null;
+  tokens_output: number | null;
+  cost_usd: number | null;
+  instruction_override: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  error: string | null;
+  created_at: string;
+}
+
+export interface Signal {
+  id: string;
+  run_id: string;
+  role_project_id: string;
+  source_item_id: string | null;
+  source_chunks: string[];
+  type: string;
+  content: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface Cluster {
+  id: string;
+  run_id: string;
+  role_project_id: string;
+  name: string;
+  description: string | null;
+  signal_ids: string[];
+  created_at: string;
+}
+
+export interface DocumentPlan {
+  id: string;
+  run_id: string;
+  role_project_id: string;
+  section: 'Role' | 'Missions' | 'Skills';
+  planned_documents: Array<{
+    name: string;
+    brief: string;
+    supporting_signals: string[];
+  }>;
+  created_at: string;
+}
+
+export interface RoleDocument {
+  id: string;
+  role_project_id: string;
+  section: string;
+  name: string;
+  content: string;
+  source_run_id: string | null;
+  version: number;
+  is_current: boolean;
+  locked: boolean;
+  created_at: string;
+  updated_at: string;
+}
