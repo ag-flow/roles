@@ -8,7 +8,6 @@ clusters thématiques résultants dans la table clusters.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from uuid import UUID
 
 import asyncpg
@@ -25,7 +24,6 @@ from role_builder.services.agflow_client import get_agflow_client
 log = structlog.get_logger(__name__)
 
 _PROMPT_NAME = "clusterer"
-_TEMPLATE_PATH = Path(__file__).parent / "templates" / "clusterer_v1.md"
 
 
 class _Cluster(BaseModel):
