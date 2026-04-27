@@ -1,0 +1,4 @@
+yt-dlp>=2025.1.0
+minio>=7.2
+pydantic>=2.5
+structlog>=24.1
