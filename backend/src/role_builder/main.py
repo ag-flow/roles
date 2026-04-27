@@ -14,6 +14,7 @@ from role_builder.db import db_pool
 from role_builder.logging_setup import configure_logging
 from role_builder.routes import health, scraping_jobs, sources, websocket
 from role_builder.services.scraper_orchestrator import ScraperOrchestrator
+from role_builder.services.worker_manager import WorkerManager
 from role_builder.services.ws_relay import ws_relay
 
 log = structlog.get_logger(__name__)
@@ -38,6 +39,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not settings.disable_ws_relay:
         await ws_relay.start()
 
+    worker_manager_task: asyncio.Task[None] | None = None
+    if not settings.disable_worker_manager:
+        worker_manager = WorkerManager(
+            pool=db_pool.pool, image_tag=settings.worker_image_tag
+        )
+        worker_manager_task = asyncio.create_task(
+            worker_manager.run_auto_stop_loop(
+                stop, period_seconds=settings.worker_auto_stop_period_s
+            ),
+            name="worker-manager-auto-stop",
+        )
+        log.info("worker_manager.started")
+
     try:
         yield
     finally:
@@ -47,6 +61,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await orchestrator_task
             except Exception:  # noqa: BLE001 — shutdown best-effort
                 log.exception("orchestrator.shutdown_error")
+        if worker_manager_task is not None:
+            try:
+                await worker_manager_task
+            except Exception:  # noqa: BLE001 — shutdown best-effort
+                log.exception("worker_manager.shutdown_error")
         if not settings.disable_ws_relay:
             try:
                 await ws_relay.stop()
