@@ -1,0 +1,190 @@
+'use client';
+
+import { useState } from 'react';
+import {
+  triggerExtraction,
+  triggerClustering,
+  triggerDecomposition,
+  triggerDocumentWriting,
+  triggerIdentitySynthesis,
+} from '@/lib/api/synthesis';
+
+interface Props {
+  projectId: string;
+  onRunStarted?: (runId: string | string[]) => void;
+}
+
+type Stage = 'extract' | 'cluster' | 'decompose' | 'write' | 'identity';
+
+export function PipelineStepper({ projectId, onRunStarted }: Props) {
+  const [loading, setLoading] = useState<Record<Stage, boolean>>({
+    extract: false,
+    cluster: false,
+    decompose: false,
+    write: false,
+    identity: false,
+  });
+  const [lastRunIds, setLastRunIds] = useState<Record<string, string>>({});
+
+  function setStageLoading(stage: Stage, value: boolean) {
+    setLoading((prev) => ({ ...prev, [stage]: value }));
+  }
+
+  async function handleExtract() {
+    setStageLoading('extract', true);
+    try {
+      const { run_id } = await triggerExtraction(projectId);
+      setLastRunIds((prev) => ({ ...prev, extract: run_id }));
+      alert(`Extraction démarrée — run ${run_id.slice(0, 8)}`);
+      onRunStarted?.(run_id);
+    } catch (err) {
+      alert(`Erreur extraction : ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setStageLoading('extract', false);
+    }
+  }
+
+  async function handleCluster() {
+    setStageLoading('cluster', true);
+    try {
+      const body = lastRunIds['extract'] ? { signal_run_id: lastRunIds['extract'] } : {};
+      const { run_id } = await triggerClustering(projectId, body);
+      setLastRunIds((prev) => ({ ...prev, cluster: run_id }));
+      alert(`Clustering démarré — run ${run_id.slice(0, 8)}`);
+      onRunStarted?.(run_id);
+    } catch (err) {
+      alert(`Erreur clustering : ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setStageLoading('cluster', false);
+    }
+  }
+
+  async function handleDecompose() {
+    setStageLoading('decompose', true);
+    try {
+      const body = lastRunIds['cluster'] ? { cluster_run_id: lastRunIds['cluster'] } : {};
+      const { run_id } = await triggerDecomposition(projectId, body);
+      setLastRunIds((prev) => ({ ...prev, decompose: run_id }));
+      alert(`Décomposition démarrée — run ${run_id.slice(0, 8)}`);
+      onRunStarted?.(run_id);
+    } catch (err) {
+      alert(`Erreur décomposition : ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setStageLoading('decompose', false);
+    }
+  }
+
+  async function handleWrite() {
+    const planId = window.prompt(
+      'ID du plan de décomposition (DocumentPlan ID) :',
+      lastRunIds['decompose'] ?? '',
+    );
+    if (!planId?.trim()) return;
+
+    setStageLoading('write', true);
+    try {
+      const { run_ids } = await triggerDocumentWriting(projectId, planId.trim());
+      alert(`Écriture démarrée — ${run_ids.length} run(s)`);
+      onRunStarted?.(run_ids);
+    } catch (err) {
+      alert(`Erreur écriture : ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setStageLoading('write', false);
+    }
+  }
+
+  async function handleIdentity() {
+    setStageLoading('identity', true);
+    try {
+      const { run_id } = await triggerIdentitySynthesis(projectId);
+      setLastRunIds((prev) => ({ ...prev, identity: run_id }));
+      alert(`Synthèse identité démarrée — run ${run_id.slice(0, 8)}`);
+      onRunStarted?.(run_id);
+    } catch (err) {
+      alert(`Erreur synthèse identité : ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setStageLoading('identity', false);
+    }
+  }
+
+  const buttonStyle: React.CSSProperties = {
+    padding: '0.5rem 1rem',
+    borderRadius: 6,
+    border: '1px solid #d0d0d0',
+    background: '#fff',
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+    fontWeight: 500,
+  };
+
+  const disabledStyle: React.CSSProperties = {
+    ...buttonStyle,
+    opacity: 0.5,
+    cursor: 'not-allowed',
+  };
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: '0.75rem',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        marginBottom: '1.5rem',
+        padding: '1rem',
+        background: '#f9f9f9',
+        borderRadius: 8,
+        border: '1px solid #eaeaea',
+      }}
+    >
+      <button
+        onClick={handleExtract}
+        disabled={loading.extract}
+        style={loading.extract ? disabledStyle : buttonStyle}
+      >
+        {loading.extract ? 'En cours…' : 'Extraire signaux'}
+      </button>
+
+      <span style={{ color: '#ccc' }}>→</span>
+
+      <button
+        onClick={handleCluster}
+        disabled={loading.cluster}
+        style={loading.cluster ? disabledStyle : buttonStyle}
+      >
+        {loading.cluster ? 'En cours…' : 'Regrouper en clusters'}
+      </button>
+
+      <span style={{ color: '#ccc' }}>→</span>
+
+      <button
+        onClick={handleDecompose}
+        disabled={loading.decompose}
+        style={loading.decompose ? disabledStyle : buttonStyle}
+      >
+        {loading.decompose ? 'En cours…' : 'Planifier documents'}
+      </button>
+
+      <span style={{ color: '#ccc' }}>→</span>
+
+      <button
+        onClick={handleWrite}
+        disabled={loading.write}
+        style={loading.write ? disabledStyle : buttonStyle}
+        title="Nécessite un plan de décomposition"
+      >
+        {loading.write ? 'En cours…' : 'Écrire documents'}
+      </button>
+
+      <span style={{ color: '#ccc' }}>→</span>
+
+      <button
+        onClick={handleIdentity}
+        disabled={loading.identity}
+        style={loading.identity ? disabledStyle : buttonStyle}
+      >
+        {loading.identity ? 'En cours…' : 'Générer identity'}
+      </button>
+    </div>
+  );
+}
