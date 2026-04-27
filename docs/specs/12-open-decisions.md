@@ -331,6 +331,102 @@
 
 ---
 
+## Sprint 5 — Décisions actées et observations
+
+- [x] **Modèle LLM par défaut pour la synthèse**
+      → **Décision (sprint 5) :** `mistral-large-latest` via `settings.mistral_chat_model`.
+      Rates hardcodés Mistral pour le cost tracking : `mistral_input_token_rate_usd=0.000002`,
+      `mistral_output_token_rate_usd=0.000006` (à mettre à jour si pricing change).
+
+- [x] **Validation des sorties LLM**
+      → **Décision (sprint 5) :** schémas Pydantic internes par étage
+      (`_ExtractorResponse`, `_ClustererResponse`, `_DecomposerResponse`)
+      avec `model_validate_json` + `response_format={"type": "json_object"}`
+      sur les 3 premiers étages. Document writer + identity synthesizer
+      retournent du markdown libre (pas de validation stricte).
+
+- [x] **Bibliothèque de prompts versionnée**
+      → **Décision (sprint 5) :** 5 prompts système (`extractor`, `clusterer`,
+      `decomposer`, `document_writer`, `identity_synthesizer`) seedés depuis
+      des templates `.md` versionnés dans `backend/src/role_builder/synthesis/templates/`
+      via `python -m scripts.seed_prompts` (idempotent). Index unique partial
+      `prompt_versions_one_system_default` impose un seul `is_system_default=true`
+      par prompt — géré dans une transaction côté `db_helpers/prompts.py`.
+
+- [x] **Pas de pipeline auto MVP**
+      → **Décision (sprint 5) :** déclenchement manuel par étage via
+      `POST /api/role-projects/{id}/runs/{stage}`. Endpoint `/runs/full-pipeline`
+      reporté Phase 2 — laisse l'utilisateur garder le contrôle (peut éditer
+      les prompts entre étages, retraiter un sous-ensemble).
+
+- [x] **Validation `version_id ∈ prompt_id` côté DB + transactions**
+      → **Décision (sprint 5) :** `set_system_default` et `insert_prompt_version`
+      avec `is_system_default=True` ouvrent une transaction asyncpg. La route
+      `PUT /api/prompts/{prompt_id}/system-default/{version_id}` valide que
+      `version_id` appartient bien au `prompt_id` via SQL `WHERE id=$1 AND prompt_id=$2 RETURNING id`,
+      404 si la version n'appartient pas. Détecté en code review Phase A blockers.
+
+- [x] **Cleanup signaux/clusters/plans/documents orphelins sur échec pipeline**
+      → **Décision (sprint 5) :** chaque étage du pipeline appelle son
+      `delete_<entity>_by_run` AVANT `mark_failed` quand une exception
+      survient en milieu de boucle. Évite l'état incohérent
+      "run failed avec entités orphelines en BDD". Les fonctions sont
+      exposées comme helpers asyncpg séparés pour pouvoir être appelées
+      manuellement (admin) si nécessaire.
+
+- [x] **Régénération un doc à la fois (instruction_override propagé)**
+      → **Décision (sprint 5) :** `POST /api/role-documents/{doc_id}/regenerate`
+      reconstitue un `doc_plan` minimal (`{name, brief, supporting_signals=[]}`)
+      depuis le doc actuel et appelle `write_document` avec `instruction_override`.
+      Le RAG via `corpus_search.find_relevant_chunks` reste actif. Le nouveau
+      doc est inséré avec `is_current=False` — l'utilisateur promeut manuellement.
+
+- [x] **Diff visuel texte brut (pas de coloration)**
+      → **Décision (sprint 5) :** `RunDiff.tsx` et `DiffViewer.tsx` affichent
+      les `output` ou `template` côte à côte en `<pre>`. Pas de `diff-match-patch`
+      ni `react-diff-view` — laissé pour Phase 2 si le besoin se fait sentir.
+
+- [x] **WebSocket `runs_changes` pour live updates UI**
+      → **Décision (sprint 5) :** la migration 0010 trigger PG NOTIFY sur
+      `runs_changes` est déjà câblée Sprint 1, relayée par `ws_relay` Sprint 2.
+      Frontend Analyses utilise `useWebSocketEvent('runs_changes', mutate)` +
+      backup polling SWR `refreshInterval: 5000`.
+
+- [x] **Pas d'i18n côté frontend Sprint 5**
+      → **Observation (sprint 5) :** aucune lib i18n (`react-i18next`,
+      `next-intl`) installée dans le projet. Strings inline en français
+      cohérent avec le reste du codebase (ChunkCard, CorpusSearchClient).
+      À documenter dans CLAUDE.md si décision de garder ce statu quo.
+
+- [ ] **Cache obsolescence des runs**
+      Reporté Phase 2. Si l'utilisateur édite `global_directives` ou
+      remplace une version system_default, les anciens runs deviennent
+      conceptuellement "obsolètes" sans changement de status. À ajouter :
+      colonne `runs.is_obsolete` ou view `v_active_runs`.
+
+- [ ] **Map-reduce pour gros corpus (> 500 chunks dans extractor)**
+      Reporté. MVP : extractor envoie les chunks par batch séquentiel
+      (`chunks_per_batch=5` par défaut). Si volume > 500 chunks, prévoir
+      un map-reduce (extract par batch puis cluster intermediate).
+
+- [ ] **Word-level confidence dans le RAG**
+      Reporté. Le `corpus_search.find_relevant_chunks` retourne des chunks
+      ordonnés par cosine similarity. Pour pondérer par qualité de
+      transcription, exposer `avg_logprob` du transcript (déjà stocké en
+      `source_items.transcript_metadata`) et le combiner au score.
+
+- [ ] **Pipeline auto `/runs/full-pipeline`**
+      Reporté Phase 2. Endpoint qui déclenche les 5 étages d'un coup
+      (extract → cluster → decompose → write_all_documents_for_plan ×3
+      → synthesize_identity). Prudence : éviter de marquer
+      automatiquement les docs comme `is_current=true`.
+
+- [ ] **Algo de diff coloré pour RunDiff/DiffViewer**
+      Reporté Phase 2. `diff-match-patch` (Google) ou `react-diff-view`
+      pour mettre en évidence les changements ligne par ligne.
+
+---
+
 ## Sprint 4 — Décisions actées et observations
 
 - [x] **Mistral via ag.flow vs direct API**
