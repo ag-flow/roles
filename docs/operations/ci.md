@@ -1,43 +1,92 @@
-# CI / CD — Build et publication des images scrapers et workers
+# CI / CD — Build et publication des images Docker (toutes sur GHCR)
 
 ## Vue d'ensemble
 
-Trois workflows GitHub Actions :
+Quatre workflows GitHub Actions :
 
 - **`test.yml`** — déclenché sur push/PR. 4 jobs en parallèle : backend (pytest + ruff), scraper YouTube (pytest + ruff), worker transcription (pytest + ruff), frontend (vitest + typecheck + lint). ~3-5 min.
+- **`build-app.yml`** — déclenché sur push `main` et tags `v*`. Build & push matriciel de 2 images applicatives sur GHCR : `agflow-backend` et `agflow-frontend`. ~3-5 min.
 - **`build-scrapers.yml`** — déclenché sur push `main` et tags `v*`. Build & push 4 images sur GHCR : `agflow-scraper-{base,youtube,instagram,tiktok}`. ~5-8 min.
 - **`build-workers.yml`** — déclenché sur push `main` et tags `v*`. Build & push matriciel de 2 images worker transcription sur GHCR : `agflow-transcription-worker` (CPU, base `python:3.12-slim`) et `agflow-transcription-worker-cuda` (GPU, base `nvidia/cuda:12.4.0-cudnn-runtime-ubuntu22.04`). ~6-10 min (CUDA plus long).
 
+**Directive** : toutes les images Docker sont buildées sur GitHub Actions, jamais en local. Aucun build sur la machine de dev Windows. Le `docker-compose.yml` pull depuis GHCR par défaut. Pour builder localement (sur LXC pve1 par exemple), copier `docker-compose.override.yml.example` vers `docker-compose.override.yml`.
+
+## Images cumulées (8 au total)
+
+| Image | Workflow | Base | Notes |
+| --- | --- | --- | --- |
+| `agflow-backend` | `build-app.yml` | `python:3.12-slim` | FastAPI + asyncpg, healthcheck `/health/` |
+| `agflow-frontend` | `build-app.yml` | `node:20-alpine` | Next.js 14, multi-stage prod (`next start`) |
+| `agflow-scraper-base` | `build-scrapers.yml` | `python:3.12-slim` | yt-dlp + ffmpeg, image socle pour les 3 plateformes |
+| `agflow-scraper-youtube` | `build-scrapers.yml` | `agflow-scraper-base` | Découverte + download YouTube |
+| `agflow-scraper-instagram` | `build-scrapers.yml` | `agflow-scraper-base` | Découverte + download Instagram |
+| `agflow-scraper-tiktok` | `build-scrapers.yml` | `agflow-scraper-base` | Découverte + download TikTok |
+| `agflow-transcription-worker` | `build-workers.yml` | `python:3.12-slim` | CPU (OpenAI Whisper, Deepgram, AssemblyAI, Speechmatics) |
+| `agflow-transcription-worker-cuda` | `build-workers.yml` | `nvidia/cuda:12.4.0-cudnn-runtime-ubuntu22.04` | GPU (faster-whisper sur RTX 4090 pve2) |
+
 ## Registry : GHCR (GitHub Container Registry)
 
-Images publiées sous `ghcr.io/<owner>/agflow-scraper-<platform>` et `ghcr.io/<owner>/agflow-transcription-worker[-cuda]`. Tags :
+Images publiées sous `ghcr.io/<owner>/<image>:<tag>`. Tags :
 
 - `:sha-<short>` — un par commit
 - `:latest` — dernier push `main`
 - `:vX.Y.Z` — quand un tag `v*` est poussé
 
+Auth : chaque workflow utilise `${{ secrets.GITHUB_TOKEN }}` avec `permissions: packages: write`. Aucun PAT manuel requis pour la publication CI.
+
 ## Bootstrap GHCR (à faire une fois)
 
 1. Vérifier que GHCR est activé sur le repo (Settings → Packages).
-2. Le workflow utilise `${{ secrets.GITHUB_TOKEN }}` avec permissions `packages: write` (déclarées dans le job). Aucune action manuelle pour la première publication.
-3. Après la première publication, vérifier que les packages apparaissent dans la section "Packages" du repo GitHub. Marquer en visibilité publique si besoin (par défaut privé).
+2. Au premier push sur `main`, les workflows `build-*` publient automatiquement les images.
+3. Après la première publication, vérifier que les packages apparaissent dans la section "Packages" du repo GitHub. Par défaut, chaque package est privé.
+4. Pour rendre un package public : Repo → Packages → cliquer sur l'image → "Package settings" → "Change visibility" → Public. Refaire pour chaque image qu'on souhaite consommer publiquement.
 
 ## Pull des images depuis docker-compose
 
-Pour utiliser ces images en local (LXC pve1, dev avec Docker Desktop), définir dans `.env` :
+Configurer `.env` à partir de `.env.example` :
 
 ```bash
 GHCR_OWNER=<github-username-lowercase>
-SCRAPER_IMAGE_TAG=latest
+IMAGE_TAG=latest                 # ou sha-XXX, vX.Y.Z
 ```
 
-Puis ajouter au `docker-compose.yml` (Sprint suivant — pas dans Sprint 2) une section pour pull automatique des images scrapers, ou laisser l'orchestrator backend les pull à la demande via `docker run`.
+`IMAGE_TAG` est commun à toutes les images Role Builder (backend, frontend, scrapers, workers). Le compose interne propage cette variable au backend (qui en dérive `SCRAPER_IMAGE_TAG` et `WORKER_IMAGE_TAG` pour ses orchestrateurs).
+
+Si l'image est privée :
+
+```bash
+echo "$GHCR_PAT" | docker login ghcr.io -u <github-username> --password-stdin
+```
+
+`GHCR_PAT` = Personal Access Token (classic) avec scope `read:packages`. Pour les images publiques, le login est facultatif.
+
+Puis :
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+## Forcer un rebuild / retag
+
+Chaque workflow déclare `workflow_dispatch: {}`, ce qui permet un déclenchement manuel depuis l'onglet Actions du repo (bouton "Run workflow"). Utile pour repush un tag identique après une correction d'infra (par exemple repackager `:latest` à partir d'un commit non encore poussé sur `main`).
+
+## Build local (override optionnel)
+
+Cas d'usage : LXC pve1 sans accès GHCR, ou dev qui veut un cycle build-test rapide.
+
+1. `cp docker-compose.override.yml.example docker-compose.override.yml`
+2. Ajuster les volumes / chemins si nécessaire.
+3. `docker compose up -d --build` — Compose merge l'override avec le compose principal et build au lieu de pull.
+
+Le tag local de l'image suit le nom GHCR (`ghcr.io/...`) mais n'est pas pushé.
 
 ## Logs et debugging
 
 - Voir l'onglet "Actions" du repo GitHub.
 - Logs persistés 90 jours par défaut.
 - Si un build échoue, regarder le step "Build & push" pour le contexte Docker (chemin du Dockerfile, dépendance manquante, etc.).
+- Tous les workflows utilisent `docker/setup-buildx-action@v3` + `docker/build-push-action@v6` (cache layer, multi-arch possible).
 
 ## Images workers transcription
 
