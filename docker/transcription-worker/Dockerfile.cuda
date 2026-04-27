@@ -1,7 +1,8 @@
 # Variante CUDA pour le pool shared sur pve2 (RTX 4090).
-# Ubuntu 24.04 (noble) requis pour python3.12 disponible dans les repos officiels —
-# Ubuntu 22.04 ne l'a pas (jammy = python3.10/3.11 max).
-FROM nvidia/cuda:12.4.0-cudnn-runtime-ubuntu24.04
+# Base : nvidia/cuda 12.4 cudnn runtime ubuntu22.04 (le tag 24.04 n'existe pas
+# pour cette version CUDA chez NVIDIA Docker Hub). Python 3.12 ajouté via le
+# PPA deadsnakes (jammy n'a que python3.10/3.11 par défaut).
+FROM nvidia/cuda:12.4.0-cudnn-runtime-ubuntu22.04
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -10,16 +11,21 @@ ENV PYTHONUNBUFFERED=1 \
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        python3.12 python3.12-venv python3-pip \
-        ffmpeg ca-certificates && \
+        software-properties-common ca-certificates curl && \
+    add-apt-repository -y ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3.12 python3.12-venv python3.12-dev \
+        ffmpeg && \
     rm -rf /var/lib/apt/lists/* && \
-    ln -sf /usr/bin/python3.12 /usr/bin/python && \
-    pip install --no-cache-dir --break-system-packages uv
+    ln -sf /usr/bin/python3.12 /usr/local/bin/python && \
+    ln -sf /usr/bin/python3.12 /usr/local/bin/python3 && \
+    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
 WORKDIR /app
 
 COPY pyproject.toml uv.lock /app/
-RUN uv pip install --system --no-cache .
+RUN uv pip install --system --python /usr/bin/python3.12 --no-cache .
 
 COPY worker/ /app/worker/
 
