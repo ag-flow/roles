@@ -5,11 +5,11 @@ Spec : docs/specs/04-transcription.md § Classification des erreurs et bascule.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class ErrorCategory(str, Enum):
+class ErrorCategory(StrEnum):
     INVALID_KEY = "invalid_key"
     EXHAUSTED = "exhausted"
     RATE_LIMIT = "rate_limit"

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -34,8 +35,10 @@ class OpenAIWhisperProvider:
         language: str | None = None,
         options: dict[str, Any] | None = None,
     ) -> PivotTranscript:
-        with open(audio_path, "rb") as f:
-            files = {"file": (audio_path.rsplit("/", 1)[-1], f.read(), "audio/mpeg")}
+        # Lecture synchrone acceptable : audio MP3 quelques MB, lu une seule fois
+        # avant l'upload HTTP. Évite la dépendance à anyio/trio pour ce worker.
+        audio_bytes = Path(audio_path).read_bytes()  # noqa: ASYNC240
+        files = {"file": (audio_path.rsplit("/", 1)[-1], audio_bytes, "audio/mpeg")}
         data: dict[str, Any] = {
             "model": "whisper-1",
             "response_format": "verbose_json",
