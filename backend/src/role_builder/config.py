@@ -1,4 +1,5 @@
 """Application configuration via environment variables."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -62,6 +63,10 @@ class Settings(BaseSettings):
     mistral_embed_model: str = "mistral-embed"
     mistral_chat_model: str = "mistral-large-latest"
     disable_chunking_worker: bool = False
+
+    # Sprint 5 — Cost tracking Mistral (rates par token, $2/$6 par million)
+    mistral_input_token_rate_usd: float = 0.000002
+    mistral_output_token_rate_usd: float = 0.000006
 
 
 settings = Settings()  # type: ignore[call-arg]

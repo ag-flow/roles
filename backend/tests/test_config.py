@@ -1,4 +1,5 @@
 """Tests for the Settings module."""
+
 from __future__ import annotations
 
 import pytest
@@ -51,6 +52,9 @@ def test_settings_loads_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.mistral_embed_model == "mistral-embed"
     assert s.mistral_chat_model == "mistral-large-latest"
     assert s.disable_chunking_worker is False
+    # Sprint 5 — Cost tracking Mistral
+    assert s.mistral_input_token_rate_usd == 0.000002
+    assert s.mistral_output_token_rate_usd == 0.000006
 
 
 def test_settings_sprint2_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
