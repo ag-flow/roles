@@ -6,6 +6,8 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { listPrompts, listVersions, setSystemDefault } from '@/lib/api/prompts';
 import type { PromptVersion } from '@/lib/types';
+import { VersionEditor } from '../VersionEditor';
+import { DiffViewer } from '../DiffViewer';
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('fr-FR', {
@@ -263,9 +265,8 @@ export default function PromptDetailPage() {
         />
       ))}
 
-      {/* VersionEditor — monté via I3, importé dynamiquement pour éviter la dépendance circulaire */}
       {(newVersion || editingVersion !== null) && (
-        <VersionEditorInline
+        <VersionEditor
           promptId={promptId}
           initialTemplate={editingVersion?.template ?? ''}
           onSaved={async (newV) => {
@@ -281,117 +282,13 @@ export default function PromptDetailPage() {
         />
       )}
 
-      {/* DiffViewer — monté via I3 */}
       {diffA && diffB && (
-        <DiffViewerInline
+        <DiffViewer
           versionA={diffA}
           versionB={diffB}
           onClose={handleCancelDiff}
         />
       )}
     </main>
-  );
-}
-
-// ─── Inline placeholders remplacés par les vrais composants en I3 ─────────────
-
-function VersionEditorInline({
-  promptId,
-  initialTemplate,
-  onSaved,
-  onCancel,
-}: {
-  promptId: string;
-  initialTemplate: string;
-  onSaved: (v: PromptVersion) => Promise<void>;
-  onCancel: () => void;
-}) {
-  // Placeholder — sera remplacé par <VersionEditor> en I3
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 100,
-      }}
-      onClick={onCancel}
-    >
-      <div
-        style={{
-          background: '#fff',
-          borderRadius: 8,
-          padding: '1.5rem',
-          maxWidth: 640,
-          width: '90vw',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <p style={{ color: '#666', fontSize: '0.9rem' }}>
-          Éditeur de version — disponible après I3 (promptId: {promptId}, template: {initialTemplate.length} chars)
-        </p>
-        <button onClick={onCancel}>Fermer</button>
-        <button
-          onClick={() =>
-            onSaved({
-              id: 'tmp',
-              prompt_id: promptId,
-              version_number: 0,
-              template: initialTemplate,
-              is_system_default: false,
-              created_at: new Date().toISOString(),
-            })
-          }
-          style={{ marginLeft: '0.5rem' }}
-        >
-          Simuler sauvegarde
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function DiffViewerInline({
-  versionA,
-  versionB,
-  onClose,
-}: {
-  versionA: PromptVersion;
-  versionB: PromptVersion;
-  onClose: () => void;
-}) {
-  // Placeholder — sera remplacé par <DiffViewer> en I3
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.6)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 200,
-      }}
-      onClick={onClose}
-    >
-      <div
-        style={{
-          background: '#fff',
-          borderRadius: 8,
-          padding: '1.5rem',
-          width: '90vw',
-          maxWidth: 1200,
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <p style={{ color: '#666', fontSize: '0.9rem' }}>
-          Comparaison v{versionA.version_number} vs v{versionB.version_number} — disponible après I3
-        </p>
-        <button onClick={onClose}>Fermer</button>
-      </div>
-    </div>
   );
 }
