@@ -36,3 +36,10 @@ openbao_data/
 
 # Plans temporaires
 .tmp/
+
+# Tooling local (claude code, IDE)
+.claude/
+
+# Caches divers
+frontend/tsconfig.tsbuildinfo
+frontend/node_modules_locked_*/
