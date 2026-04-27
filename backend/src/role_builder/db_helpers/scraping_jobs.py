@@ -105,3 +105,29 @@ async def mark_job_failed(job_id: UUID, error: str, *, pool: asyncpg.Pool) -> No
     """
     async with pool.acquire() as conn:
         await conn.execute(query, error, job_id)
+
+
+async def list_jobs(
+    *,
+    status: str | None = None,
+    limit: int = 50,
+    pool: asyncpg.Pool,
+) -> list[dict[str, Any]]:
+    """List scraping_jobs newest-first, optionally filtered by status."""
+    params: list[Any] = []
+    where = ""
+    if status is not None:
+        params.append(status)
+        where = "WHERE status = $1 "
+    params.append(limit)
+    limit_idx = len(params)
+    query = (
+        "SELECT id, source_id, source_item_id, tenant_id, command, status, "
+        "priority, attempts, error, created_at, started_at, completed_at "
+        "FROM scraping_jobs "
+        f"{where}"
+        f"ORDER BY created_at DESC LIMIT ${limit_idx}"
+    )
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query, *params)
+    return [dict(r) if not isinstance(r, dict) else r for r in rows]

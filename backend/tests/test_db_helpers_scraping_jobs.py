@@ -30,6 +30,10 @@ class _StubConn:
         self.calls.append(("fetchrow", query, args))
         return self.fetchrow_return
 
+    async def fetch(self, query: str, *args: Any) -> list[Any]:
+        self.calls.append(("fetch", query, args))
+        return getattr(self, "fetch_return", [])
+
     async def execute(self, query: str, *args: Any) -> None:
         self.calls.append(("execute", query, args))
 
@@ -146,6 +150,34 @@ async def test_claim_next_pending_job_updates_when_row_found(
     assert "claimed" in update_query
     assert "worker-1" in update_args
     assert job_id in update_args
+
+
+async def test_list_jobs_filters_by_status_and_limit(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """list_jobs forwards status filter (when given) and the LIMIT."""
+    from role_builder.db_helpers import scraping_jobs
+
+    rows = [{"id": uuid4(), "status": "pending"}, {"id": uuid4(), "status": "pending"}]
+    stub_conn.fetch_return = rows  # type: ignore[attr-defined]
+
+    result = await scraping_jobs.list_jobs(status="pending", limit=10, pool=stub_pool)
+    assert result == rows
+
+    method, query, args = stub_conn.calls[0]
+    assert method == "fetch"
+    assert "FROM scraping_jobs" in query
+    assert "WHERE status = $1" in query
+    assert "ORDER BY created_at DESC" in query
+    assert "pending" in args
+    assert 10 in args
+
+    # Without status filter, no WHERE clause
+    stub_conn.calls.clear()
+    await scraping_jobs.list_jobs(limit=5, pool=stub_pool)
+    _, query2, args2 = stub_conn.calls[0]
+    assert "WHERE" not in query2
+    assert 5 in args2
 
 
 async def test_mark_job_lifecycle(
