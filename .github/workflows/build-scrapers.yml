@@ -1,0 +1,85 @@
+name: build-scrapers
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: ${{ github.repository_owner }}
+
+jobs:
+  build-base:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Compute tags
+        id: tags
+        run: |
+          OWNER_LC="${IMAGE_OWNER,,}"
+          IMAGE="${REGISTRY}/${OWNER_LC}/agflow-scraper-base"
+          TAGS="${IMAGE}:sha-${GITHUB_SHA:0:7}"
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then TAGS="${TAGS},${IMAGE}:latest"; fi
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then TAGS="${TAGS},${IMAGE}:${GITHUB_REF_NAME}"; fi
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+      - name: Build & push base
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/scrapers
+          file: docker/scrapers/base/Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+
+  build-platforms:
+    needs: build-base
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        platform: [youtube, instagram, tiktok]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Compute tags
+        id: tags
+        run: |
+          OWNER_LC="${IMAGE_OWNER,,}"
+          IMAGE="${REGISTRY}/${OWNER_LC}/agflow-scraper-${{ matrix.platform }}"
+          TAGS="${IMAGE}:sha-${GITHUB_SHA:0:7}"
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then TAGS="${TAGS},${IMAGE}:latest"; fi
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then TAGS="${TAGS},${IMAGE}:${GITHUB_REF_NAME}"; fi
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+      - name: Pull base image
+        run: |
+          OWNER_LC="${IMAGE_OWNER,,}"
+          docker pull "${REGISTRY}/${OWNER_LC}/agflow-scraper-base:sha-${GITHUB_SHA:0:7}"
+          docker tag  "${REGISTRY}/${OWNER_LC}/agflow-scraper-base:sha-${GITHUB_SHA:0:7}" agflow-scraper-base:latest
+      - name: Build & push ${{ matrix.platform }}
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/scrapers/${{ matrix.platform }}
+          file: docker/scrapers/${{ matrix.platform }}/Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
