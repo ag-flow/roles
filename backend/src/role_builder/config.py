@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     max_concurrent_scrapers: int = 5
     scraper_image_tag: str = "latest"
     disable_orchestrator: bool = False
+    disable_ws_relay: bool = False
 
 
 settings = Settings()  # type: ignore[call-arg]

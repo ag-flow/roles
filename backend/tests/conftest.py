@@ -35,6 +35,9 @@ class _StubPool:
     def acquire(self) -> _StubAcquireCtx:
         return _StubAcquireCtx()
 
+    async def close(self) -> None:
+        return None
+
 
 @pytest.fixture()
 def stubbed_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -55,5 +58,6 @@ def client(stubbed_env: None, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from role_builder.main import app
 
     monkeypatch.setattr(_settings, "disable_orchestrator", True, raising=False)
+    monkeypatch.setattr(_settings, "disable_ws_relay", True, raising=False)
     monkeypatch.setattr(db_module.db_pool, "_pool", _StubPool(), raising=False)
     return TestClient(app)

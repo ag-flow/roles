@@ -12,8 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from role_builder.config import settings
 from role_builder.db import db_pool
 from role_builder.logging_setup import configure_logging
-from role_builder.routes import health
+from role_builder.routes import health, websocket
 from role_builder.services.scraper_orchestrator import ScraperOrchestrator
+from role_builder.services.ws_relay import ws_relay
 
 log = structlog.get_logger(__name__)
 
@@ -34,6 +35,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         log.info("orchestrator.started")
 
+    if not settings.disable_ws_relay:
+        await ws_relay.start()
+
     try:
         yield
     finally:
@@ -43,6 +47,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await orchestrator_task
             except Exception:  # noqa: BLE001 — shutdown best-effort
                 log.exception("orchestrator.shutdown_error")
+        if not settings.disable_ws_relay:
+            try:
+                await ws_relay.stop()
+            except Exception:  # noqa: BLE001 — shutdown best-effort
+                log.exception("ws_relay.shutdown_error")
         if db_pool._pool is not None:  # noqa: SLF001
             await db_pool.disconnect()
 
@@ -62,3 +71,4 @@ app.add_middleware(
 )
 
 app.include_router(health.router, prefix="/health", tags=["health"])
+app.include_router(websocket.router, tags=["websocket"])
