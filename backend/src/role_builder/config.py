@@ -1,7 +1,13 @@
 """Application configuration via environment variables."""
 from __future__ import annotations
 
+from uuid import UUID
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# UUID stable du tenant unique en MVP mono-user. À retirer quand le multi-tenant
+# sera réel (auth + extraction depuis le JWT).
+TENANT_ID_DEFAULT = UUID("00000000-0000-0000-0000-000000000001")
 
 
 class Settings(BaseSettings):
