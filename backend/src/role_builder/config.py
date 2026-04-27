@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     tiktok_cookies_b64: str = ""
     max_concurrent_scrapers: int = 5
     scraper_image_tag: str = "latest"
+    disable_orchestrator: bool = False
 
 
 settings = Settings()  # type: ignore[call-arg]

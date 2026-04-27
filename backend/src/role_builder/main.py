@@ -1,9 +1,11 @@
 """FastAPI application entry point."""
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,6 +13,9 @@ from role_builder.config import settings
 from role_builder.db import db_pool
 from role_builder.logging_setup import configure_logging
 from role_builder.routes import health
+from role_builder.services.scraper_orchestrator import ScraperOrchestrator
+
+log = structlog.get_logger(__name__)
 
 
 @asynccontextmanager
@@ -19,9 +24,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(settings.log_level)
     if db_pool._pool is None:  # noqa: SLF001 — autorise injection en tests
         await db_pool.connect()
+
+    stop = asyncio.Event()
+    orchestrator_task: asyncio.Task[None] | None = None
+    if not settings.disable_orchestrator:
+        orchestrator = ScraperOrchestrator(pool=db_pool.pool)
+        orchestrator_task = asyncio.create_task(
+            orchestrator.run_loop(stop), name="scraper-orchestrator"
+        )
+        log.info("orchestrator.started")
+
     try:
         yield
     finally:
+        stop.set()
+        if orchestrator_task is not None:
+            try:
+                await orchestrator_task
+            except Exception:  # noqa: BLE001 — shutdown best-effort
+                log.exception("orchestrator.shutdown_error")
         if db_pool._pool is not None:  # noqa: SLF001
             await db_pool.disconnect()
 

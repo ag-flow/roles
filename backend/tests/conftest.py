@@ -49,9 +49,11 @@ def stubbed_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture()
 def client(stubbed_env: None, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    """FastAPI TestClient with a stubbed DB pool."""
+    """FastAPI TestClient with a stubbed DB pool and orchestrator disabled."""
     from role_builder import db as db_module
+    from role_builder.config import settings as _settings
     from role_builder.main import app
 
+    monkeypatch.setattr(_settings, "disable_orchestrator", True, raising=False)
     monkeypatch.setattr(db_module.db_pool, "_pool", _StubPool(), raising=False)
     return TestClient(app)
