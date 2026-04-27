@@ -22,7 +22,8 @@
 - Cap concurrent scrapers : env var `MAX_CONCURRENT_SCRAPERS=5` (configurable, défaut 5)
 - Classification d'erreurs : MVP = tout `failed` + message en clair ; distinction `expired/geo/private` Phase 2
 - Docker SDK : `asyncio.create_subprocess_exec("docker", ...)` conforme spec ; `aiodocker` envisagé Phase 2
-- **OpenBao différé** : la fetch des cookies de scraping depuis OpenBao (`secret/scraping-credentials/...`) est REPORTÉE. Pour Sprint 2, l'orchestrator passe au container un `YOUTUBE_COOKIES_B64` optionnel via env var (vide par défaut). Les contenus publics fonctionnent sans cookies. Le rebranchage OpenBao se fera quand le sprint "Ma stack" (spec 07) introduira la CRUD `user_credentials`.
+- **OpenBao différé** : la fetch des cookies de scraping depuis OpenBao (`secret/scraping-credentials/...`) est REPORTÉE. Pour Sprint 2, les cookies arrivent via env vars du backend (passées par `docker compose` lui-même au démarrage, lues depuis `.env`). Le backend les retransmet au container scraper via `docker run -e YOUTUBE_COOKIES_B64=...`. Pas de creds en base, pas de fetch OpenBao. Rebranchage OpenBao au sprint "Ma stack" (spec 07).
+- **Build images Docker hors local Windows** : pas de `docker build` sur la machine de dev. Les images scrapers sont buildées par **GitHub Actions** (Phase H) et push vers **GHCR** (`ghcr.io/<owner>/agflow-scraper-{base,youtube,instagram,tiktok}`). Tags : `:latest` sur push `main`, `:sha-<short>` par commit, `:vX.Y.Z` sur tag git. Le `docker-compose.yml` du sprint 1 et l'orchestrator backend pointent sur ces images GHCR.
 
 **Checkpoints d'exécution prévus** (à confirmer avant de lancer) :
 - ✅ Fin Phase B (containers prêts, build local possible) — checkpoint léger
@@ -1348,10 +1349,30 @@ Périmètre prévu (les détails de code seront ajoutés au plan après confirma
 
 # Phase G — Vérification end-to-end + tag
 
-- **G1** : `pytest -v` (backend) + `npm test` (frontend) + lint + typecheck → tout vert.
-- **G2** : Smoke test manuel — `./scripts/build_scrapers.sh youtube`, lancer la stack docker compose, créer un projet via UI, ajouter une URL de chaîne YouTube publique (ex: chaîne d'archives publiques YouTube), lancer discover, sélectionner 2-3 vidéos courtes, vérifier que les MP3 atterrissent dans MinIO.
-- **G3** : Tag `v0.2.0-sprint-2`.
-- **G4** : MAJ `docs/specs/12-open-decisions.md` avec les décisions Sprint 2 actées.
+- **G1** : `pytest -v` (backend + scrapers) + `npm test` (frontend) + lint + typecheck → tout vert. **Pas de smoke test runtime local** (pas de Docker dans le dev Windows). Le smoke test e2e est délégué à la CI GitHub (Phase H) ou à l'utilisateur sur LXC pve1 quand Docker sera disponible.
+- **G2** : Tag `v0.2.0-sprint-2`.
+- **G3** : MAJ `docs/specs/12-open-decisions.md` avec les décisions Sprint 2 actées.
+
+# Phase H — CI GitHub Actions (build & push images + tests)
+
+Objectif : automatiser le build des images scrapers (jamais buildées localement sur la machine Windows) et lancer la suite de tests à chaque push. Output : 4 images sur **GHCR** (`ghcr.io/<owner>/agflow-scraper-{base,youtube,instagram,tiktok}`) + statut tests vert.
+
+- **H1** : `.github/workflows/test.yml` — déclenché sur push/pull_request. 3 jobs en parallèle :
+  - `backend-tests` : Python 3.12 + uv sync + pytest + ruff
+  - `frontend-tests` : Node 20 + npm ci + npm test + npm run typecheck
+  - `scraper-tests` : Python 3.12 + uv sync (scraper YouTube) + pytest + ruff
+- **H2** : `.github/workflows/build-scrapers.yml` — déclenché sur push `main` et tags `v*`. Build matriciel :
+  - Étape 1 : build & push `agflow-scraper-base` (les autres en dépendent via `FROM agflow-scraper-base:latest`)
+  - Étape 2 (matrix `[youtube, instagram, tiktok]`) : build & push chaque plateforme
+  - Tags : `:latest` (sur push main), `:sha-<short>`, `:vX.Y.Z` (sur tag git)
+  - Login : `docker/login-action@v3` avec `${{ secrets.GITHUB_TOKEN }}` (write:packages requis dans permissions du workflow)
+- **H3** : Modifier `docker-compose.yml` — référencer les images GHCR au lieu des noms locaux : `image: ghcr.io/${GHCR_OWNER}/agflow-scraper-youtube:latest` (résolu dans Phase C où le backend lit la variable pour `docker run`).
+- **H4** : Documenter le bootstrap GHCR dans `README.md` ou un nouveau `docs/operations/ci.md` :
+  - Activer "Improved container support" sur le repo
+  - Permissions du workflow : `packages: write`
+  - Première run manuelle pour autoriser le push GHCR
+
+> Phase H peut être exécutée en parallèle de Phases C-F (n'a pas de dépendance avec le code backend/frontend ; ne touche que `.github/workflows/`).
 
 ---
 
