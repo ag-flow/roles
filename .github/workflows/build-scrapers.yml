@@ -16,6 +16,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      base_image_sha: ${{ steps.tags.outputs.base_image_sha }}
     steps:
       - uses: actions/checkout@v4
       - name: Login GHCR
@@ -31,10 +33,12 @@ jobs:
         run: |
           OWNER_LC="${IMAGE_OWNER,,}"
           IMAGE="${REGISTRY}/${OWNER_LC}/agflow-scraper-base"
-          TAGS="${IMAGE}:sha-${GITHUB_SHA:0:7}"
+          BASE_SHA="${IMAGE}:sha-${GITHUB_SHA:0:7}"
+          TAGS="${BASE_SHA}"
           if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then TAGS="${TAGS},${IMAGE}:latest"; fi
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then TAGS="${TAGS},${IMAGE}:${GITHUB_REF_NAME}"; fi
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+          echo "base_image_sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
       - name: Build & push base
         uses: docker/build-push-action@v6
         with:
@@ -71,15 +75,13 @@ jobs:
           if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then TAGS="${TAGS},${IMAGE}:latest"; fi
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then TAGS="${TAGS},${IMAGE}:${GITHUB_REF_NAME}"; fi
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
-      - name: Pull base image
-        run: |
-          OWNER_LC="${IMAGE_OWNER,,}"
-          docker pull "${REGISTRY}/${OWNER_LC}/agflow-scraper-base:sha-${GITHUB_SHA:0:7}"
-          docker tag  "${REGISTRY}/${OWNER_LC}/agflow-scraper-base:sha-${GITHUB_SHA:0:7}" agflow-scraper-base:latest
       - name: Build & push ${{ matrix.platform }}
         uses: docker/build-push-action@v6
         with:
           context: docker/scrapers/${{ matrix.platform }}
           file: docker/scrapers/${{ matrix.platform }}/Dockerfile
           push: true
+          pull: true
+          build-args: |
+            BASE_IMAGE=${{ needs.build-base.outputs.base_image_sha }}
           tags: ${{ steps.tags.outputs.tags }}

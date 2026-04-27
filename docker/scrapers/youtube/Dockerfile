@@ -1,4 +1,5 @@
-FROM agflow-scraper-base:latest
+ARG BASE_IMAGE=agflow-scraper-base:latest
+FROM ${BASE_IMAGE}
 
 COPY youtube/ /app/youtube/
 
