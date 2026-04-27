@@ -1,4 +1,5 @@
 """FastAPI application entry point."""
+
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from role_builder.config import settings
 from role_builder.db import db_pool
 from role_builder.logging_setup import configure_logging
-from role_builder.routes import corpus, health, me, scraping_jobs, sources, websocket
+from role_builder.routes import corpus, health, me, prompts, scraping_jobs, sources, websocket
 from role_builder.services.chunking_worker import ChunkingWorker
 from role_builder.services.scraper_orchestrator import ScraperOrchestrator
 from role_builder.services.worker_manager import WorkerManager
@@ -42,9 +43,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     worker_manager_task: asyncio.Task[None] | None = None
     if not settings.disable_worker_manager:
-        worker_manager = WorkerManager(
-            pool=db_pool.pool, image_tag=settings.worker_image_tag
-        )
+        worker_manager = WorkerManager(pool=db_pool.pool, image_tag=settings.worker_image_tag)
         worker_manager_task = asyncio.create_task(
             worker_manager.run_auto_stop_loop(
                 stop, period_seconds=settings.worker_auto_stop_period_s
@@ -109,4 +108,5 @@ app.include_router(me.router, prefix="/api", tags=["auth"])
 app.include_router(sources.router, prefix="/api", tags=["sources"])
 app.include_router(scraping_jobs.router, prefix="/api", tags=["scraping-jobs"])
 app.include_router(corpus.router, prefix="/api", tags=["corpus"])
+app.include_router(prompts.router, prefix="/api/prompts", tags=["prompts"])
 app.include_router(websocket.router, tags=["websocket"])
