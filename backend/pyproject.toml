@@ -38,6 +38,19 @@ target-version = "py312"
 select = ["E", "F", "I", "B", "UP", "N", "ASYNC"]
 ignore = ["E501"]  # géré par formatter
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's idiomatic Depends/Query/Path/Body/Header/Cookie/Form are call-defaults.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.Cookie",
+    "fastapi.Form",
+    "fastapi.File",
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from role_builder.config import settings
 from role_builder.db import db_pool
 from role_builder.logging_setup import configure_logging
-from role_builder.routes import health, websocket
+from role_builder.routes import health, sources, websocket
 from role_builder.services.scraper_orchestrator import ScraperOrchestrator
 from role_builder.services.ws_relay import ws_relay
 
@@ -71,4 +71,5 @@ app.add_middleware(
 )
 
 app.include_router(health.router, prefix="/health", tags=["health"])
+app.include_router(sources.router, prefix="/api", tags=["sources"])
 app.include_router(websocket.router, tags=["websocket"])
