@@ -1,0 +1,30 @@
+# Stack à déployer sur pve2 (GPU RTX 4090).
+# Lance le worker faster-whisper en pool shared, toujours up.
+# Pas exécuté localement — provisionné sur pve2 via scripts d'infra.
+#
+# Le backend (worker_manager) ne touche PAS ce fichier. Il sert au sysadmin
+# pour bootstrap manuel : `docker compose -f docker-compose.pve2.yml up -d`.
+
+services:
+  shared-whisper-worker:
+    image: ghcr.io/${GHCR_OWNER:-yoops}/agflow-transcription-worker-cuda:${WORKER_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      WORKER_POOL_ID: shared_default
+      WORKER_ID: shared-whisper-pve2
+      TRANSCRIPTION_PROVIDER: faster-whisper
+      DATABASE_URL: ${DATABASE_URL}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      FASTER_WHISPER_MODEL: large-v3
+      FASTER_WHISPER_DEVICE: cuda
+      FASTER_WHISPER_COMPUTE_TYPE: float16
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
