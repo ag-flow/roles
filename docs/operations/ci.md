@@ -1,3 +1,26 @@
+# CI / CD + Déploiement — pipeline complet
+
+## TL;DR — du zéro à une stack qui tourne
+
+```bash
+# 1. Sur l'hôte Proxmox : créer un LXC Docker-ready
+ssh pve "/path/to/00-create-lxc.sh 200 agflow-rolebuilder-test"
+# → output JSON avec ip, ssh_key, agflow_password
+
+# 2. Le script 00 appelle automatiquement 01-install-docker.sh à l'intérieur
+
+# 3. Déployer la stack Role Builder dans le LXC
+ssh pve "pct push 200 /path/to/03-deploy-rolebuilder.sh /root/03-deploy-rolebuilder.sh"
+ssh pve "pct exec 200 -- env GHCR_OWNER=ag-flow GHCR_USER=mygithub GHCR_TOKEN=ghp_xxx \
+    bash /root/03-deploy-rolebuilder.sh"
+# → clone repo + login GHCR + pull images + up + migrate + init MinIO/OpenBao
+# → output JSON avec ip + image_tag
+
+# 4. Vérifier
+curl http://<LXC_IP>:8000/health/      # backend
+open http://<LXC_IP>:3000              # frontend
+```
+
 # CI / CD — Build et publication des images Docker (toutes sur GHCR)
 
 ## Vue d'ensemble
@@ -80,6 +103,81 @@ Cas d'usage : LXC pve1 sans accès GHCR, ou dev qui veut un cycle build-test rap
 3. `docker compose up -d --build` — Compose merge l'override avec le compose principal et build au lieu de pull.
 
 Le tag local de l'image suit le nom GHCR (`ghcr.io/...`) mais n'est pas pushé.
+
+## Provisioning d'une machine de test (LXC Proxmox)
+
+Trois scripts dans `infra/` pour provisionner une machine de test "from scratch" :
+
+### `infra/00-create-lxc.sh` — Crée le LXC Docker-ready
+
+À exécuter **sur l'hôte Proxmox**. Crée un container LXC privileged avec :
+- AppArmor unconfined, nesting + keyctl, cgroup2 all (pré-requis Docker dans LXC)
+- Réseau DHCP via `systemd-networkd`
+- SSH ed25519 (clé root + clé dédiée user `agflow` avec sudo NOPASSWD)
+- Appel automatique de `01-install-docker.sh` à la fin
+
+```bash
+# Pré-requis : un template Ubuntu sur le storage local
+pveam update
+pveam download local ubuntu-24.04-standard_24.04-2_amd64.tar.zst
+
+# Créer le LXC
+ssh pve "/root/infra/00-create-lxc.sh 200 agflow-rolebuilder-test"
+# Output JSON : {"status":"ok","ctid":"200","ip":"...","user":"agflow","password":"...","ssh_key":"..."}
+```
+
+Le script est **idempotent** : si le LXC existe déjà, il reconfigure (avec backup `.conf`).
+
+### `infra/01-install-docker.sh` — Installe Docker dans le LXC
+
+Appelé automatiquement par `00`. Installe :
+- Docker Engine + Compose plugin + Buildx (depuis le repo Docker officiel)
+- Caddy (reverse proxy HTTP-only — SSL géré par Cloudflare Tunnel en front)
+- Configuration `/etc/docker/daemon.json` : log rotation, address pool 172.20.0.0/16, overlay2, live-restore
+
+À la fin, `docker run hello-world` est testé.
+
+### `infra/03-deploy-rolebuilder.sh` — Déploie la stack Role Builder
+
+À exécuter **dans le LXC** après `00` + `01`. Pipeline :
+
+1. Clone (ou pull) le repo dans `/opt/agflow.roles`
+2. `docker login ghcr.io` avec le PAT GitHub
+3. Génère `.env` depuis `.env.example` avec passwords aléatoires (Postgres, MinIO, OpenBao)
+4. `docker compose pull` (les 5 images applicatives + 3 dépendances : postgres, minio, openbao)
+5. `docker compose up -d`
+6. Wait healthy (postgres + minio + openbao, timeout 120s)
+7. Apply migrations SQL via `docker compose exec postgres psql`
+8. Crée 3 buckets MinIO via `docker compose exec minio mc`
+9. Active OpenBao KV v2 via `docker compose exec openbao bao`
+10. Healthcheck final `curl /health/`
+
+```bash
+# Variables requises : GHCR_OWNER, GHCR_USER, GHCR_TOKEN (PAT read:packages)
+# Variables optionnelles : IMAGE_TAG (défaut latest), REPO_URL, REPO_BRANCH
+
+ssh pve "pct push 200 /path/to/03-deploy-rolebuilder.sh /root/03-deploy-rolebuilder.sh"
+ssh pve "pct exec 200 -- env \
+    GHCR_OWNER=ag-flow \
+    GHCR_USER=mygithubuser \
+    GHCR_TOKEN=ghp_xxx \
+    IMAGE_TAG=latest \
+    bash /root/03-deploy-rolebuilder.sh"
+```
+
+Output JSON : `{"status":"ok","install_dir":"/opt/agflow.roles","ip":"...","image_tag":"latest"}`
+
+### Mise à jour de la stack
+
+```bash
+ssh pve "pct exec 200 -- bash -c 'cd /opt/agflow.roles && git pull && docker compose pull && docker compose up -d'"
+```
+
+### Optionnel : `infra/02-install-alloy.sh` — Collecteur logs
+
+Installe **Grafana Alloy** (récolte les logs Docker + journald → Loki). Hors-scope MVP. À déployer en bulk sur tous les LXC actifs via `infra/deploy-alloy-all.sh`. Cf. spec observabilité (héritée d'agflow.docker).
+
+---
 
 ## Logs et debugging
 
