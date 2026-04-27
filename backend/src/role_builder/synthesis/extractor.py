@@ -7,11 +7,11 @@ au LLM (extractor prompt), et stocke les signaux extraits dans la table signals.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
 import asyncpg
+import structlog
 from pydantic import BaseModel, ValidationError
 
 from role_builder.config import settings
@@ -20,7 +20,7 @@ from role_builder.db_helpers import prompts as prompts_helper
 from role_builder.db_helpers import signals as signals_helper
 from role_builder.services.agflow_client import get_agflow_client
 
-_TEMPLATE_PATH = Path(__file__).parent / "templates" / "extractor_v1.md"
+log = structlog.get_logger(__name__)
 
 _PROMPT_NAME = "extractor"
 
@@ -28,7 +28,7 @@ _PROMPT_NAME = "extractor"
 class _ExtractorSignal(BaseModel):
     type: Literal["heuristique", "anecdote", "vocab", "cadre", "opinion"]
     content: dict
-    source_chunks: list[str]  # UUIDs en str depuis le LLM
+    source_chunks: list[UUID]  # Pydantic v2 coerce str→UUID automatiquement
 
 
 class _ExtractorResponse(BaseModel):
@@ -115,9 +115,18 @@ async def run_extraction(
     signals_count = 0
     last_model = settings.mistral_chat_model
     agflow_client = get_agflow_client()
+    batches_count = (len(all_chunks) + chunks_per_batch - 1) // chunks_per_batch
+
+    log.info(
+        "synthesis.extractor.run_started",
+        run_id=str(run_id),
+        role_project_id=str(role_project_id),
+        chunks_count=len(all_chunks),
+        batches=batches_count,
+    )
 
     try:
-        for batch_start in range(0, len(all_chunks), chunks_per_batch):
+        for i, batch_start in enumerate(range(0, len(all_chunks), chunks_per_batch)):
             batch = all_chunks[batch_start : batch_start + chunks_per_batch]
             chunks_text = _format_chunks_for_prompt(batch)
 
@@ -134,29 +143,52 @@ async def run_extraction(
                 messages, response_format={"type": "json_object"}
             )
             last_model = result.model
-            total_tokens_input += result.tokens_input
-            total_tokens_output += result.tokens_output
+            batch_tokens_input = result.tokens_input
+            batch_tokens_output = result.tokens_output
+            total_tokens_input += batch_tokens_input
+            total_tokens_output += batch_tokens_output
 
             try:
                 parsed = _ExtractorResponse.model_validate_json(result.content)
             except (ValidationError, ValueError) as exc:
                 raise RuntimeError(f"ValidationError parsing extractor response: {exc}") from exc
 
+            batch_signals_count = 0
             for signal in parsed.signals:
-                chunk_uuids = [UUID(s) for s in signal.source_chunks]
                 await signals_helper.insert_signal(
                     run_id=run_id,
                     role_project_id=role_project_id,
                     tenant_id=tenant_id,
                     source_item_id=None,
-                    source_chunks=chunk_uuids,
+                    source_chunks=signal.source_chunks,
                     signal_type=signal.type,
                     content=signal.content,
                     pool=pool,
                 )
                 signals_count += 1
+                batch_signals_count += 1
+
+            log.info(
+                "synthesis.extractor.batch_completed",
+                run_id=str(run_id),
+                batch_index=i,
+                tokens_input=batch_tokens_input,
+                tokens_output=batch_tokens_output,
+                signals_extracted=batch_signals_count,
+            )
 
     except Exception as exc:
+        log.exception("synthesis.extractor.run_failed", run_id=str(run_id), error=str(exc))
+        try:
+            deleted = await signals_helper.delete_signals_by_run(run_id, pool=pool)
+            if deleted:
+                log.info(
+                    "synthesis.extractor.signals_cleaned",
+                    run_id=str(run_id),
+                    deleted=deleted,
+                )
+        except Exception:
+            log.exception("synthesis.extractor.cleanup_failed", run_id=str(run_id))
         await runs.mark_failed(run_id, str(exc), pool=pool)
         raise
 
@@ -164,6 +196,15 @@ async def run_extraction(
     cost_usd = (
         total_tokens_input * settings.mistral_input_token_rate_usd
         + total_tokens_output * settings.mistral_output_token_rate_usd
+    )
+
+    log.info(
+        "synthesis.extractor.run_completed",
+        run_id=str(run_id),
+        signals_total=signals_count,
+        tokens_input=total_tokens_input,
+        tokens_output=total_tokens_output,
+        cost_usd=cost_usd,
     )
 
     # 7. Mark done

@@ -49,6 +49,8 @@ _GET_BY_IDS_SQL = """
     WHERE id = ANY($1::uuid[])
 """
 
+_DELETE_BY_RUN_SQL = "DELETE FROM signals WHERE run_id = $1"
+
 
 async def insert_signal(
     *,
@@ -116,3 +118,14 @@ async def get_signals_by_ids(ids: list[UUID], *, pool: asyncpg.Pool) -> list[dic
     async with pool.acquire() as conn:
         rows = await conn.fetch(_GET_BY_IDS_SQL, ids)
     return [dict(r) if not isinstance(r, dict) else r for r in rows]
+
+
+async def delete_signals_by_run(run_id: UUID, *, pool: asyncpg.Pool) -> int:
+    """Supprime tous les signals d'un run. Retourne le count supprimé."""
+    async with pool.acquire() as conn:
+        result = await conn.execute(_DELETE_BY_RUN_SQL, run_id)
+    # asyncpg execute retourne "DELETE N"
+    try:
+        return int(result.split()[-1])
+    except (IndexError, ValueError):
+        return 0

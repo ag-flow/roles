@@ -14,6 +14,7 @@ class _StubConn:
         self.calls: list[tuple[str, str, tuple[Any, ...]]] = []
         self.fetchval_return: Any = None
         self.fetch_return: list[Any] = []
+        self.execute_return: str = "DELETE 0"
 
     async def fetchval(self, query: str, *args: Any) -> Any:
         self.calls.append(("fetchval", query, args))
@@ -22,6 +23,10 @@ class _StubConn:
     async def fetch(self, query: str, *args: Any) -> list[Any]:
         self.calls.append(("fetch", query, args))
         return self.fetch_return
+
+    async def execute(self, query: str, *args: Any) -> str:
+        self.calls.append(("execute", query, args))
+        return self.execute_return
 
 
 class _StubAcquireCtx:
@@ -175,9 +180,7 @@ async def test_get_signals_by_ids_empty_returns_without_sql(
     assert len(stub_conn.calls) == 0
 
 
-async def test_get_signals_by_ids_with_ids_uses_any(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_get_signals_by_ids_with_ids_uses_any(stub_conn: _StubConn, stub_pool: Any) -> None:
     """get_signals_by_ids avec ids envoie SELECT avec ANY($1::uuid[])."""
     from role_builder.db_helpers import signals
 
@@ -194,3 +197,36 @@ async def test_get_signals_by_ids_with_ids_uses_any(
     assert method == "fetch"
     assert "ANY($1::uuid[])" in query
     assert args[0] == [id1, id2]
+
+
+async def test_delete_signals_by_run_uses_correct_query_and_parses_count(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """delete_signals_by_run : query DELETE correcte, retourne le count parsé depuis 'DELETE N'."""
+    from role_builder.db_helpers import signals
+
+    run_id = uuid4()
+    stub_conn.execute_return = "DELETE 3"
+
+    count = await signals.delete_signals_by_run(run_id, pool=stub_pool)
+
+    assert count == 3
+    assert len(stub_conn.calls) == 1
+    method, query, args = stub_conn.calls[0]
+    assert method == "execute"
+    assert "DELETE FROM signals WHERE run_id = $1" in query
+    assert args[0] == run_id
+
+
+async def test_delete_signals_by_run_returns_zero_when_none_deleted(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """delete_signals_by_run retourne 0 quand aucun signal supprimé ('DELETE 0')."""
+    from role_builder.db_helpers import signals
+
+    run_id = uuid4()
+    stub_conn.execute_return = "DELETE 0"
+
+    count = await signals.delete_signals_by_run(run_id, pool=stub_pool)
+
+    assert count == 0

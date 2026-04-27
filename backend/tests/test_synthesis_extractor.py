@@ -279,6 +279,9 @@ async def test_invalid_json_calls_mark_failed_and_reraises(
     async def fake_mark_done(rid: UUID, **kwargs: Any) -> None:
         pytest.fail("mark_done should NOT be called on failure")
 
+    async def fake_delete_signals_by_run(rid: UUID, *, pool: Any) -> int:
+        return 0
+
     monkeypatch.setattr(
         extractor.prompts_helper, "get_system_default_version", fake_get_system_default
     )
@@ -288,6 +291,9 @@ async def test_invalid_json_calls_mark_failed_and_reraises(
     monkeypatch.setattr(extractor.runs, "mark_running", fake_mark_running)
     monkeypatch.setattr(extractor.runs, "mark_failed", fake_mark_failed)
     monkeypatch.setattr(extractor.runs, "mark_done", fake_mark_done)
+    monkeypatch.setattr(
+        extractor.signals_helper, "delete_signals_by_run", fake_delete_signals_by_run
+    )
     monkeypatch.setattr(extractor, "get_agflow_client", lambda: stub_client)
 
     pool = _StubPool(_StubConn())
@@ -355,6 +361,103 @@ async def test_multi_batches_accumulate_tokens(monkeypatch: pytest.MonkeyPatch) 
     # tokens accumulés : 2 × 10 input, 2 × 20 output
     assert mark_done_calls[0]["tokens_input"] == 20
     assert mark_done_calls[0]["tokens_output"] == 40
+
+
+async def test_failure_mid_pipeline_cleans_signals(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Échec en milieu de pipeline : delete_signals_by_run appelé avant mark_failed."""
+    from role_builder.synthesis import extractor
+
+    version = _make_stub_version()
+    project = _make_stub_project()
+    # 10 chunks → 2 batches de 5 : batch 0 OK, batch 1 JSON invalide
+    chunks = _make_chunks(10)
+    run_id = uuid4()
+
+    call_order: list[str] = []
+
+    class _TwoBatchClient:
+        """1er appel OK, 2e appel retourne JSON invalide."""
+
+        async def invoke_chat(
+            self, messages: list[dict], *, response_format: dict | None = None
+        ) -> ChatResult:
+            if len(call_order) == 0:
+                call_order.append("llm_batch_0")
+                return ChatResult(
+                    content=_VALID_RESPONSE,
+                    tokens_input=10,
+                    tokens_output=20,
+                    cost_usd=None,
+                    model="mistral-test",
+                )
+            call_order.append("llm_batch_1_invalid")
+            return ChatResult(
+                content="invalid json {{{",
+                tokens_input=10,
+                tokens_output=5,
+                cost_usd=None,
+                model="mistral-test",
+            )
+
+    async def fake_get_system_default(name: str, *, pool: Any) -> dict:
+        return version
+
+    async def fake_get_by_id(project_id: UUID, *, pool: Any) -> dict:
+        return project
+
+    async def fake_list_by_project(project_id: UUID, *, limit: int, pool: Any) -> list[dict]:
+        return chunks
+
+    async def fake_create_run(**kwargs: Any) -> UUID:
+        return run_id
+
+    async def fake_mark_running(rid: UUID, *, pool: Any) -> None:
+        pass
+
+    delete_calls: list[UUID] = []
+
+    async def fake_delete_signals_by_run(rid: UUID, *, pool: Any) -> int:
+        call_order.append("delete_signals")
+        delete_calls.append(rid)
+        return 2
+
+    mark_failed_calls: list[dict] = []
+
+    async def fake_mark_failed(rid: UUID, error: str, *, pool: Any) -> None:
+        call_order.append("mark_failed")
+        mark_failed_calls.append({"run_id": rid, "error": error})
+
+    async def fake_insert_signal(**kwargs: Any) -> UUID:
+        return uuid4()
+
+    monkeypatch.setattr(
+        extractor.prompts_helper, "get_system_default_version", fake_get_system_default
+    )
+    monkeypatch.setattr(extractor.role_projects, "get_by_id", fake_get_by_id)
+    monkeypatch.setattr(extractor.corpus_chunks, "list_by_project", fake_list_by_project)
+    monkeypatch.setattr(extractor.runs, "create_run", fake_create_run)
+    monkeypatch.setattr(extractor.runs, "mark_running", fake_mark_running)
+    monkeypatch.setattr(extractor.runs, "mark_failed", fake_mark_failed)
+    monkeypatch.setattr(extractor.signals_helper, "insert_signal", fake_insert_signal)
+    monkeypatch.setattr(
+        extractor.signals_helper, "delete_signals_by_run", fake_delete_signals_by_run
+    )
+    monkeypatch.setattr(extractor, "get_agflow_client", lambda: _TwoBatchClient())
+
+    pool = _StubPool(_StubConn())
+    with pytest.raises(RuntimeError):
+        await extractor.run_extraction(project["id"], chunks_per_batch=5, pool=pool)
+
+    # delete_signals_by_run doit être appelé avec le run_id
+    assert len(delete_calls) == 1
+    assert delete_calls[0] == run_id
+
+    # delete doit précéder mark_failed dans l'ordre d'appel
+    assert call_order.index("delete_signals") < call_order.index("mark_failed")
+
+    # mark_failed doit être appelé une fois
+    assert len(mark_failed_calls) == 1
+    assert mark_failed_calls[0]["run_id"] == run_id
 
 
 async def test_instruction_override_added_to_messages(
