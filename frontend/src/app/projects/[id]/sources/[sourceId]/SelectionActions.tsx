@@ -32,7 +32,7 @@ export function SelectionActions({ items, selectedIds, onSetSelection, onIngest 
         disabled={selectedIds.size === 0}
         style={{ marginLeft: 'auto' }}
       >
-        Lancer l'ingestion ({selectedIds.size})
+        Lancer l&apos;ingestion ({selectedIds.size})
       </button>
     </div>
   );
