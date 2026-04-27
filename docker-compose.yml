@@ -48,9 +48,7 @@ services:
       retries: 5
 
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ghcr.io/${GHCR_OWNER:-yoops}/agflow-backend:${IMAGE_TAG:-latest}
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,15 +64,26 @@ services:
       OPENBAO_URL: http://openbao:8200
       OPENBAO_TOKEN: ${OPENBAO_DEV_TOKEN}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Cookies scraping (vides = contenus publics seulement)
+      YOUTUBE_COOKIES_B64: ${YOUTUBE_COOKIES_B64:-}
+      INSTAGRAM_COOKIES_B64: ${INSTAGRAM_COOKIES_B64:-}
+      TIKTOK_COOKIES_B64: ${TIKTOK_COOKIES_B64:-}
+      MAX_CONCURRENT_SCRAPERS: ${MAX_CONCURRENT_SCRAPERS:-5}
+      SCRAPER_IMAGE_TAG: ${IMAGE_TAG:-latest}
+      # Clés SaaS de transcription
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+      ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY:-}
+      SPEECHMATICS_API_KEY: ${SPEECHMATICS_API_KEY:-}
+      WORKER_AUTO_STOP_THRESHOLD_S: ${WORKER_AUTO_STOP_THRESHOLD_S:-300}
+      WORKER_AUTO_STOP_PERIOD_S: ${WORKER_AUTO_STOP_PERIOD_S:-60}
+      WORKER_IMAGE_TAG: ${IMAGE_TAG:-latest}
+      GHCR_OWNER: ${GHCR_OWNER:-}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
-    volumes:
-      - ./backend/src:/app/src
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: ghcr.io/${GHCR_OWNER:-yoops}/agflow-frontend:${IMAGE_TAG:-latest}
     depends_on:
       - backend
     environment:
@@ -82,9 +91,6 @@ services:
       BACKEND_INTERNAL_URL: http://backend:8000
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/next.config.js:/app/next.config.js
 
 volumes:
   postgres_data:
