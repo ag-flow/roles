@@ -331,6 +331,27 @@
 
 ---
 
+## CI Docker — Bugs initiaux corrigés (post-Sprint 3)
+
+Trois bugs introduits par Sprint 2 H + Sprint 3 H qui empêchaient les builds CI de fonctionner. Détectés à la relecture (Docker non disponible localement, donc bugs latents jusqu'au premier push).
+
+- [x] **`Dockerfile.cuda` Python 3.12 absent d'Ubuntu 22.04**
+      Sprint 3 H1 utilisait `nvidia/cuda:12.4.0-cudnn-runtime-ubuntu22.04` puis `apt-get install python3.12`. Mais Ubuntu 22.04 (jammy) n'a pas python3.12 dans ses repos officiels.
+      → **Fix** : bump à `nvidia/cuda:12.4.0-cudnn-runtime-ubuntu24.04` (noble, python3.12 par défaut). Cohérent avec le Dockerfile CPU sur `python:3.12-slim`.
+
+- [x] **Chaîne base→platforms cassée avec buildx isolé**
+      Sprint 2 H2 faisait `docker pull base:sha-XXX && docker tag agflow-scraper-base:latest` sur le runner, puis le Dockerfile platform faisait `FROM agflow-scraper-base:latest`. Mais `docker/build-push-action@v6` utilise un builder buildx isolé qui ne voit pas les tags du daemon Docker host.
+      → **Fix** : `ARG BASE_IMAGE=agflow-scraper-base:latest` dans les 3 Dockerfiles platforms (préserve le build local, default OK). `build-scrapers.yml` job `build-base` expose son tag SHA en output ; job `build-platforms` passe ce tag via `build-args: BASE_IMAGE=ghcr.io/.../agflow-scraper-base:sha-XXX` + `pull: true`. Plus de docker pull/tag manuel.
+
+- [x] **`Dockerfile.cuda` ne copiait pas `uv.lock`**
+      Asymétrie avec le Dockerfile CPU. Build CUDA non reproductible.
+      → **Fix** : ajout du `uv.lock` au `COPY` pour cohérence.
+
+- [ ] **Validation runtime des images Docker**
+      Aucun `docker build` n'a été exécuté localement (Docker mis de côté). Les bugs ci-dessus ont été détectés à la relecture, pas par un build réel. À confirmer dès le premier push remote (workflows GHCR tourneront sur GitHub Actions).
+
+---
+
 ## Sprint 3 — Décisions actées et observations
 
 - [x] **Providers MVP**
