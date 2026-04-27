@@ -45,6 +45,12 @@ def test_settings_loads_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.keycloak_client_id == ""
     assert s.keycloak_audience == ""
     assert s.disable_auth is False
+    # Sprint 4 — Mistral defaults + chunking_worker
+    assert s.mistral_api_key == ""
+    assert s.mistral_base_url == "https://api.mistral.ai"
+    assert s.mistral_embed_model == "mistral-embed"
+    assert s.mistral_chat_model == "mistral-large-latest"
+    assert s.disable_chunking_worker is False
 
 
 def test_settings_sprint2_overrides(monkeypatch: pytest.MonkeyPatch) -> None:

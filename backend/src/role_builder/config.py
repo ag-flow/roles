@@ -56,5 +56,12 @@ class Settings(BaseSettings):
     keycloak_audience: str = ""
     disable_auth: bool = False
 
+    # Sprint 4 — Mistral (LLM + embeddings) + chunking_worker
+    mistral_api_key: str = ""
+    mistral_base_url: str = "https://api.mistral.ai"
+    mistral_embed_model: str = "mistral-embed"
+    mistral_chat_model: str = "mistral-large-latest"
+    disable_chunking_worker: bool = False
+
 
 settings = Settings()  # type: ignore[call-arg]
