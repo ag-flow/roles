@@ -30,6 +30,16 @@ def test_settings_loads_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.tiktok_cookies_b64 == ""
     assert s.max_concurrent_scrapers == 5
     assert s.scraper_image_tag == "latest"
+    # Sprint 3 Phase G4 defaults — transcription
+    assert s.openai_api_key == ""
+    assert s.deepgram_api_key == ""
+    assert s.assemblyai_api_key == ""
+    assert s.speechmatics_api_key == ""
+    assert s.worker_auto_stop_threshold_s == 300
+    assert s.worker_auto_stop_period_s == 60
+    assert s.worker_image_tag == "latest"
+    assert s.ghcr_owner == ""
+    assert s.disable_worker_manager is False
 
 
 def test_settings_sprint2_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
