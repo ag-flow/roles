@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+.env
+.env.local
+*.log
+.dockerignore
+Dockerfile
+.git/
+.gitignore
+README.md
+src/__tests__/
+src/test/
+.eslintrc.json
+vitest.config.ts
