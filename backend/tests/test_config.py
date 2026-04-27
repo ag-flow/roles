@@ -24,3 +24,33 @@ def test_settings_loads_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.openbao_token == "token"
     assert s.log_level == "INFO"  # default
     assert s.agflow_base_url == "https://docker-agflow.yoops.org"  # default
+    # Sprint 2 Phase C defaults
+    assert s.youtube_cookies_b64 == ""
+    assert s.instagram_cookies_b64 == ""
+    assert s.tiktok_cookies_b64 == ""
+    assert s.max_concurrent_scrapers == 5
+    assert s.scraper_image_tag == "latest"
+
+
+def test_settings_sprint2_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sprint 2 env overrides flow into Settings (cookies, cap, image tag)."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
+    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000")
+    monkeypatch.setenv("MINIO_ACCESS_KEY", "key")
+    monkeypatch.setenv("MINIO_SECRET_KEY", "secret")
+    monkeypatch.setenv("OPENBAO_URL", "http://bao:8200")
+    monkeypatch.setenv("OPENBAO_TOKEN", "token")
+    monkeypatch.setenv("YOUTUBE_COOKIES_B64", "yt-cookies")
+    monkeypatch.setenv("INSTAGRAM_COOKIES_B64", "ig-cookies")
+    monkeypatch.setenv("TIKTOK_COOKIES_B64", "tt-cookies")
+    monkeypatch.setenv("MAX_CONCURRENT_SCRAPERS", "12")
+    monkeypatch.setenv("SCRAPER_IMAGE_TAG", "sha-deadbeef")
+
+    from role_builder.config import Settings
+
+    s = Settings()
+    assert s.youtube_cookies_b64 == "yt-cookies"
+    assert s.instagram_cookies_b64 == "ig-cookies"
+    assert s.tiktok_cookies_b64 == "tt-cookies"
+    assert s.max_concurrent_scrapers == 12
+    assert s.scraper_image_tag == "sha-deadbeef"

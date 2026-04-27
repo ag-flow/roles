@@ -23,5 +23,12 @@ class Settings(BaseSettings):
     agflow_base_url: str = "https://docker-agflow.yoops.org"
     log_level: str = "INFO"
 
+    # Sprint 2 — Scrapers
+    youtube_cookies_b64: str = ""
+    instagram_cookies_b64: str = ""
+    tiktok_cookies_b64: str = ""
+    max_concurrent_scrapers: int = 5
+    scraper_image_tag: str = "latest"
+
 
 settings = Settings()  # type: ignore[call-arg]
