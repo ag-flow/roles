@@ -331,6 +331,55 @@
 
 ---
 
+## Sprint 3 — Décisions actées et observations
+
+- [x] **Providers MVP**
+      → **Décision (sprint 3) :** OpenAI Whisper API (priorité 1) + faster-whisper local (priorité 2). Deepgram, AssemblyAI, Speechmatics : différés Phase 2 (à câbler quand un user en aura besoin réel).
+
+- [x] **Clés API SaaS via env vars docker-compose**
+      → **Décision (sprint 3) :** `OPENAI_API_KEY`, `DEEPGRAM_API_KEY`, etc. dans `.env`, lus par Pydantic Settings du backend, retransmis aux containers worker via `docker run -e ...`. Pas d'OpenBao Sprint 3, cohérent avec cookies Sprint 2. Rebranchage OpenBao au sprint "Ma stack".
+
+- [x] **Pool shared faster-whisper sur pve2**
+      → **Décision (sprint 3) :** docker-compose.pve2.yml dédié (image cuda variante). Worker toujours up via `restart: unless-stopped` + `runtime: nvidia`. Provisionné manuellement par sysadmin (pas par le backend). Pull image GHCR `agflow-transcription-worker-cuda:latest`.
+
+- [x] **Pools user provisionnés à la demande**
+      → **Décision (sprint 3) :** `WorkerManager` backend lance des containers Docker via `asyncio.create_subprocess_exec` (pattern Sprint 2 scraper_orchestrator). Slider 1-5 workers/user (workers_count). Image CPU générique `agflow-transcription-worker:latest` (les workers SaaS n'ont pas besoin de GPU).
+
+- [x] **Auto-stop workers user idle**
+      → **Décision (sprint 3) :** asyncio Task interne au backend (lifespan), period 60s, threshold 5 min. Pas d'APScheduler — simple boucle qui appelle `auto_stop_idle()`. Le pool shared est exclu (jamais auto-stoppé).
+
+- [x] **Bascule sur épuisement de crédit**
+      → **Décision (sprint 3) :** `credit_basculer.handle_key_exhausted` : stop des workers de la clé + reassign des `transcription_jobs` pending vers `shared_default`. Déclenché par le worker à la détection HTTP 402 (via error_classifier). Pour Sprint 3, le worker met juste la clé en `exhausted` côté DB ; la bascule effective est faite par le backend quand il consomme PG NOTIFY `keys_changes` (wiring complet Sprint 6 "Ma stack" — pour l'instant `handle_key_exhausted` est appelable manuellement).
+
+- [x] **Image worker variante CUDA**
+      → **Décision (sprint 3) :** `Dockerfile.cuda` avec base `nvidia/cuda:12.4.0-cudnn-runtime-ubuntu22.04`. Buildée par CI GitHub Actions (`build-workers.yml` matrix). Variante CPU pour pve1 + variante CUDA pour pve2.
+
+- [ ] **Polling crédit Deepgram**
+      Reporté Phase 2. Impossible Sprint 3 sans clé Deepgram câblée et sans use case immédiat. À recoder quand le sprint "Ma stack" introduira le sous-onglet quota et qu'un user aura ajouté Deepgram.
+
+- [ ] **Diarization (interviews à plusieurs voix)**
+      Reportée Phase 2. À évaluer selon retours utilisateurs Sprint 5 (synthèse) sur la qualité d'extraction.
+
+- [ ] **Retry exponential backoff**
+      Reporté Phase 2. Sprint 3 incrémente `attempts` au claim mais ne re-met pas le job en `pending` après échec. À ajouter quand un cas réel de transient error sera observé en prod.
+
+- [ ] **Audios > 25 MB OpenAI Whisper**
+      Reporté Phase 2. OpenAI Whisper a une limite de 25 MB par fichier. Sprint 3 considère que les MP3 mono 16 kHz 32 kbps font ~14 MB pour 1h, donc seuls les contenus > 1h45 dépassent. Quand on rencontrera, on splittera côté worker via ffmpeg + concat des résultats.
+
+- [ ] **`stop_workers_for_key` requête key_id → (user_id, provider)**
+      `WorkerManager.stop_workers_for_key` fait un `fetchrow` sur `user_transcription_keys` pour résoudre la clé → workers. Pourrait être inlined avec un JOIN dans la requête de stop pour économiser un round-trip. Acceptable MVP.
+
+- [ ] **`event_handlers.on_item_done` fait 3 round-trips DB**
+      Pour résoudre `(source_id → role_project_id → user_id) + (user_id → primary_key) + insert_job`. Acceptable MVP, à fusionner si latence devient sensible.
+
+- [ ] **`reassign_pending_to_shared` rowcount via parsing du tag**
+      Le helper utilise `int(tag.split()[-1])` pour récupérer le nombre de rows updated. Sensible aux changements de format asyncpg. À remplacer par `RETURNING id` + `len(rows)` si on veut plus de robustesse.
+
+- [ ] **Worker nécessite `worker.config.Settings()` instancié à l'import**
+      Comme le backend Sprint 1 — un conftest avec `os.environ.setdefault` permet l'import en test. Lazy init ferait sens à terme (cohérent avec dette Sprint 1).
+
+---
+
 ## Sprint 2 — Décisions actées et observations
 
 - [x] **OpenBao reportée pour les credentials de scraping**
