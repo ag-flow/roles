@@ -1,4 +1,5 @@
 """Tests for db_helpers.chunking_jobs — claim FOR UPDATE SKIP LOCKED + lifecycle."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -72,9 +73,7 @@ def stub_pool(stub_conn: _StubConn) -> Any:
     return _StubPool(stub_conn)
 
 
-async def test_insert_job_returns_uuid(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_insert_job_returns_uuid(stub_conn: _StubConn, stub_pool: Any) -> None:
     """insert_job persiste un row pending et retourne l'id généré."""
     from role_builder.db_helpers import chunking_jobs
 
@@ -111,9 +110,7 @@ async def test_claim_next_pending_job_returns_none_when_empty(
     from role_builder.db_helpers import chunking_jobs
 
     stub_conn.fetchrow_return = None
-    result = await chunking_jobs.claim_next_pending_job(
-        "chunking-worker-1", pool=stub_pool
-    )
+    result = await chunking_jobs.claim_next_pending_job("chunking-worker-1", pool=stub_pool)
     assert result is None
     assert stub_conn.transaction_count == 1
     methods = [c[0] for c in stub_conn.calls]
@@ -137,9 +134,7 @@ async def test_claim_next_pending_job_updates_when_row_found(
         "attempts": 0,
     }
     stub_conn.fetchrow_return = job_row
-    result = await chunking_jobs.claim_next_pending_job(
-        "chunking-worker-1", pool=stub_pool
-    )
+    result = await chunking_jobs.claim_next_pending_job("chunking-worker-1", pool=stub_pool)
     assert result == job_row
 
     methods = [c[0] for c in stub_conn.calls]
@@ -156,9 +151,7 @@ async def test_claim_next_pending_job_updates_when_row_found(
     assert job_id in update_args
 
 
-async def test_mark_processing_done_failed_lifecycle(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_mark_processing_done_failed_lifecycle(stub_conn: _StubConn, stub_pool: Any) -> None:
     """mark_processing / mark_done(chunks_produced=N) / mark_failed(error)."""
     from role_builder.db_helpers import chunking_jobs
 
@@ -181,18 +174,14 @@ async def test_mark_processing_done_failed_lifecycle(
     assert job_id in stub_conn.calls[2][2]
 
 
-async def test_list_jobs_filters_status_and_limit(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_list_jobs_filters_status_and_limit(stub_conn: _StubConn, stub_pool: Any) -> None:
     """list_jobs filtre status optionnel + LIMIT."""
     from role_builder.db_helpers import chunking_jobs
 
     rows = [{"id": uuid4(), "status": "pending"}]
     stub_conn.fetch_return = rows
 
-    result = await chunking_jobs.list_jobs(
-        status="pending", limit=10, pool=stub_pool
-    )
+    result = await chunking_jobs.list_jobs(status="pending", limit=10, pool=stub_pool)
     assert result == rows
 
     method, query, args = stub_conn.calls[0]

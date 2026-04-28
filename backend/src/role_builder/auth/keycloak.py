@@ -1,4 +1,5 @@
 """Keycloak JWT validation : JWKS fetch/cache + RS256 verify + claims check."""
+
 from __future__ import annotations
 
 import time
@@ -30,10 +31,7 @@ class KeycloakValidator:
 
     def _ensure_jwks_fresh(self) -> PyJWKClient:
         """Lazily build / refresh the JWKS client every `jwks_ttl_s` seconds."""
-        if (
-            self._jwks_client is None
-            or (time.time() - self._jwks_fetched_at) > self.jwks_ttl_s
-        ):
+        if self._jwks_client is None or (time.time() - self._jwks_fetched_at) > self.jwks_ttl_s:
             self._jwks_client = PyJWKClient(self.jwks_uri)
             self._jwks_fetched_at = time.time()
         return self._jwks_client

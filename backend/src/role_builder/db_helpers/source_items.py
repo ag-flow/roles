@@ -3,6 +3,7 @@
 `insert_source_items_bulk` utilise `executemany` avec `ON CONFLICT DO NOTHING`
 sur la contrainte UNIQUE `(source_id, platform_item_id)` pour idempotence.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -61,10 +62,7 @@ async def get_by_platform_id(
     pool: asyncpg.Pool,
 ) -> dict[str, Any] | None:
     """Lookup un source_item par sa clé naturelle (source_id, platform_item_id)."""
-    query = (
-        "SELECT * FROM source_items "
-        "WHERE source_id = $1 AND platform_item_id = $2"
-    )
+    query = "SELECT * FROM source_items WHERE source_id = $1 AND platform_item_id = $2"
     async with pool.acquire() as conn:
         row = await conn.fetchrow(query, source_id, platform_item_id)
     if row is None:
@@ -72,9 +70,7 @@ async def get_by_platform_id(
     return dict(row) if not isinstance(row, dict) else row
 
 
-async def get_by_id(
-    item_id: UUID, *, pool: asyncpg.Pool
-) -> dict[str, Any] | None:
+async def get_by_id(item_id: UUID, *, pool: asyncpg.Pool) -> dict[str, Any] | None:
     """Fetch un source_item par son id ; renvoie ``None`` si absent."""
     query = "SELECT * FROM source_items WHERE id = $1"
     async with pool.acquire() as conn:
@@ -137,11 +133,7 @@ async def update_source_item_status_by_id(
     pool: asyncpg.Pool,
 ) -> None:
     """Update status d'un source_item par son id (helper Sprint 4 chunking)."""
-    query = (
-        "UPDATE source_items "
-        "SET status = $1, updated_at = now() "
-        "WHERE id = $2"
-    )
+    query = "UPDATE source_items SET status = $1, updated_at = now() WHERE id = $2"
     async with pool.acquire() as conn:
         await conn.execute(query, status, item_id)
 

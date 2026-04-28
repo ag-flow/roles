@@ -11,6 +11,7 @@ Cycle (cf. spec 05 § Boucle principale) :
 
 En cas d'exception : mark_failed(error=str(exc)).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -71,9 +72,7 @@ class ChunkingWorker:
                     job_id=str(job_id),
                     transcript_key=transcript_key,
                 )
-                await chunking_jobs.mark_done(
-                    job_id, chunks_produced=0, pool=self._pool
-                )
+                await chunking_jobs.mark_done(job_id, chunks_produced=0, pool=self._pool)
                 await source_items.update_source_item_status_by_id(
                     item_id, "indexed", pool=self._pool
                 )
@@ -99,12 +98,8 @@ class ChunkingWorker:
                 tenant_id=tenant_id,
                 pool=self._pool,
             )
-            await chunking_jobs.mark_done(
-                job_id, chunks_produced=inserted, pool=self._pool
-            )
-            await source_items.update_source_item_status_by_id(
-                item_id, "indexed", pool=self._pool
-            )
+            await chunking_jobs.mark_done(job_id, chunks_produced=inserted, pool=self._pool)
+            await source_items.update_source_item_status_by_id(item_id, "indexed", pool=self._pool)
             log.info(
                 "chunking_worker.process_done",
                 job_id=str(job_id),
@@ -116,25 +111,19 @@ class ChunkingWorker:
                 job_id, str(exc) or exc.__class__.__name__, pool=self._pool
             )
 
-    async def run_loop(
-        self, stop_event: asyncio.Event, *, poll_interval_s: float = 2.0
-    ) -> None:
+    async def run_loop(self, stop_event: asyncio.Event, *, poll_interval_s: float = 2.0) -> None:
         """Long-lived loop : pull pending jobs, process, sleep, repeat."""
         log.info("chunking_worker.loop_start", worker_id=self._worker_id)
         while not stop_event.is_set():
             try:
-                job = await chunking_jobs.claim_next_pending_job(
-                    self._worker_id, pool=self._pool
-                )
+                job = await chunking_jobs.claim_next_pending_job(self._worker_id, pool=self._pool)
             except Exception:  # noqa: BLE001 — keep loop alive
                 log.exception("chunking_worker.claim_error")
                 job = None
 
             if job is None:
                 try:
-                    await asyncio.wait_for(
-                        stop_event.wait(), timeout=poll_interval_s
-                    )
+                    await asyncio.wait_for(stop_event.wait(), timeout=poll_interval_s)
                 except TimeoutError:
                     continue
                 else:

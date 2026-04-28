@@ -1,4 +1,5 @@
 """Tests for db_helpers.transcription_jobs — insert + reassign + list."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -61,9 +62,7 @@ def stub_pool(stub_conn: _StubConn) -> Any:
     return _StubPool(stub_conn)
 
 
-async def test_insert_job_returns_uuid(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_insert_job_returns_uuid(stub_conn: _StubConn, stub_pool: Any) -> None:
     """insert_job persiste un row pending et retourne l'id généré."""
     from role_builder.db_helpers import transcription_jobs
 
@@ -117,9 +116,7 @@ async def test_reassign_pending_to_shared_updates_pending_only(
     assert "user_xyz" in args
 
 
-async def test_list_jobs_optional_filters(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_list_jobs_optional_filters(stub_conn: _StubConn, stub_pool: Any) -> None:
     """list_jobs accepte status et worker_pool_id optionnels + LIMIT."""
     from role_builder.db_helpers import transcription_jobs
 

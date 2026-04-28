@@ -1,4 +1,5 @@
 """DTOs Pydantic pour les routes corpus (Sprint 4)."""
+
 from __future__ import annotations
 
 from typing import Any

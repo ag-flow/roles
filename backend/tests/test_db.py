@@ -1,4 +1,5 @@
 """Tests for the asyncpg pool wrapper."""
+
 from __future__ import annotations
 
 import pytest

@@ -9,6 +9,7 @@ Routes :
 Tous protégés par ``Depends(get_current_user)`` (bypass via
 ``settings.disable_auth=True`` en tests/dev).
 """
+
 from __future__ import annotations
 
 import json

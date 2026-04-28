@@ -1,4 +1,5 @@
 """Tests for auth.keycloak — JWKS cache + RS256 JWT validation via PyJWT."""
+
 from __future__ import annotations
 
 import time
@@ -33,15 +34,11 @@ def _pub_pem(pub: rsa.RSAPublicKey) -> bytes:
     )
 
 
-def _make_token(
-    priv: rsa.RSAPrivateKey, claims: dict[str, Any], kid: str = "testkid"
-) -> str:
+def _make_token(priv: rsa.RSAPrivateKey, claims: dict[str, Any], kid: str = "testkid") -> str:
     return jwt.encode(claims, _priv_pem(priv), algorithm="RS256", headers={"kid": kid})
 
 
-def _patch_signing_key(
-    monkeypatch: pytest.MonkeyPatch, public_key: rsa.RSAPublicKey
-) -> None:
+def _patch_signing_key(monkeypatch: pytest.MonkeyPatch, public_key: rsa.RSAPublicKey) -> None:
     """Patch PyJWKClient.get_signing_key_from_jwt to return our test public key."""
     from jwt import PyJWKClient
 

@@ -5,6 +5,7 @@ frontières de phrases (segments) respectées, overlap configurable.
 
 Référence : ``docs/specs/05-corpus-indexing.md`` § Stratégie de chunking.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

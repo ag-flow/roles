@@ -4,6 +4,7 @@
 1. SELECT ... FROM scraping_jobs WHERE status='pending' ... FOR UPDATE SKIP LOCKED
 2. UPDATE scraping_jobs SET status='claimed', claimed_by, claimed_at, attempts+1
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -57,9 +58,7 @@ async def insert_job(
     return new_id  # type: ignore[no-any-return]
 
 
-async def claim_next_pending_job(
-    worker_id: str, *, pool: asyncpg.Pool
-) -> dict[str, Any] | None:
+async def claim_next_pending_job(worker_id: str, *, pool: asyncpg.Pool) -> dict[str, Any] | None:
     """Atomically claim the highest-priority pending job and return its row.
 
     Returns None when no pending job is available.

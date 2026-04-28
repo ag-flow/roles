@@ -7,6 +7,7 @@ Marque le job done|failed selon le returncode.
 
 Cap simultané : `settings.max_concurrent_scrapers` via `asyncio.Semaphore`.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -120,9 +121,7 @@ class ScraperOrchestrator:
             env[f"{platform.upper()}_COOKIES_B64"] = cookies
         return env
 
-    def _build_payload(
-        self, job: dict[str, Any], source: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _build_payload(self, job: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
         prefix = f"{job['tenant_id']}/{source['role_project_id']}/{source['id']}/"
         return {
             "task_id": str(job["id"]),

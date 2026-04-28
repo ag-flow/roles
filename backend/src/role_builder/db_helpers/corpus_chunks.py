@@ -7,6 +7,7 @@ en ``vector`` côté SQL via ``$X::vector``.
 Recherche sémantique : opérateur ``<=>`` (cosine distance) ordonné ASC,
 puis Python convertit ``distance → similarity = 1 - distance``.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -115,9 +116,7 @@ async def semantic_search(
     """
     embed_literal = _embedding_to_pgvector_literal(query_embedding)
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            _SEMANTIC_SEARCH_SQL, role_project_id, embed_literal, limit
-        )
+        rows = await conn.fetch(_SEMANTIC_SEARCH_SQL, role_project_id, embed_literal, limit)
 
     results: list[dict[str, Any]] = []
     for r in rows:
@@ -161,9 +160,7 @@ async def list_by_project(
     return [dict(r) if not isinstance(r, dict) else r for r in rows]
 
 
-async def count_by_project(
-    role_project_id: UUID, *, pool: asyncpg.Pool
-) -> int:
+async def count_by_project(role_project_id: UUID, *, pool: asyncpg.Pool) -> int:
     """COUNT(*) des chunks d'un role_project."""
     async with pool.acquire() as conn:
         n = await conn.fetchval(_COUNT_BY_PROJECT_SQL, role_project_id)

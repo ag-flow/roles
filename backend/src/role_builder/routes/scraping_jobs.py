@@ -2,6 +2,7 @@
 
 GET /api/scraping-jobs?status=pending&limit=50 → liste des jobs (UI suivi).
 """
+
 from __future__ import annotations
 
 from datetime import datetime

@@ -1,4 +1,5 @@
 """MinIO client wrapper for object storage operations."""
+
 from __future__ import annotations
 
 from datetime import timedelta

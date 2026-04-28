@@ -1,4 +1,5 @@
 """Tests for auth.dependencies — FastAPI get_current_user dep + bypass."""
+
 from __future__ import annotations
 
 from typing import Any

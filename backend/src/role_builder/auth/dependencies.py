@@ -3,6 +3,7 @@
 Expose `get_current_user`, qui valide l'access token Bearer et renvoie un
 `CurrentUser`. Mode bypass via `settings.disable_auth=True` pour les tests.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -68,7 +69,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token = authorization[len("Bearer "):]
+    token = authorization[len("Bearer ") :]
     try:
         claims = await _get_validator().validate(token)
     except InvalidTokenError as exc:

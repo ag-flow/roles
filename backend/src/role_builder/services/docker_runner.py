@@ -6,6 +6,7 @@ les events NDJSON sur stdout. Un event terminal `_exit` est yieldé
 avec le returncode pour permettre à l'appelant de marquer le job
 done/failed.
 """
+
 from __future__ import annotations
 
 import asyncio

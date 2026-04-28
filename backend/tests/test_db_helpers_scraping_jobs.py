@@ -1,4 +1,5 @@
 """Tests for db_helpers.scraping_jobs — claim FOR UPDATE SKIP LOCKED + lifecycle."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -71,9 +72,7 @@ def stub_pool(stub_conn: _StubConn) -> Any:
     return _StubPool(stub_conn)
 
 
-async def test_insert_job_returns_uuid(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_insert_job_returns_uuid(stub_conn: _StubConn, stub_pool: Any) -> None:
     """insert_job returns the new id from RETURNING id."""
     from role_builder.db_helpers import scraping_jobs
 
@@ -152,9 +151,7 @@ async def test_claim_next_pending_job_updates_when_row_found(
     assert job_id in update_args
 
 
-async def test_list_jobs_filters_by_status_and_limit(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_list_jobs_filters_by_status_and_limit(stub_conn: _StubConn, stub_pool: Any) -> None:
     """list_jobs forwards status filter (when given) and the LIMIT."""
     from role_builder.db_helpers import scraping_jobs
 
@@ -180,9 +177,7 @@ async def test_list_jobs_filters_by_status_and_limit(
     assert 5 in args2
 
 
-async def test_mark_job_lifecycle(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_mark_job_lifecycle(stub_conn: _StubConn, stub_pool: Any) -> None:
     """mark_job_processing / mark_job_done / mark_job_failed each issue UPDATE."""
     from role_builder.db_helpers import scraping_jobs
 

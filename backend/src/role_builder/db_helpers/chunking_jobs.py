@@ -4,6 +4,7 @@
 1. SELECT ... FROM chunking_jobs WHERE status='pending' ... FOR UPDATE SKIP LOCKED
 2. UPDATE chunking_jobs SET status='claimed', claimed_by, claimed_at, attempts+1
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -83,9 +84,7 @@ async def insert_job(
     return new_id  # type: ignore[no-any-return]
 
 
-async def claim_next_pending_job(
-    worker_id: str, *, pool: asyncpg.Pool
-) -> dict[str, Any] | None:
+async def claim_next_pending_job(worker_id: str, *, pool: asyncpg.Pool) -> dict[str, Any] | None:
     """Atomically claim le prochain chunking_job pending. None si vide."""
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -103,17 +102,13 @@ async def mark_processing(job_id: UUID, *, pool: asyncpg.Pool) -> None:
         await conn.execute(_MARK_PROCESSING_SQL, job_id)
 
 
-async def mark_done(
-    job_id: UUID, *, chunks_produced: int, pool: asyncpg.Pool
-) -> None:
+async def mark_done(job_id: UUID, *, chunks_produced: int, pool: asyncpg.Pool) -> None:
     """Move job to 'done' avec compteur chunks_produced."""
     async with pool.acquire() as conn:
         await conn.execute(_MARK_DONE_SQL, chunks_produced, job_id)
 
 
-async def mark_failed(
-    job_id: UUID, error: str, *, pool: asyncpg.Pool
-) -> None:
+async def mark_failed(job_id: UUID, error: str, *, pool: asyncpg.Pool) -> None:
     """Move job to 'failed' avec error message + completed_at."""
     async with pool.acquire() as conn:
         await conn.execute(_MARK_FAILED_SQL, error, job_id)

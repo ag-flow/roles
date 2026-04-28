@@ -6,6 +6,7 @@ en recherche sémantique (pgvector). Le helper est volontairement mince
 pour que le ``document_writer`` Sprint 5 puisse l'appeler sans logique
 métier supplémentaire.
 """
+
 from __future__ import annotations
 
 from typing import Any

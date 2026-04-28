@@ -1,4 +1,5 @@
 """Tests for services.credit_basculer — bascule sur clé exhausted."""
+
 from __future__ import annotations
 
 from typing import Any

@@ -1,4 +1,5 @@
 """DTOs Pydantic pour les sources."""
+
 from __future__ import annotations
 
 from datetime import datetime

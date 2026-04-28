@@ -1,4 +1,5 @@
 """Tests for db_helpers.sources — asyncpg CRUD on the sources table."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -90,9 +91,7 @@ async def test_insert_source_returns_uuid(stub_conn: _StubConn, stub_pool: Any) 
     assert "https://www.youtube.com/@example" in args
 
 
-async def test_update_source_status_executes_update(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_update_source_status_executes_update(stub_conn: _StubConn, stub_pool: Any) -> None:
     """update_source_status executes UPDATE sources SET status with optional fields."""
     from role_builder.db_helpers import sources
 
@@ -114,9 +113,7 @@ async def test_update_source_status_executes_update(
     assert source_id in args
 
 
-async def test_get_source_returns_dict_or_none(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_get_source_returns_dict_or_none(stub_conn: _StubConn, stub_pool: Any) -> None:
     """get_source returns dict on hit and None on miss."""
     from role_builder.db_helpers import sources
 
@@ -139,9 +136,7 @@ async def test_get_source_returns_dict_or_none(
     assert row2 is None
 
 
-async def test_list_sources_by_project_returns_list(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_list_sources_by_project_returns_list(stub_conn: _StubConn, stub_pool: Any) -> None:
     """list_sources_by_project returns the rows from fetch()."""
     from role_builder.db_helpers import sources
 

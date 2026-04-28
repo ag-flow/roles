@@ -1,4 +1,5 @@
 """Tests for services.event_handlers — dispatch scraper events to db_helpers."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -96,15 +97,11 @@ async def test_handle_started_is_noop(
     from role_builder.services import event_handlers
 
     pool = object()  # opaque, never touched (db_helpers are patched)
-    await event_handlers.handle_scraper_event(
-        {"type": "started", "task_id": "x"}, job, pool=pool
-    )
+    await event_handlers.handle_scraper_event({"type": "started", "task_id": "x"}, job, pool=pool)
     await event_handlers.handle_scraper_event(
         {"type": "progress", "item_id": "y", "percent": 10}, job, pool=pool
     )
-    await event_handlers.handle_scraper_event(
-        {"type": "complete", "downloaded": 2}, job, pool=pool
-    )
+    await event_handlers.handle_scraper_event({"type": "complete", "downloaded": 2}, job, pool=pool)
     assert calls["insert_items"] == []
     assert calls["update_source_status"] == []
     assert calls["update_item_status"] == []

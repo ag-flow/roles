@@ -1,4 +1,5 @@
 """Tests for db_helpers.source_items — bulk insert + filters + selection."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -130,9 +131,7 @@ async def test_update_source_item_status_executes_update(
     assert "vid-1" in args
 
 
-async def test_list_items_by_source_applies_filters(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_list_items_by_source_applies_filters(stub_conn: _StubConn, stub_pool: Any) -> None:
     """list_items_by_source produces a WHERE with the filters supplied."""
     from role_builder.db_helpers import source_items
 
@@ -190,9 +189,9 @@ async def test_select_items_marks_listed_and_optional_deselect(
     methods = [c[0] for c in stub_conn.calls]
     queries = [c[1] for c in stub_conn.calls]
     # One UPDATE deselects (= false WHERE NOT id = ANY)
-    assert any(
-        "selected = false" in q and "NOT" in q.upper() for q in queries
-    ), f"missing deselect query: {queries}"
+    assert any("selected = false" in q and "NOT" in q.upper() for q in queries), (
+        f"missing deselect query: {queries}"
+    )
     # One UPDATE marks selected
     assert any("selected = true" in q for q in queries)
     assert "execute" in methods or "fetchval" in methods

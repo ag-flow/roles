@@ -9,6 +9,7 @@ Helpers Sprint 3 :
 Le worker côté container claim ses jobs via un SELECT FOR UPDATE SKIP LOCKED
 filtré sur son worker_pool_id (cf. docker/transcription-worker/).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -49,9 +50,7 @@ async def insert_job(
     return new_id  # type: ignore[no-any-return]
 
 
-async def reassign_pending_to_shared(
-    user_pool_id: str, *, pool: asyncpg.Pool
-) -> int:
+async def reassign_pending_to_shared(user_pool_id: str, *, pool: asyncpg.Pool) -> int:
     """Bascule worker_pool_id=user_X -> 'shared_default' pour tous les jobs pending.
 
     Retourne le nombre de lignes modifiées. Utilisé sur exhausted/invalid d'une

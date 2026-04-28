@@ -1,4 +1,5 @@
 """CRUD asyncpg pour la table `sources` (cf. migration 0003)."""
+
 from __future__ import annotations
 
 from typing import Any

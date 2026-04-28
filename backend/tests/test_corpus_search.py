@@ -1,4 +1,5 @@
 """Tests for services.corpus_search — RAG helper réutilisable Sprint 5."""
+
 from __future__ import annotations
 
 from typing import Any

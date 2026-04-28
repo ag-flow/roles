@@ -1,4 +1,5 @@
 """Tests for the AgflowClient (Mistral API abstraction)."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -17,6 +18,7 @@ class _StubResponse:
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
             from httpx import HTTPStatusError, Request, Response
+
             raise HTTPStatusError(
                 "fake",
                 request=Request("POST", "http://x"),

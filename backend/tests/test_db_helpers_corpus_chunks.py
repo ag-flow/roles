@@ -1,4 +1,5 @@
 """Tests for db_helpers.corpus_chunks — bulk insert + semantic_search pgvector."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -63,9 +64,7 @@ def stub_pool(stub_conn: _StubConn) -> Any:
     return _StubPool(stub_conn)
 
 
-async def test_insert_chunks_bulk_inserts_all_rows(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_insert_chunks_bulk_inserts_all_rows(stub_conn: _StubConn, stub_pool: Any) -> None:
     """insert_chunks_bulk fait un executemany avec un row par chunk."""
     from role_builder.db_helpers import corpus_chunks
 
@@ -112,9 +111,7 @@ async def test_insert_chunks_bulk_inserts_all_rows(
     assert "Hello" in first
 
 
-async def test_insert_chunks_bulk_empty_returns_zero(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_insert_chunks_bulk_empty_returns_zero(stub_conn: _StubConn, stub_pool: Any) -> None:
     """Liste vide → pas d'appel SQL, retourne 0."""
     from role_builder.db_helpers import corpus_chunks
 
@@ -184,9 +181,7 @@ async def test_semantic_search_orders_by_cosine_distance(
     assert 5 in args
 
 
-async def test_semantic_search_filters_min_similarity(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_semantic_search_filters_min_similarity(stub_conn: _StubConn, stub_pool: Any) -> None:
     """min_similarity=0.7 filtre côté Python (les rows < seuil sont droppées)."""
     from role_builder.db_helpers import corpus_chunks
 
@@ -219,18 +214,14 @@ async def test_semantic_search_filters_min_similarity(
     assert results[0]["text"] == "high"
 
 
-async def test_list_by_item_filters_by_source_item(
-    stub_conn: _StubConn, stub_pool: Any
-) -> None:
+async def test_list_by_item_filters_by_source_item(stub_conn: _StubConn, stub_pool: Any) -> None:
     """list_by_item filtre source_item_id + LIMIT/OFFSET."""
     from role_builder.db_helpers import corpus_chunks
 
     item_id = uuid4()
     rows = [{"id": uuid4(), "text": "a"}, {"id": uuid4(), "text": "b"}]
     stub_conn.fetch_return = rows
-    result = await corpus_chunks.list_by_item(
-        item_id, limit=10, offset=5, pool=stub_pool
-    )
+    result = await corpus_chunks.list_by_item(item_id, limit=10, offset=5, pool=stub_pool)
     assert result == rows
     method, query, args = stub_conn.calls[0]
     assert method == "fetch"

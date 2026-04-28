@@ -1,4 +1,5 @@
 """Tests for the transcript chunker."""
+
 from __future__ import annotations
 
 
@@ -50,9 +51,7 @@ def test_chunk_overlap_creates_repetition() -> None:
 
     # 4 segments de 80 chars (~20 tokens chacun) → ~80 tokens total
     transcript = {
-        "segments": [
-            _make_segment(i * 5.0, (i + 1) * 5.0, "x" * 80) for i in range(4)
-        ],
+        "segments": [_make_segment(i * 5.0, (i + 1) * 5.0, "x" * 80) for i in range(4)],
     }
     chunks = chunk_transcript(transcript, target_tokens=40, overlap_tokens=20)
     # Premier chunk : 2 segments = 40 tokens. Backtrack 1 segment (20 tokens).

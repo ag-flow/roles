@@ -1,4 +1,5 @@
 """Async client for OpenBao KV v2 secrets engine."""
+
 from __future__ import annotations
 
 import httpx

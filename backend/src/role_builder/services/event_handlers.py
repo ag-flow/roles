@@ -6,6 +6,7 @@ events internes injectés par docker_runner (`_invalid_line`, `_exit`)
 sont logués mais ne déclenchent pas d'écriture DB — l'orchestrator
 inspecte le returncode pour clore le job.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -140,9 +141,7 @@ async def _handle_item_done(
         if primary_key is not None:
             worker_pool_id = f"user_{user_id}"
 
-    item_row = await si.get_by_platform_id(
-        job["source_id"], platform_item_id, pool=pool
-    )
+    item_row = await si.get_by_platform_id(job["source_id"], platform_item_id, pool=pool)
     if item_row is None:
         log.error(
             "scraper.item_done_lookup_failed",

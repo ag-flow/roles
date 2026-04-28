@@ -11,6 +11,7 @@ Un worker est uniquement identifié par :
 
 La table `transcription_workers` (migration 0007) stocke le mapping et l'état.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -147,9 +148,7 @@ class WorkerManager:
         container_id = stdout.decode("utf-8", errors="replace").strip()
         # Si docker run échoue, container_id sera vide → on lève.
         if not container_id:
-            raise RuntimeError(
-                f"docker run produced empty container_id for {worker_id}"
-            )
+            raise RuntimeError(f"docker run produced empty container_id for {worker_id}")
 
         await self._insert_worker_row(
             worker_pool_id=worker_pool_id,
@@ -201,9 +200,7 @@ class WorkerManager:
             return 0
         return await self._stop_and_mark(workers)
 
-    async def run_auto_stop_loop(
-        self, stop_event: asyncio.Event, period_seconds: int = 60
-    ) -> None:
+    async def run_auto_stop_loop(self, stop_event: asyncio.Event, period_seconds: int = 60) -> None:
         """Boucle tournant tant que stop_event n'est pas set.
 
         Pattern strictement identique à scraper_orchestrator.run_loop : on

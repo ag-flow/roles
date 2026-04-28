@@ -1,4 +1,5 @@
 """Tests for routes.corpus — search + chunks + transcript + audio-url."""
+
 from __future__ import annotations
 
 import json
@@ -99,9 +100,7 @@ def test_get_chunks_filters_by_source_item(
         return []
 
     monkeypatch.setattr(corpus_route.chunks_helper, "list_by_item", fake_list_by_item)
-    monkeypatch.setattr(
-        corpus_route.chunks_helper, "list_by_project", fake_list_by_project
-    )
+    monkeypatch.setattr(corpus_route.chunks_helper, "list_by_project", fake_list_by_project)
 
     resp = client.get(
         f"/api/role-projects/{project_id}/corpus/chunks",
@@ -152,9 +151,7 @@ def test_get_chunks_without_source_item_lists_project(
         captured["called_by_item"] = (args, kwargs)
         return []
 
-    monkeypatch.setattr(
-        corpus_route.chunks_helper, "list_by_project", fake_list_by_project
-    )
+    monkeypatch.setattr(corpus_route.chunks_helper, "list_by_project", fake_list_by_project)
     monkeypatch.setattr(corpus_route.chunks_helper, "list_by_item", fake_list_by_item)
 
     resp = client.get(f"/api/role-projects/{project_id}/corpus/chunks")
@@ -206,9 +203,7 @@ def test_get_transcript_returns_pivot_json(
     stub_minio = _StubMinio()
     monkeypatch.setattr(corpus_route.minio_module, "minio_client", stub_minio)
 
-    resp = client.get(
-        f"/api/role-projects/{project_id}/corpus/items/{item_id}/transcript"
-    )
+    resp = client.get(f"/api/role-projects/{project_id}/corpus/items/{item_id}/transcript")
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["item_id"] == str(item_id)
@@ -231,9 +226,7 @@ def test_get_transcript_404_when_no_transcript_key(
 
     monkeypatch.setattr(corpus_route.items_helper, "get_by_id", fake_get)
 
-    resp = client.get(
-        f"/api/role-projects/{project_id}/corpus/items/{item_id}/transcript"
-    )
+    resp = client.get(f"/api/role-projects/{project_id}/corpus/items/{item_id}/transcript")
     assert resp.status_code == 404
 
 
@@ -262,17 +255,13 @@ def test_get_audio_url_returns_presigned_url(
             self.calls: list[dict[str, Any]] = []
 
         def presigned_get_url(self, bucket: str, key: str, *, expires_seconds: int) -> str:
-            self.calls.append(
-                {"bucket": bucket, "key": key, "expires_seconds": expires_seconds}
-            )
+            self.calls.append({"bucket": bucket, "key": key, "expires_seconds": expires_seconds})
             return signed_url
 
     stub_minio = _StubMinio()
     monkeypatch.setattr(corpus_route.minio_module, "minio_client", stub_minio)
 
-    resp = client.get(
-        f"/api/role-projects/{project_id}/corpus/items/{item_id}/audio-url"
-    )
+    resp = client.get(f"/api/role-projects/{project_id}/corpus/items/{item_id}/audio-url")
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["item_id"] == str(item_id)

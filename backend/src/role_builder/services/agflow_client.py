@@ -3,6 +3,7 @@
 MVP : appel direct ``api.mistral.ai``. Phase 2 : swap interne vers ag.flow
 quand son OpenAPI sera figé, sans changer l'interface des callers.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -37,17 +38,21 @@ class AgflowClient:
         chat_model: str | None = None,
         base_url: str | None = None,
     ) -> None:
-        self._api_key = api_key if api_key is not None else getattr(
-            settings, "mistral_api_key", ""
+        self._api_key = api_key if api_key is not None else getattr(settings, "mistral_api_key", "")
+        self._embed_model = (
+            embed_model
+            if embed_model is not None
+            else getattr(settings, "mistral_embed_model", "mistral-embed")
         )
-        self._embed_model = embed_model if embed_model is not None else getattr(
-            settings, "mistral_embed_model", "mistral-embed"
+        self._chat_model = (
+            chat_model
+            if chat_model is not None
+            else getattr(settings, "mistral_chat_model", "mistral-large-latest")
         )
-        self._chat_model = chat_model if chat_model is not None else getattr(
-            settings, "mistral_chat_model", "mistral-large-latest"
-        )
-        self._base_url = base_url if base_url is not None else getattr(
-            settings, "mistral_base_url", "https://api.mistral.ai"
+        self._base_url = (
+            base_url
+            if base_url is not None
+            else getattr(settings, "mistral_base_url", "https://api.mistral.ai")
         )
         self._http: Any = httpx.AsyncClient(
             base_url=self._base_url,

@@ -1,4 +1,5 @@
 """Tests for the embedder wrapper around AgflowClient."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -20,9 +21,7 @@ async def test_embed_texts_delegates_to_agflow_client(
             captured_texts.append(texts)
             return [[0.1] * 1024 for _ in texts]
 
-    monkeypatch.setattr(
-        agflow_client, "get_agflow_client", lambda: _StubClient(), raising=True
-    )
+    monkeypatch.setattr(agflow_client, "get_agflow_client", lambda: _StubClient(), raising=True)
 
     vectors = await embedder.embed_texts(["a", "b", "c"])
     assert len(vectors) == 3
@@ -44,9 +43,7 @@ async def test_embed_texts_returns_empty_for_empty_input(
             called["n"] += 1
             return []
 
-    monkeypatch.setattr(
-        agflow_client, "get_agflow_client", lambda: _StubClient(), raising=True
-    )
+    monkeypatch.setattr(agflow_client, "get_agflow_client", lambda: _StubClient(), raising=True)
 
     result = await embedder.embed_texts([])
     assert result == []

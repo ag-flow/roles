@@ -1,4 +1,5 @@
 """Tests for routes.scraping_jobs — GET /api/scraping-jobs."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

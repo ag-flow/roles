@@ -1,4 +1,5 @@
 """Tests for GET /api/me — retourne le user courant via get_current_user."""
+
 from __future__ import annotations
 
 import pytest

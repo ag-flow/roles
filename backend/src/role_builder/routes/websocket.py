@@ -5,6 +5,7 @@ Le client se connecte sur `/ws?tenant_id=<uuid>`. À chaque NOTIFY relayé par
 
 Pas d'auth en MVP — sera ajouté quand le multi-tenant sera réel.
 """
+
 from __future__ import annotations
 
 import asyncio

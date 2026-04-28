@@ -1,4 +1,5 @@
 """Tests for ChunkingWorker — orchestration download → chunk → embed → insert."""
+
 from __future__ import annotations
 
 import asyncio
@@ -13,9 +14,7 @@ class _StubPool:
     """Pool sans état — les db_helpers sont monkeypatchés directement."""
 
     def acquire(self) -> Any:
-        raise AssertionError(
-            "Pool.acquire ne doit pas être appelé : db_helpers monkeypatchés"
-        )
+        raise AssertionError("Pool.acquire ne doit pas être appelé : db_helpers monkeypatchés")
 
 
 @pytest.fixture()
@@ -68,20 +67,24 @@ def fake_calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
         return [[0.1] * 1024 for _ in texts]
 
     async def fake_insert_bulk(
-        chunks: list[dict], *, source_item_id: Any, role_project_id: Any,
-        tenant_id: Any, pool: Any,
+        chunks: list[dict],
+        *,
+        source_item_id: Any,
+        role_project_id: Any,
+        tenant_id: Any,
+        pool: Any,
     ) -> int:
-        calls["insert_bulk"].append({
-            "chunks": chunks,
-            "source_item_id": source_item_id,
-            "role_project_id": role_project_id,
-            "tenant_id": tenant_id,
-        })
+        calls["insert_bulk"].append(
+            {
+                "chunks": chunks,
+                "source_item_id": source_item_id,
+                "role_project_id": role_project_id,
+                "tenant_id": tenant_id,
+            }
+        )
         return len(chunks)
 
-    async def fake_update_item_status(
-        item_id: Any, status: str, *, pool: Any
-    ) -> None:
+    async def fake_update_item_status(item_id: Any, status: str, *, pool: Any) -> None:
         calls["update_item_status"].append({"item_id": item_id, "status": status})
 
     monkeypatch.setattr(cj_module, "mark_processing", fake_mark_processing)
@@ -92,7 +95,9 @@ def fake_calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
     monkeypatch.setattr(embedder_module, "embed_texts", fake_embed_texts)
     monkeypatch.setattr(cc_module, "insert_chunks_bulk", fake_insert_bulk)
     monkeypatch.setattr(
-        si_module, "update_source_item_status_by_id", fake_update_item_status,
+        si_module,
+        "update_source_item_status_by_id",
+        fake_update_item_status,
         raising=False,
     )
     return calls
@@ -194,9 +199,7 @@ async def test_process_one_job_marks_failed_on_exception(
 
     await worker.process_one_job(job)
 
-    assert fake_calls["mark_failed"] == [
-        {"job_id": job_id, "error": "embed exploded"}
-    ]
+    assert fake_calls["mark_failed"] == [{"job_id": job_id, "error": "embed exploded"}]
     assert fake_calls["mark_done"] == []
     assert fake_calls["insert_bulk"] == []
 

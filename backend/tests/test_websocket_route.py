@@ -2,6 +2,7 @@
 
 Inject a stub `WSRelay` (no real DB connection) into the singleton slot.
 """
+
 from __future__ import annotations
 
 import asyncio

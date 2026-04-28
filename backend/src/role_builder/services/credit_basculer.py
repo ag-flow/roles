@@ -10,6 +10,7 @@ trigger DB est en place). Il :
   1. Stoppe les workers user liés à cette clé via WorkerManager
   2. Réassigne les transcription_jobs encore pending vers `shared_default`
 """
+
 from __future__ import annotations
 
 from typing import Any

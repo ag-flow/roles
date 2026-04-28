@@ -2,6 +2,7 @@
 
 Point d'extension futur : cache local, normalisation, stratégies de retry.
 """
+
 from __future__ import annotations
 
 from role_builder.services import agflow_client as agflow_module

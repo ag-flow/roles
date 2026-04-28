@@ -9,6 +9,7 @@ Routes :
 Authentification : Keycloak Bearer (Phase A). Le `tenant_id` provient du
 `CurrentUser` (constante `TENANT_ID_DEFAULT` MVP, multi-tenant Phase 2).
 """
+
 from __future__ import annotations
 
 from datetime import datetime

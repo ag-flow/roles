@@ -1,4 +1,5 @@
 """Tests for services.worker_manager — provisioning Docker + auto-stop loop."""
+
 from __future__ import annotations
 
 import asyncio

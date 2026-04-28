@@ -1,4 +1,5 @@
 """Tests for services.docker_runner — subprocess docker run + NDJSON streaming."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -97,10 +98,7 @@ async def test_run_container_yields_invalid_line_on_bad_json(
     )
 
     events = [
-        ev
-        async for ev in docker_runner.run_container(
-            "img:latest", env={}, stdin_payload={}
-        )
+        ev async for ev in docker_runner.run_container("img:latest", env={}, stdin_payload={})
     ]
     assert events[0]["type"] == "_invalid_line"
     assert "this is not json" in events[0]["raw"]
