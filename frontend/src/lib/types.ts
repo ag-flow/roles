@@ -245,6 +245,19 @@ export interface MistralConfig {
   status: 'configured' | 'not-configured';
 }
 
+export interface RoleProject {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  display_name: string;
+  description: string | null;
+  global_directives: string | null;
+  mistral_secret_ref: string | null;
+  identity: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Prompts types ────────────────────────────────────────────────────────────
 
 export interface Prompt {
