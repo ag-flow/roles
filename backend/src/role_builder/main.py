@@ -15,6 +15,7 @@ from role_builder.db import db_pool
 from role_builder.logging_setup import configure_logging
 from role_builder.routes import (
     corpus,
+    credentials,
     health,
     me,
     prompts,
@@ -119,4 +120,5 @@ app.include_router(scraping_jobs.router, prefix="/api", tags=["scraping-jobs"])
 app.include_router(corpus.router, prefix="/api", tags=["corpus"])
 app.include_router(prompts.router, prefix="/api/prompts", tags=["prompts"])
 app.include_router(synthesis.router, prefix="/api", tags=["synthesis"])
+app.include_router(credentials.router, prefix="/api", tags=["credentials"])
 app.include_router(websocket.router, tags=["websocket"])
