@@ -14,6 +14,7 @@ from role_builder.config import settings
 from role_builder.db import db_pool
 from role_builder.logging_setup import configure_logging
 from role_builder.routes import (
+    agflow_export,
     corpus,
     credentials,
     health,
@@ -140,4 +141,5 @@ app.include_router(credentials.router, prefix="/api", tags=["credentials"])
 app.include_router(transcription_keys.router, prefix="/api", tags=["transcription-keys"])
 app.include_router(mistral_config.router, prefix="/api", tags=["mistral-config"])
 app.include_router(role_projects_route.router, prefix="/api", tags=["role-projects"])
+app.include_router(agflow_export.router, prefix="/api", tags=["agflow-export"])
 app.include_router(websocket.router, tags=["websocket"])
