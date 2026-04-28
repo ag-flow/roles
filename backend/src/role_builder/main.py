@@ -18,6 +18,7 @@ from role_builder.routes import (
     credentials,
     health,
     me,
+    mistral_config,
     prompts,
     scraping_jobs,
     sources,
@@ -134,4 +135,5 @@ app.include_router(prompts.router, prefix="/api/prompts", tags=["prompts"])
 app.include_router(synthesis.router, prefix="/api", tags=["synthesis"])
 app.include_router(credentials.router, prefix="/api", tags=["credentials"])
 app.include_router(transcription_keys.router, prefix="/api", tags=["transcription-keys"])
+app.include_router(mistral_config.router, prefix="/api", tags=["mistral-config"])
 app.include_router(websocket.router, tags=["websocket"])
