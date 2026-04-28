@@ -25,6 +25,7 @@ def test_settings_loads_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.openbao_token == "token"
     assert s.log_level == "INFO"  # default
     assert s.agflow_base_url == "https://docker-agflow.yoops.org"  # default
+    assert s.agflow_api_token == ""  # Sprint 7 — token admin ag.flow
     # Sprint 2 Phase C defaults
     assert s.youtube_cookies_b64 == ""
     assert s.instagram_cookies_b64 == ""

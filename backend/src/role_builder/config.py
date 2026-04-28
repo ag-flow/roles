@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     openbao_token: str
 
     agflow_base_url: str = "https://docker-agflow.yoops.org"
+    agflow_api_token: str = ""
     log_level: str = "INFO"
 
     # Sprint 2 — Scrapers
