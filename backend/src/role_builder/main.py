@@ -28,6 +28,9 @@ from role_builder.routes import (
     websocket,
 )
 from role_builder.routes import (
+    role_documents as role_documents_route,
+)
+from role_builder.routes import (
     role_projects as role_projects_route,
 )
 from role_builder.services.chunking_worker import ChunkingWorker
@@ -142,4 +145,5 @@ app.include_router(transcription_keys.router, prefix="/api", tags=["transcriptio
 app.include_router(mistral_config.router, prefix="/api", tags=["mistral-config"])
 app.include_router(role_projects_route.router, prefix="/api", tags=["role-projects"])
 app.include_router(agflow_export.router, prefix="/api", tags=["agflow-export"])
+app.include_router(role_documents_route.router, prefix="/api", tags=["role-documents"])
 app.include_router(websocket.router, tags=["websocket"])
