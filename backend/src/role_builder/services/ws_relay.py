@@ -32,6 +32,7 @@ _CHANNELS = (
     "runs_changes",
     "workers_changes",
     "keys_changes",
+    "agflow_push_events",
 )
 
 

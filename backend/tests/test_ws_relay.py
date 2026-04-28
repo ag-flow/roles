@@ -60,7 +60,7 @@ def _make_payload(
     )
 
 
-async def test_start_listens_on_4_channels(stub_conn: _StubAsyncpgConn) -> None:
+async def test_start_listens_on_5_channels(stub_conn: _StubAsyncpgConn) -> None:
     from role_builder.services.ws_relay import WSRelay
 
     relay = WSRelay(dsn="postgresql://stub")
@@ -71,12 +71,43 @@ async def test_start_listens_on_4_channels(stub_conn: _StubAsyncpgConn) -> None:
         "runs_changes",
         "workers_changes",
         "keys_changes",
+        "agflow_push_events",
     }
     for chan in stub_conn.listeners.values():
         assert len(chan) == 1
 
     await relay.stop()
     assert stub_conn.closed is True
+
+
+async def test_relay_dispatches_agflow_push_events(
+    stub_conn: _StubAsyncpgConn,
+) -> None:
+    """Le canal agflow_push_events est routé aux subscribers du bon tenant."""
+    from role_builder.services.ws_relay import WSRelay
+
+    tenant_id = uuid4()
+    relay = WSRelay(dsn="postgresql://stub")
+    await relay.start()
+
+    queue = relay.subscribe(tenant_id=tenant_id)
+    payload = json.dumps(
+        {
+            "tenant_id": str(tenant_id),
+            "project_id": str(uuid4()),
+            "step": "zip_built",
+            "status": "in_progress",
+            "detail": {"size_bytes": 12345},
+        }
+    )
+    stub_conn.fire("agflow_push_events", payload)
+
+    event = await asyncio.wait_for(queue.get(), timeout=0.5)
+    assert event["channel"] == "agflow_push_events"
+    assert event["payload"]["step"] == "zip_built"
+    assert event["payload"]["tenant_id"] == str(tenant_id)
+
+    await relay.stop()
 
 
 async def test_subscribe_receives_event_for_matching_tenant(stub_conn: _StubAsyncpgConn) -> None:
