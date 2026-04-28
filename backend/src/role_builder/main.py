@@ -22,6 +22,7 @@ from role_builder.routes import (
     scraping_jobs,
     sources,
     synthesis,
+    transcription_keys,
     websocket,
 )
 from role_builder.services.chunking_worker import ChunkingWorker
@@ -121,4 +122,5 @@ app.include_router(corpus.router, prefix="/api", tags=["corpus"])
 app.include_router(prompts.router, prefix="/api/prompts", tags=["prompts"])
 app.include_router(synthesis.router, prefix="/api", tags=["synthesis"])
 app.include_router(credentials.router, prefix="/api", tags=["credentials"])
+app.include_router(transcription_keys.router, prefix="/api", tags=["transcription-keys"])
 app.include_router(websocket.router, tags=["websocket"])
