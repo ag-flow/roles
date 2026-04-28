@@ -391,3 +391,39 @@ async def test_delete_documents_by_run_returns_count(stub_conn: _StubConn, stub_
     assert "DELETE FROM role_documents" in query
     assert "source_run_id" in query
     assert run_id in args
+
+
+# ---------------------------------------------------------------------------
+# Tests list_current_by_project_grouped
+# ---------------------------------------------------------------------------
+
+
+async def test_list_current_by_project_grouped_groups_by_section(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """list_current_by_project_grouped groupe les docs par section correctement."""
+    from unittest.mock import AsyncMock, patch
+
+    from role_builder.db_helpers import role_documents
+
+    project_id = uuid4()
+    doc1 = {"id": uuid4(), "section": "Role", "name": "doc_a", "content": "..."}
+    doc2 = {"id": uuid4(), "section": "Role", "name": "doc_b", "content": "..."}
+    doc3 = {"id": uuid4(), "section": "Missions", "name": "mission1", "content": "..."}
+    doc4 = {"id": uuid4(), "section": "Skills", "name": "skill1", "content": "..."}
+
+    with patch.object(
+        role_documents,
+        "list_current_by_project",
+        new=AsyncMock(return_value=[doc1, doc2, doc3, doc4]),
+    ):
+        result = await role_documents.list_current_by_project_grouped(
+            project_id, pool=stub_pool
+        )
+
+    assert set(result.keys()) == {"Role", "Missions", "Skills"}
+    assert len(result["Role"]) == 2
+    assert result["Role"][0] == doc1
+    assert result["Role"][1] == doc2
+    assert result["Missions"] == [doc3]
+    assert result["Skills"] == [doc4]

@@ -227,3 +227,35 @@ async def test_list_for_user_returns_empty_list_when_no_rows(
     result = await role_projects.list_for_user(user_id, pool=stub_pool_fetch)  # type: ignore[arg-type]
 
     assert result == []
+
+
+async def test_update_target_role_id_sends_update(stub_conn: _StubConn, stub_pool: Any) -> None:
+    """update_target_role_id envoie UPDATE role_projects SET target_role_id."""
+    from role_builder.db_helpers import role_projects
+
+    stub_conn.execute_return = "UPDATE 1"
+    project_id = uuid4()
+    target_role_id = "agflow-role-abc123"
+
+    await role_projects.update_target_role_id(project_id, target_role_id, pool=stub_pool)
+
+    assert len(stub_conn.calls) == 1
+    method, query, args = stub_conn.calls[0]
+    assert method == "execute"
+    assert "UPDATE role_projects" in query
+    assert "target_role_id" in query
+    assert args[0] == project_id
+    assert args[1] == target_role_id
+
+
+async def test_update_target_role_id_raises_value_error_when_not_found(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """update_target_role_id lève ValueError si execute retourne 'UPDATE 0'."""
+    from role_builder.db_helpers import role_projects
+
+    stub_conn.execute_return = "UPDATE 0"
+    project_id = uuid4()
+
+    with pytest.raises(ValueError, match=str(project_id)):
+        await role_projects.update_target_role_id(project_id, "some-id", pool=stub_pool)

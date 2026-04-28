@@ -7,6 +7,7 @@ une seule étant ``is_current=true`` à la fois (index unique partiel en DB).
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 import asyncpg
@@ -242,3 +243,19 @@ async def delete_documents_by_run(run_id: UUID, *, pool: asyncpg.Pool) -> int:
         return int(result.split()[-1])
     except (IndexError, ValueError):
         return 0
+
+
+async def list_current_by_project_grouped(
+    role_project_id: UUID, *, pool: asyncpg.Pool,
+) -> dict[str, list[dict[str, Any]]]:
+    """Retourne {section_name: [doc_dict, ...]} pour tous les docs is_current=True
+    du projet, groupés par section. Section sans doc current → absente du dict.
+
+    Implémentation : appelle `list_current_by_project` puis groupe Python-side.
+    """
+    docs = await list_current_by_project(role_project_id, pool=pool)
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for d in docs:
+        section = str(d["section"])
+        grouped.setdefault(section, []).append(d)
+    return grouped
