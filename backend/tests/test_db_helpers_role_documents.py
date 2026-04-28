@@ -427,3 +427,39 @@ async def test_list_current_by_project_grouped_groups_by_section(
     assert result["Role"][1] == doc2
     assert result["Missions"] == [doc3]
     assert result["Skills"] == [doc4]
+
+
+# ---------------------------------------------------------------------------
+# Tests D0.1.1 — update_content
+# ---------------------------------------------------------------------------
+
+
+async def test_update_content_updates_content_and_returns_id(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """update_content : UPDATE role_documents SET content = $2 + RETURNING id, args (doc_id, content)."""
+    from role_builder.db_helpers import role_documents
+
+    doc_id = uuid4()
+    stub_conn.fetchval_return = doc_id
+
+    await role_documents.update_content(doc_id, "nouveau contenu manuel", pool=stub_pool)
+
+    assert len(stub_conn.calls) == 1
+    method, query, args = stub_conn.calls[0]
+    assert method == "fetchval"
+    assert "UPDATE role_documents" in query
+    assert "SET content = $2" in query
+    assert "RETURNING id" in query
+    assert args == (doc_id, "nouveau contenu manuel")
+
+
+async def test_update_content_unknown_id_raises_value_error(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """update_content : si fetchval retourne None (doc inexistant), lève ValueError."""
+    from role_builder.db_helpers import role_documents
+
+    stub_conn.fetchval_return = None
+    with pytest.raises(ValueError, match="not found"):
+        await role_documents.update_content(uuid4(), "x", pool=stub_pool)

@@ -105,6 +105,13 @@ _UNLOCK_SQL = """
 
 _DELETE_BY_RUN_SQL = "DELETE FROM role_documents WHERE source_run_id = $1"
 
+_UPDATE_CONTENT_SQL = """
+    UPDATE role_documents
+    SET content = $2, updated_at = now()
+    WHERE id = $1
+    RETURNING id
+"""
+
 
 async def insert_role_document(
     *,
@@ -233,6 +240,18 @@ async def unlock_document(doc_id: UUID, *, pool: asyncpg.Pool) -> None:
     """Déverrouille un document (locked=false)."""
     async with pool.acquire() as conn:
         await conn.execute(_UNLOCK_SQL, doc_id)
+
+
+async def update_content(doc_id: UUID, content: str, *, pool: asyncpg.Pool) -> None:
+    """Met à jour le contenu d'un document (édition manuelle in-place).
+
+    Lève ValueError si doc_id inexistant. Ne crée PAS de nouvelle version :
+    c'est une édition sur la version actuelle.
+    """
+    async with pool.acquire() as conn:
+        result = await conn.fetchval(_UPDATE_CONTENT_SQL, doc_id, content)
+    if result is None:
+        raise ValueError(f"doc_id {doc_id} not found in role_documents")
 
 
 async def delete_documents_by_run(run_id: UUID, *, pool: asyncpg.Pool) -> int:
