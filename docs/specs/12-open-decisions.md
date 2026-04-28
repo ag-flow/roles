@@ -331,6 +331,107 @@
 
 ---
 
+## Sprint 6 — Décisions actées et observations
+
+- [x] **Composant `StatusIndicator` partagé**
+      → **Décision (sprint 6) :** un seul composant `StatusIndicator`
+      dans `frontend/src/components/` qui gère 8 statuts via maps :
+      `active|configured` (vert), `low|expired|not-configured` (orange),
+      `invalid|revoked|exhausted` (rouge). Inline styles (pas de Tailwind),
+      cercle coloré + label français. Réutilisé dans tous les sous-onglets
+      Ma stack.
+
+- [x] **Validation cookies = parse format Netscape (pas appel scraper)**
+      → **Décision (sprint 6) :** `services/credentials_validator.py`
+      parse le format Netscape `cookies.txt` (7 champs tab-séparés) et vérifie
+      la présence d'au moins un cookie clé par plateforme :
+      - YouTube : `SID` ou `SAPISID` ou `__Secure-3PSID`
+      - Instagram : `sessionid`
+      - TikTok : `sessionid` ou `sid_tt`
+      Le test "Tester maintenant" via container scraper réel est reporté
+      Phase 2 (coût compute, complexité). MVP : si parse OK + cookie clé
+      présent → status='active'.
+
+- [x] **`check_mistral_secret_exists` = noop MVP**
+      → **Décision (sprint 6) :** `routes/mistral_config.py` calcule
+      le statut localement : `configured` si `secret_ref` non-vide, sinon
+      `not-configured`. Pas d'appel `GET /api/admin/secrets` ag.flow car
+      l'endpoint admin n'est pas encore disponible. À câbler quand ag.flow
+      exposera l'API admin (Phase 2).
+
+- [x] **Mistral config par projet (UX liste projets)**
+      → **Décision (sprint 6) :** la spec 07 dit que `mistral_secret_ref`
+      est par-`role_project` (multi-projet possible avec secrets différents).
+      L'onglet Ma stack étant cross-project, l'UX liste tous les projets
+      du user (`GET /api/role-projects` ajouté en Phase J) avec leur statut
+      Mistral et un bouton "Configurer" par projet qui ouvre une modal.
+
+- [x] **APScheduler pour les jobs périodiques**
+      → **Décision (sprint 6) :** dépendance `apscheduler>=3.10.4` ajoutée
+      à `pyproject.toml`. Wrapper `RoleBuilderScheduler` dans
+      `services/scheduler.py` instancie `AsyncIOScheduler` avec 3 jobs :
+      `poll_credit_balances` (interval 1h), `reset_monthly_spend`
+      (cron jour 1 minuit), `cleanup_revoked_secrets` (cron 3h00 quotidien,
+      no-op MVP). Démarré dans le lifespan FastAPI (gardé par
+      `DISABLE_SCHEDULER`).
+
+- [x] **Email reporté Phase 2**
+      → **Décision (sprint 6) :** pas d'envoi email MVP. Les notifications
+      `credit_exhausted`, `quota_warning_50/80/95%`, `cookies_expiring`
+      ne sont pas envoyées en email. Visibilité uniquement via UI
+      (StatusIndicator + bandeaux warning) + WebSocket push via PG NOTIFY.
+      Service email (SMTP/SendGrid/Mailgun) à câbler Phase 2 selon le
+      homelab disponible.
+
+- [x] **Worker provisioning/stop hooks stubbed dans routes transcription_keys**
+      → **Décision (sprint 6) :** `routes/transcription_keys.py` appelle
+      `_trigger_worker_provisioning` et `_trigger_worker_stop` qui sont
+      no-ops MVP (logs uniquement). Le `WorkerManager` est un singleton
+      démarré dans le lifespan FastAPI mais pas exposé via `app.state` ni
+      `Depends`. Pour activer le triggering réel, il faudra refactor
+      `main.py` pour exposer `app.state.worker_manager` + `Depends(get_worker_manager)`.
+      Reporté Phase 2.
+
+- [x] **Slider workers 1-5 (défaut 1) avec debounce 500ms**
+      → **Décision (sprint 6) :** `KeySettings.tsx` utilise
+      `setTimeout(persist, 500)` pour limiter les PATCH à un par 500ms
+      pendant que l'utilisateur slide. Toggle primaire/fallback persist
+      immédiatement (1 click = 1 PATCH).
+
+- [x] **Détection low-balance = 20% du cap mensuel ou 20$ si pas de cap**
+      → **Décision (sprint 6) :** `credit_monitor.poll_all_balances`
+      log warning `balance_low` si `balance <= 0.20 * monthly_cap_usd`
+      (ou `balance <= 20$` si pas de cap configuré). Pas de side-effect
+      DB MVP (le UI affichera l'orange via le calcul côté frontend dans
+      `BalanceBadge`). Status DB `low` est mis à jour uniquement par les
+      providers qui retournent l'info eux-mêmes (cf. `mark_invalid` /
+      `mark_exhausted` Sprint 3).
+
+- [ ] **Détection auto-quota mensuel atteint**
+      Reporté. Si `current_month_spend_usd >= monthly_cap_usd`, on devrait
+      basculer la clé en `exhausted` automatiquement et router les jobs
+      vers shared. MVP : on attend le `429 quota` du provider (mécanisme
+      `error_classifier` existant).
+
+- [ ] **Test cookies via container scraper**
+      Reporté Phase 2. La spec prévoit un appel test trivial (vidéo "Me at
+      the zoo" pour YouTube par exemple) au clic sur "Tester maintenant".
+      MVP : le test ne fait que re-parser les cookies stockés dans OpenBao.
+
+- [ ] **Vérification ag.flow `GET /api/admin/secrets`**
+      Reporté. Quand ag.flow exposera l'API admin secrets, câbler
+      `mistral_config._status_for` pour faire un vrai check (HTTP timeout
+      court).
+
+- [ ] **Alertes email à 50/80/95%**
+      Reporté. Service email à mettre en place d'abord.
+
+- [ ] **OAuth pour les providers de transcription**
+      Reporté. Peu de providers le supportent côté API key. Reste API key
+      pour MVP.
+
+---
+
 ## Sprint 5 — Décisions actées et observations
 
 - [x] **Modèle LLM par défaut pour la synthèse**
