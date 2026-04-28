@@ -26,6 +26,9 @@ from role_builder.routes import (
     transcription_keys,
     websocket,
 )
+from role_builder.routes import (
+    role_projects as role_projects_route,
+)
 from role_builder.services.chunking_worker import ChunkingWorker
 from role_builder.services.scheduler import RoleBuilderScheduler
 from role_builder.services.scraper_orchestrator import ScraperOrchestrator
@@ -136,4 +139,5 @@ app.include_router(synthesis.router, prefix="/api", tags=["synthesis"])
 app.include_router(credentials.router, prefix="/api", tags=["credentials"])
 app.include_router(transcription_keys.router, prefix="/api", tags=["transcription-keys"])
 app.include_router(mistral_config.router, prefix="/api", tags=["mistral-config"])
+app.include_router(role_projects_route.router, prefix="/api", tags=["role-projects"])
 app.include_router(websocket.router, tags=["websocket"])

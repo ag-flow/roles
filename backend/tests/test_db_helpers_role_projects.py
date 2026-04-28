@@ -158,3 +158,72 @@ async def test_update_mistral_secret_ref_raises_value_error_when_not_found(
 
     with pytest.raises(ValueError, match=str(project_id)):
         await role_projects.update_mistral_secret_ref(project_id, None, pool=stub_pool)
+
+
+class _StubConnFetch(_StubConn):
+    """Extension du stub avec support de fetch (retourne une liste de rows)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fetch_return: list[Any] = []
+
+    async def fetch(self, query: str, *args: Any) -> list[Any]:
+        self.calls.append(("fetch", query, args))
+        return self.fetch_return
+
+
+class _StubPoolFetch:
+    def __init__(self, conn: _StubConnFetch) -> None:
+        self._conn = conn
+
+    def acquire(self) -> _StubAcquireCtx:
+        return _StubAcquireCtx(self._conn)  # type: ignore[arg-type]
+
+
+@pytest.fixture()
+def stub_conn_fetch() -> _StubConnFetch:
+    return _StubConnFetch()
+
+
+@pytest.fixture()
+def stub_pool_fetch(stub_conn_fetch: _StubConnFetch) -> _StubPoolFetch:
+    return _StubPoolFetch(stub_conn_fetch)
+
+
+async def test_list_for_user_sends_select_where_user_id(
+    stub_conn_fetch: _StubConnFetch, stub_pool_fetch: _StubPoolFetch
+) -> None:
+    """list_for_user envoie SELECT WHERE user_id=$1 ORDER BY created_at DESC."""
+    from role_builder.db_helpers import role_projects
+
+    user_id = uuid4()
+    row1 = {"id": uuid4(), "user_id": user_id, "display_name": "Projet A"}
+    row2 = {"id": uuid4(), "user_id": user_id, "display_name": "Projet B"}
+    stub_conn_fetch.fetch_return = [row1, row2]
+
+    result = await role_projects.list_for_user(user_id, pool=stub_pool_fetch)  # type: ignore[arg-type]
+
+    assert len(stub_conn_fetch.calls) == 1
+    method, query, args = stub_conn_fetch.calls[0]
+    assert method == "fetch"
+    assert "WHERE user_id = $1" in query
+    assert "ORDER BY created_at DESC" in query
+    assert args[0] == user_id
+
+    assert len(result) == 2
+    assert result[0]["display_name"] == "Projet A"
+    assert result[1]["display_name"] == "Projet B"
+
+
+async def test_list_for_user_returns_empty_list_when_no_rows(
+    stub_conn_fetch: _StubConnFetch, stub_pool_fetch: _StubPoolFetch
+) -> None:
+    """list_for_user retourne [] si aucune ligne."""
+    from role_builder.db_helpers import role_projects
+
+    stub_conn_fetch.fetch_return = []
+    user_id = uuid4()
+
+    result = await role_projects.list_for_user(user_id, pool=stub_pool_fetch)  # type: ignore[arg-type]
+
+    assert result == []

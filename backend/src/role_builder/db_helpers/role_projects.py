@@ -52,6 +52,16 @@ async def update_identity(
         raise ValueError(f"role_project {role_project_id} not found")
 
 
+async def list_for_user(user_id: UUID, *, pool: asyncpg.Pool) -> list[dict]:
+    """SELECT * FROM role_projects WHERE user_id=$1 ORDER BY created_at DESC."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM role_projects WHERE user_id = $1 ORDER BY created_at DESC",
+            user_id,
+        )
+    return [dict(r) for r in rows]
+
+
 async def update_mistral_secret_ref(
     role_project_id: UUID,
     secret_ref: str | None,
