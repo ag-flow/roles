@@ -126,3 +126,35 @@ async def test_update_identity_raises_value_error_when_not_found(
 
     with pytest.raises(ValueError, match=str(project_id)):
         await role_projects.update_identity(project_id, "some identity", pool=stub_pool)
+
+
+async def test_update_mistral_secret_ref_sends_update(stub_conn: _StubConn, stub_pool: Any) -> None:
+    """update_mistral_secret_ref envoie UPDATE role_projects SET mistral_secret_ref."""
+    from role_builder.db_helpers import role_projects
+
+    stub_conn.execute_return = "UPDATE 1"
+    project_id = uuid4()
+    secret_ref = "mistral-prod-key"
+
+    await role_projects.update_mistral_secret_ref(project_id, secret_ref, pool=stub_pool)
+
+    assert len(stub_conn.calls) == 1
+    method, query, args = stub_conn.calls[0]
+    assert method == "execute"
+    assert "UPDATE role_projects" in query
+    assert "mistral_secret_ref" in query
+    assert args[0] == project_id
+    assert args[1] == secret_ref
+
+
+async def test_update_mistral_secret_ref_raises_value_error_when_not_found(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """update_mistral_secret_ref lève ValueError si execute retourne 'UPDATE 0'."""
+    from role_builder.db_helpers import role_projects
+
+    stub_conn.execute_return = "UPDATE 0"
+    project_id = uuid4()
+
+    with pytest.raises(ValueError, match=str(project_id)):
+        await role_projects.update_mistral_secret_ref(project_id, None, pool=stub_pool)

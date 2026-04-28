@@ -50,3 +50,28 @@ async def update_identity(
         rows = 0
     if rows == 0:
         raise ValueError(f"role_project {role_project_id} not found")
+
+
+async def update_mistral_secret_ref(
+    role_project_id: UUID,
+    secret_ref: str | None,
+    *,
+    pool: asyncpg.Pool,
+) -> None:
+    """UPDATE role_projects SET mistral_secret_ref=$2, updated_at=now() WHERE id=$1.
+
+    Lève ValueError si rows=0 (project introuvable).
+    secret_ref peut être None pour reset.
+    """
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE role_projects SET mistral_secret_ref = $2, updated_at = now() WHERE id = $1",
+            role_project_id,
+            secret_ref,
+        )
+    try:
+        rows = int(result.split()[-1])
+    except (IndexError, ValueError):
+        rows = 0
+    if rows == 0:
+        raise ValueError(f"role_project {role_project_id} not found")
