@@ -26,6 +26,7 @@ from role_builder.routes import (
     websocket,
 )
 from role_builder.services.chunking_worker import ChunkingWorker
+from role_builder.services.scheduler import RoleBuilderScheduler
 from role_builder.services.scraper_orchestrator import ScraperOrchestrator
 from role_builder.services.worker_manager import WorkerManager
 from role_builder.services.ws_relay import ws_relay
@@ -72,10 +73,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         log.info("chunking_worker.started")
 
+    scheduler: RoleBuilderScheduler | None = None
+    if not settings.disable_scheduler:
+        scheduler = RoleBuilderScheduler(pool=db_pool.pool)
+        scheduler.start()
+
     try:
         yield
     finally:
         stop.set()
+        if scheduler is not None:
+            try:
+                await scheduler.shutdown()
+            except Exception:  # noqa: BLE001
+                log.exception("scheduler.shutdown_error")
         if orchestrator_task is not None:
             try:
                 await orchestrator_task

@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     mistral_chat_model: str = "mistral-large-latest"
     disable_chunking_worker: bool = False
 
+    # Sprint 6 — Scheduler périodique (poll balance, reset mensuel)
+    disable_scheduler: bool = False
+
     # Sprint 5 — Cost tracking Mistral (rates par token, $2/$6 par million)
     mistral_input_token_rate_usd: float = 0.000002
     mistral_output_token_rate_usd: float = 0.000006

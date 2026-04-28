@@ -55,6 +55,8 @@ def test_settings_loads_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     # Sprint 5 — Cost tracking Mistral
     assert s.mistral_input_token_rate_usd == 0.000002
     assert s.mistral_output_token_rate_usd == 0.000006
+    # Sprint 6 — Scheduler
+    assert s.disable_scheduler is False
 
 
 def test_settings_sprint2_overrides(monkeypatch: pytest.MonkeyPatch) -> None:

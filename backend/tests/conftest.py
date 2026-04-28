@@ -1,4 +1,5 @@
 """Shared pytest fixtures."""
+
 from __future__ import annotations
 
 import os
@@ -61,6 +62,7 @@ def client(stubbed_env: None, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(_settings, "disable_ws_relay", True, raising=False)
     monkeypatch.setattr(_settings, "disable_worker_manager", True, raising=False)
     monkeypatch.setattr(_settings, "disable_chunking_worker", True, raising=False)
+    monkeypatch.setattr(_settings, "disable_scheduler", True, raising=False)
     monkeypatch.setattr(_settings, "disable_auth", True, raising=False)
     monkeypatch.setattr(db_module.db_pool, "_pool", _StubPool(), raising=False)
     return TestClient(app)
