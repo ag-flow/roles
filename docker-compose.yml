@@ -50,7 +50,7 @@ services:
       retries: 5
 
   backend:
-    image: ghcr.io/${GHCR_OWNER:-yoops}/agflow-backend:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER:-yoops}/backend-roles:${IMAGE_TAG:-latest}
     depends_on:
       postgres:
         condition: service_healthy
@@ -96,7 +96,7 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
 
   frontend:
-    image: ghcr.io/${GHCR_OWNER:-yoops}/agflow-frontend:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER:-yoops}/frontend-role:${IMAGE_TAG:-latest}
     depends_on:
       - backend
     environment:
