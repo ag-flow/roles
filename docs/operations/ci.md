@@ -28,7 +28,7 @@ open http://<LXC_IP>:3000              # frontend
 Workflows GitHub Actions :
 
 - **`test.yml`** — déclenché sur push/PR. 4 jobs en parallèle : backend (pytest + ruff), scraper YouTube (pytest + ruff), worker transcription (pytest + ruff), frontend (vitest + typecheck + lint). ~3-5 min.
-- **`build-app.yml`** — déclenché sur push `main` et tags `v*`. Build & push matriciel de 2 images applicatives sur GHCR : `backend-roles` et `frontend-role`. ~3-5 min.
+- **`build-app.yml`** — déclenché sur push `main` et tags `v*`. Build & push matriciel de 2 images applicatives sur GHCR : `backend-roles` et `frontend-roles`. ~3-5 min.
 - **`build-scrapers.yml`** — déclenché sur push `main` et tags `v*`. Build & push 4 images sur GHCR : `agflow-scraper-{base,youtube,instagram,tiktok}`. ~5-8 min.
 - **`build-workers.yml`** — déclenché sur push `main` et tags `v*`. Build & push matriciel de 2 images worker transcription sur GHCR : `agflow-transcription-worker` (CPU, base `python:3.12-slim`) et `agflow-transcription-worker-cuda` (GPU, base `nvidia/cuda:12.4.0-cudnn-runtime-ubuntu22.04`). ~6-10 min (CUDA plus long).
 
@@ -39,7 +39,7 @@ Workflows GitHub Actions :
 | Image | Workflow | Base | Notes |
 | --- | --- | --- | --- |
 | `backend-roles` | `build-app.yml` | `python:3.12-slim` | FastAPI + asyncpg, healthcheck `/health/` |
-| `frontend-role` | `build-app.yml` | `node:20-alpine` | Next.js 14, multi-stage prod (`next start`) |
+| `frontend-roles` | `build-app.yml` | `node:20-alpine` | Next.js 14, multi-stage prod (`next start`) |
 | `agflow-scraper-base` | `build-scrapers.yml` | `python:3.12-slim` | yt-dlp + ffmpeg, image socle pour les 3 plateformes |
 | `agflow-scraper-youtube` | `build-scrapers.yml` | `agflow-scraper-base` | Découverte + download YouTube |
 | `agflow-scraper-instagram` | `build-scrapers.yml` | `agflow-scraper-base` | Découverte + download Instagram |
