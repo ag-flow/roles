@@ -1,6 +1,6 @@
 [project]
 name = "role-builder-backend"
-version = "0.1.0"
+version = "0.8.1"
 description = "Role Builder backend (FastAPI + asyncpg)"
 requires-python = ">=3.12"
 dependencies = [

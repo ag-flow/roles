@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Providers } from '@/components/Providers';
+import { VersionFooter } from '@/components/VersionFooter';
 
 export const metadata = {
   title: 'Role Builder',
@@ -11,6 +12,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="fr">
       <body style={{ margin: 0, fontFamily: 'system-ui, sans-serif' }}>
         <Providers>{children}</Providers>
+        <VersionFooter />
       </body>
     </html>
   );

@@ -10,6 +10,7 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from role_builder import __version__
 from role_builder.config import settings
 from role_builder.db import db_pool
 from role_builder.logging_setup import configure_logging
@@ -34,6 +35,9 @@ from role_builder.routes import (
 )
 from role_builder.routes import (
     role_projects as role_projects_route,
+)
+from role_builder.routes import (
+    version as version_route,
 )
 from role_builder.services.chunking_worker import ChunkingWorker
 from role_builder.services.scheduler import RoleBuilderScheduler
@@ -123,7 +127,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="Role Builder API",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
 )
 
@@ -150,4 +154,5 @@ app.include_router(agflow_export.router, prefix="/api", tags=["agflow-export"])
 app.include_router(role_documents_route.router, prefix="/api", tags=["role-documents"])
 app.include_router(github_auth.router, prefix="/api", tags=["github-auth"])
 app.include_router(github_publish.router, prefix="/api", tags=["github-publish"])
+app.include_router(version_route.router, prefix="/api", tags=["version"])
 app.include_router(websocket.router, tags=["websocket"])
