@@ -86,3 +86,32 @@ async def get_current_user(
         tenant_id=TENANT_ID_DEFAULT,
         raw_token=claims,
     )
+
+
+async def authenticate_websocket(token: str | None) -> CurrentUser:
+    """Valide un access token passé en query param ``?token=`` au handshake WS.
+
+    Les WebSockets ne supportent pas les headers custom au handshake côté
+    navigateur — on passe donc le bearer dans l'URL (chiffré en TLS prod).
+
+    - Si ``settings.disable_auth=True`` → renvoie ``_DISABLED_USER``.
+    - Token absent ou invalide → lève ``InvalidTokenError``.
+
+    L'appelant (``routes.websocket``) doit appeler cette fonction AVANT
+    ``ws.accept()`` et fermer la WS avec close code 1008 (Policy Violation)
+    en cas d'échec.
+    """
+    if settings.disable_auth:
+        return _DISABLED_USER
+
+    if not token:
+        raise InvalidTokenError("missing token")
+
+    claims = await _get_validator().validate(token)
+    return CurrentUser(
+        user_id=UUID(claims["sub"]),
+        username=claims.get("preferred_username", ""),
+        email=claims.get("email"),
+        tenant_id=TENANT_ID_DEFAULT,
+        raw_token=claims,
+    )

@@ -57,6 +57,10 @@ def app_with_stub_relay(
 
     monkeypatch.setattr(_settings, "disable_orchestrator", True, raising=False)
     monkeypatch.setattr(_settings, "disable_ws_relay", True, raising=False)
+    monkeypatch.setattr(_settings, "disable_worker_manager", True, raising=False)
+    monkeypatch.setattr(_settings, "disable_chunking_worker", True, raising=False)
+    monkeypatch.setattr(_settings, "disable_scheduler", True, raising=False)
+    monkeypatch.setattr(_settings, "disable_auth", True, raising=False)
 
     class _StubPool:
         async def close(self) -> None:
@@ -73,27 +77,25 @@ def app_with_stub_relay(
 def test_ws_accepts_connection_and_forwards_event(
     app_with_stub_relay: tuple[Any, _StubRelay],
 ) -> None:
+    """Avec disable_auth=True, /ws accepte la connexion et tenant_id vient
+    du _DISABLED_USER (TENANT_ID_DEFAULT)."""
     app, stub = app_with_stub_relay
-    tenant_id = uuid4()
+    from role_builder.config import TENANT_ID_DEFAULT
 
     with TestClient(app) as client:
-        with client.websocket_connect(f"/ws?tenant_id={tenant_id}") as ws:
-            # Push a fake event into the queue post-connection
+        with client.websocket_connect("/ws") as ws:
             event = {
                 "channel": "source_items_changes",
                 "payload": {
                     "table": "source_items",
                     "op": "UPDATE",
-                    "tenant_id": str(tenant_id),
+                    "tenant_id": str(TENANT_ID_DEFAULT),
                     "id": str(uuid4()),
                     "status": "audio_ready",
                 },
             }
-
-            # Run fire() in the running loop via portal
             ws.portal.call(stub.fire, event)
             received = ws.receive_json()
-
             assert received["channel"] == "source_items_changes"
             assert received["payload"]["status"] == "audio_ready"
 
@@ -102,24 +104,99 @@ def test_ws_disconnect_unsubscribes(
     app_with_stub_relay: tuple[Any, _StubRelay],
 ) -> None:
     app, stub = app_with_stub_relay
-    tenant_id = uuid4()
 
     with TestClient(app) as client:
-        with client.websocket_connect(f"/ws?tenant_id={tenant_id}"):
+        with client.websocket_connect("/ws"):
             assert stub.subscriber_count == 1
 
-    # On context exit, the route's finally branch must unsubscribe
     assert stub.subscriber_count == 0
 
 
-def test_ws_rejects_missing_tenant_id(
+def test_ws_rejects_missing_token_when_auth_enabled(
+    monkeypatch: pytest.MonkeyPatch,
     app_with_stub_relay: tuple[Any, _StubRelay],
 ) -> None:
+    """disable_auth=False + pas de token → WS fermée immédiatement (1008)."""
+    from role_builder.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "disable_auth", False, raising=False)
     app, _ = app_with_stub_relay
 
     with TestClient(app) as client:
         from starlette.websockets import WebSocketDisconnect
 
-        with pytest.raises(WebSocketDisconnect):
+        with pytest.raises(WebSocketDisconnect) as exc_info:
             with client.websocket_connect("/ws") as ws:
                 ws.receive_json()
+        # Code 1008 (Policy Violation)
+        assert exc_info.value.code == 1008
+
+
+def test_ws_rejects_invalid_token(
+    monkeypatch: pytest.MonkeyPatch,
+    app_with_stub_relay: tuple[Any, _StubRelay],
+) -> None:
+    """disable_auth=False + token invalide → WS fermée 1008."""
+    from role_builder.auth import dependencies as auth_deps
+    from role_builder.auth.keycloak import InvalidTokenError
+    from role_builder.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "disable_auth", False, raising=False)
+
+    class _BadValidator:
+        async def validate(self, token: str) -> dict[str, Any]:
+            raise InvalidTokenError("forged signature")
+
+    monkeypatch.setattr(auth_deps, "_validator", _BadValidator())
+
+    app, _ = app_with_stub_relay
+    with TestClient(app) as client:
+        from starlette.websockets import WebSocketDisconnect
+
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect("/ws?token=bad-token") as ws:
+                ws.receive_json()
+        assert exc_info.value.code == 1008
+
+
+def test_ws_accepts_valid_token(
+    monkeypatch: pytest.MonkeyPatch,
+    app_with_stub_relay: tuple[Any, _StubRelay],
+) -> None:
+    """disable_auth=False + token valide → WS acceptée, tenant_id du user."""
+    from role_builder.auth import dependencies as auth_deps
+    from role_builder.config import TENANT_ID_DEFAULT
+    from role_builder.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "disable_auth", False, raising=False)
+
+    user_id = uuid4()
+
+    class _GoodValidator:
+        async def validate(self, token: str) -> dict[str, Any]:
+            assert token == "valid-token"
+            return {
+                "sub": str(user_id),
+                "preferred_username": "alice",
+                "email": "alice@example.com",
+            }
+
+    monkeypatch.setattr(auth_deps, "_validator", _GoodValidator())
+
+    app, stub = app_with_stub_relay
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws?token=valid-token") as ws:
+            assert stub.subscriber_count == 1
+            event = {
+                "channel": "runs_changes",
+                "payload": {
+                    "table": "runs",
+                    "op": "UPDATE",
+                    "tenant_id": str(TENANT_ID_DEFAULT),
+                    "id": str(uuid4()),
+                    "status": "done",
+                },
+            }
+            ws.portal.call(stub.fire, event)
+            received = ws.receive_json()
+            assert received["payload"]["status"] == "done"
