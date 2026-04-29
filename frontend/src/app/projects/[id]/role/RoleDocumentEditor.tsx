@@ -1,6 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import type { RoleDocumentSummary } from '@/lib/types';
+import { DocumentTree } from './DocumentTree';
+import { DocumentDetail } from './DocumentDetail';
 
 interface Props {
   projectId: string;
@@ -8,10 +11,9 @@ interface Props {
   onChange: () => void;
 }
 
-/**
- * Stub D1.2 — implémentation complète en D2.1+.
- */
-export function RoleDocumentEditor({ sections }: Props) {
+export function RoleDocumentEditor({ projectId, sections, onChange }: Props) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
   const sectionNames = Object.keys(sections);
   if (sectionNames.length === 0) {
     return (
@@ -21,19 +23,25 @@ export function RoleDocumentEditor({ sections }: Props) {
       </p>
     );
   }
+
   return (
-    <div style={{ color: '#6b7280', fontStyle: 'italic' }}>
-      <p>
-        Éditeur en cours d&apos;implémentation (D2). En attendant, voici les sections
-        détectées :
-      </p>
-      <ul>
-        {sectionNames.map((s) => (
-          <li key={s}>
-            <strong>{s}</strong> — {sections[s]?.length ?? 0} document(s)
-          </li>
-        ))}
-      </ul>
+    <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
+      <DocumentTree
+        sections={sections}
+        selectedId={selectedId}
+        onSelect={setSelectedId}
+      />
+      <main style={{ flex: 1, minWidth: 0 }}>
+        {selectedId ? (
+          <DocumentDetail
+            docId={selectedId}
+            projectId={projectId}
+            onChange={onChange}
+          />
+        ) : (
+          <p style={{ color: '#9ca3af' }}>Sélectionnez un document à gauche.</p>
+        )}
+      </main>
     </div>
   );
 }
