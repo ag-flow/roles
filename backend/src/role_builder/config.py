@@ -72,5 +72,11 @@ class Settings(BaseSettings):
     mistral_input_token_rate_usd: float = 0.000002
     mistral_output_token_rate_usd: float = 0.000006
 
+    # Sprint 8 — GitHub OAuth (publication des rôles sur un repo user)
+    github_oauth_client_id: str = ""
+    github_oauth_client_secret: str = ""
+    github_oauth_redirect_uri: str = "http://localhost:8000/api/auth/github/callback"
+    github_oauth_scope: str = "public_repo"
+
 
 settings = Settings()  # type: ignore[call-arg]
