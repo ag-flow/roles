@@ -3,8 +3,11 @@
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import { previewZip } from '@/lib/api/agflow-export';
+import { getPublicationConfig } from '@/lib/api/github';
 import { listRoleDocumentsGrouped } from '@/lib/api/role-documents';
+import { PublicationHistory } from './PublicationHistory';
 import { PushToAgflowButton } from './PushToAgflowButton';
+import { PublishToGithubButton } from './PublishToGithubButton';
 import { RoleDocumentEditor } from './RoleDocumentEditor';
 
 export default function RolePage() {
@@ -14,6 +17,9 @@ export default function RolePage() {
   const preview = useSWR(['preview-zip', projectId], () => previewZip(projectId));
   const docs = useSWR(['role-documents', projectId], () =>
     listRoleDocumentsGrouped(projectId),
+  );
+  const publicationCfg = useSWR(['publication-config', projectId], () =>
+    getPublicationConfig(projectId),
   );
 
   if (preview.isLoading || docs.isLoading) {
@@ -67,6 +73,32 @@ export default function RolePage() {
           docs.mutate();
         }}
       />
+
+      <section
+        style={{
+          marginTop: '2rem',
+          borderTop: '1px solid #e5e7eb',
+          paddingTop: '1rem',
+        }}
+      >
+        <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+          Publication GitHub
+        </h2>
+        <PublishToGithubButton projectId={projectId} />
+        <details style={{ marginTop: '0.75rem' }}>
+          <summary
+            style={{ cursor: 'pointer', fontSize: '0.85rem', color: '#6b7280' }}
+          >
+            Historique des publications
+          </summary>
+          <div style={{ marginTop: '0.5rem' }}>
+            <PublicationHistory
+              projectId={projectId}
+              repoFullName={publicationCfg.data?.repo_full_name ?? null}
+            />
+          </div>
+        </details>
+      </section>
     </div>
   );
 }
