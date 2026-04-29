@@ -1,7 +1,16 @@
 'use client';
 
+import { useState } from 'react';
 import useSWR from 'swr';
-import { getRoleDocument } from '@/lib/api/role-documents';
+import {
+  getRoleDocument,
+  listRoleDocumentVersions,
+  setCurrentRoleDocument,
+} from '@/lib/api/role-documents';
+import { DocumentEditor } from './DocumentEditor';
+import { DocumentActions } from './DocumentActions';
+import { VersionList } from './VersionList';
+import { VersionDiff } from './VersionDiff';
 
 interface Props {
   docId: string;
@@ -9,41 +18,79 @@ interface Props {
   onChange: () => void;
 }
 
-/**
- * Stub D2.1 — implémentation complète (versions, edit, lock, regen, diff)
- * en D2.2-D2.5.
- */
-export function DocumentDetail({ docId }: Props) {
-  const { data, isLoading, error } = useSWR(
-    ['role-document', docId],
-    () => getRoleDocument(docId),
+export function DocumentDetail({ docId, onChange }: Props) {
+  const doc = useSWR(['role-document', docId], () => getRoleDocument(docId));
+  const versions = useSWR(['role-document-versions', docId], () =>
+    listRoleDocumentVersions(docId),
   );
-  if (isLoading) return <p>Chargement…</p>;
-  if (error || !data) return <p style={{ color: '#dc2626' }}>Erreur de chargement</p>;
+  const [diffWith, setDiffWith] = useState<string | null>(null);
+
+  if (doc.isLoading || versions.isLoading) {
+    return <p>Chargement…</p>;
+  }
+  if (doc.error || !doc.data || versions.error || !versions.data) {
+    return (
+      <p style={{ color: '#dc2626' }}>Erreur de chargement du document.</p>
+    );
+  }
+
+  async function promote(versionId: string) {
+    await setCurrentRoleDocument(versionId);
+    await Promise.all([doc.mutate(), versions.mutate()]);
+    onChange();
+  }
+
   return (
-    <article>
-      <header style={{ marginBottom: '0.75rem' }}>
-        <h2 style={{ margin: 0, fontSize: '1.25rem' }}>{data.name}</h2>
-        <small style={{ color: '#6b7280' }}>
-          {data.section} · v{data.version}
-          {data.is_current && ' · current'}
-          {data.locked && ' · 🔒 verrouillé'}
-        </small>
-      </header>
-      <pre
-        style={{
-          padding: '1rem',
-          background: '#f9fafb',
-          border: '1px solid #e5e7eb',
-          borderRadius: 6,
-          fontSize: '0.875rem',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          margin: 0,
-        }}
-      >
-        {data.content}
-      </pre>
+    <article style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <header
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            marginBottom: '0.75rem',
+          }}
+        >
+          <div>
+            <h2 style={{ margin: 0, fontSize: '1.25rem' }}>{doc.data.name}</h2>
+            <small style={{ color: '#6b7280' }}>
+              {doc.data.section} · v{doc.data.version}
+              {doc.data.is_current && ' · current'}
+              {doc.data.locked && ' · 🔒 verrouillé'}
+            </small>
+          </div>
+          <DocumentActions
+            doc={doc.data}
+            onLockChange={() => doc.mutate()}
+            onRegenerated={() => {
+              doc.mutate();
+              versions.mutate();
+              onChange();
+            }}
+          />
+        </header>
+        <DocumentEditor
+          doc={doc.data}
+          onSaved={() => {
+            doc.mutate();
+            versions.mutate();
+            onChange();
+          }}
+        />
+        {diffWith && (
+          <VersionDiff
+            currentContent={doc.data.content}
+            currentVersion={doc.data.version}
+            otherDocId={diffWith}
+            onClose={() => setDiffWith(null)}
+          />
+        )}
+      </div>
+      <VersionList
+        versions={versions.data}
+        onPromote={promote}
+        onShowDiff={setDiffWith}
+      />
     </article>
   );
 }
