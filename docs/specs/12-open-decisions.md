@@ -39,9 +39,14 @@
       coup. Stratégie batch déjà prévue, mais à régler la taille de batch
       selon les retours qualité.
 
-- [ ] **Pipeline complet en une commande ?**
-      Faut-il un endpoint `/runs/full-pipeline` qui enchaîne tout, ou
-      laisser l'utilisateur contrôler chaque étape ?
+- [x] **Pipeline complet en une commande ?**
+      → **Décision (post-sprint-8, Phase 2.H) :** livré.
+      `POST /api/role-projects/{id}/runs/full-pipeline` enchaîne extract
+      → cluster → decompose → write-documents (par plan) → optionnel
+      synthesize-identity. Synchrone bloquant (2-5 min pour corpus
+      typique). Body avec chunks_per_batch, parallelism,
+      include_identity et 4 instruction_overrides. Pour gros corpus,
+      les endpoints individuels restent disponibles.
 
 - [ ] **Stratégie de cache automatique**
       Si l'utilisateur modifie les directives globales, les anciens runs
