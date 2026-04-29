@@ -8,6 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+from role_builder.db_helpers import oauth_states
 from role_builder.db_helpers import transcription_keys as keys_helper
 from role_builder.services.credit_monitor import poll_all_balances
 
@@ -16,6 +17,7 @@ log = structlog.get_logger(__name__)
 _BALANCE_POLL_INTERVAL_HOURS = 1
 _RESET_SPEND_DAY = 1
 _CLEANUP_HOUR = 3
+_OAUTH_STATES_CLEANUP_INTERVAL_MIN = 30
 
 
 class RoleBuilderScheduler:
@@ -51,6 +53,12 @@ class RoleBuilderScheduler:
             id="cleanup_revoked_secrets",
             replace_existing=True,
         )
+        self._scheduler.add_job(
+            self._cleanup_oauth_states,
+            IntervalTrigger(minutes=_OAUTH_STATES_CLEANUP_INTERVAL_MIN),
+            id="cleanup_oauth_states",
+            replace_existing=True,
+        )
         self._scheduler.start()
         self._started = True
         log.info("scheduler.started", jobs=[j.id for j in self._scheduler.get_jobs()])
@@ -83,3 +91,17 @@ class RoleBuilderScheduler:
             "scheduler.cleanup_revoked_secrets_skipped",
             reason="MVP: cleanup déjà géré par DELETE endpoints",
         )
+
+    async def _cleanup_oauth_states(self) -> None:
+        """Supprime les states CSRF expirés (Sprint 8).
+
+        Les flows OAuth abandonnés (user qui ferme l'onglet GitHub) laissent
+        des rows en DB. ``consume_state`` filtre les expirés, mais il faut
+        nettoyer pour éviter l'accumulation. Tourne toutes les 30 minutes.
+        """
+        try:
+            count = await oauth_states.cleanup_expired(pool=self._pool)
+            if count:
+                log.info("scheduler.cleanup_oauth_states", deleted=count)
+        except Exception:
+            log.exception("scheduler.cleanup_oauth_states_failed")
