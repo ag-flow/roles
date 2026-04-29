@@ -1,0 +1,100 @@
+name: cleanup-old-ghcr-images
+
+# Workflow one-shot pour supprimer les anciens packages GHCR
+# `agflow-backend` et `agflow-frontend` après le rename vers `backend-roles`
+# et `frontend-role` (cf. commit 60ed390).
+#
+# Usage : Actions tab → cleanup-old-ghcr-images → Run workflow → entrer
+# 'DELETE' dans le champ confirm. Une fois les packages effectivement
+# supprimés sur GHCR, ce fichier peut être retiré du repo (ou laissé
+# désactivé — il n'est pas déclenché automatiquement).
+#
+# Token : nécessite un PAT avec scope `delete:packages`, stocké dans le
+# secret repo `GHCR_DELETE_PAT`. Le `GITHUB_TOKEN` standard a `packages:
+# write` mais PAS `delete` (limitation GitHub actuelle). Voir docs/operations/ci.md
+# pour la procédure de création du PAT.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Tape "DELETE" pour confirmer la suppression'
+        required: true
+        default: ''
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.confirm == 'DELETE' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - agflow-backend
+          - agflow-frontend
+    steps:
+      - name: Delete ${{ matrix.package }} from GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GHCR_DELETE_PAT }}
+          OWNER: ${{ github.repository_owner }}
+          PKG: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::secret GHCR_DELETE_PAT manquant. Crée un PAT classic avec scope delete:packages et ajoute-le dans Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+          # Détermination user vs org : on tente l'endpoint user d'abord
+          # (l'API renvoie 404 si le owner est une org, ou 403 si pas user).
+          OWNER_LC="${OWNER,,}"
+          echo "→ Suppression du package $PKG pour owner $OWNER_LC"
+
+          # Tentative endpoint /users/{user}/packages
+          USER_CODE=$(curl -sS -o /tmp/user.json -w "%{http_code}" \
+            -X DELETE \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/users/${OWNER_LC}/packages/container/${PKG}")
+          echo "  endpoint /users : HTTP $USER_CODE"
+
+          if [[ "$USER_CODE" == "204" ]]; then
+            echo "  ✓ supprimé via /users"
+            exit 0
+          fi
+          if [[ "$USER_CODE" == "404" ]]; then
+            # Soit le package n'existe pas (déjà supprimé), soit owner est une org
+            if grep -q '"message":"Package does not exist"' /tmp/user.json 2>/dev/null \
+               || grep -qi 'package not found' /tmp/user.json 2>/dev/null; then
+              echo "  ✓ déjà absent (rien à faire)"
+              exit 0
+            fi
+            # Probablement owner = org : tente l'endpoint org
+          fi
+
+          ORG_CODE=$(curl -sS -o /tmp/org.json -w "%{http_code}" \
+            -X DELETE \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/orgs/${OWNER_LC}/packages/container/${PKG}")
+          echo "  endpoint /orgs : HTTP $ORG_CODE"
+
+          if [[ "$ORG_CODE" == "204" ]]; then
+            echo "  ✓ supprimé via /orgs"
+            exit 0
+          fi
+          if [[ "$ORG_CODE" == "404" ]]; then
+            echo "  ✓ déjà absent (rien à faire)"
+            exit 0
+          fi
+
+          echo "::error::Échec suppression $PKG. /users $USER_CODE /orgs $ORG_CODE"
+          echo "Réponse /users : $(cat /tmp/user.json)"
+          echo "Réponse /orgs : $(cat /tmp/org.json)"
+          exit 1

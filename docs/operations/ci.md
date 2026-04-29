@@ -25,12 +25,13 @@ open http://<LXC_IP>:3000              # frontend
 
 ## Vue d'ensemble
 
-Quatre workflows GitHub Actions :
+Workflows GitHub Actions :
 
 - **`test.yml`** — déclenché sur push/PR. 4 jobs en parallèle : backend (pytest + ruff), scraper YouTube (pytest + ruff), worker transcription (pytest + ruff), frontend (vitest + typecheck + lint). ~3-5 min.
 - **`build-app.yml`** — déclenché sur push `main` et tags `v*`. Build & push matriciel de 2 images applicatives sur GHCR : `backend-roles` et `frontend-role`. ~3-5 min.
 - **`build-scrapers.yml`** — déclenché sur push `main` et tags `v*`. Build & push 4 images sur GHCR : `agflow-scraper-{base,youtube,instagram,tiktok}`. ~5-8 min.
 - **`build-workers.yml`** — déclenché sur push `main` et tags `v*`. Build & push matriciel de 2 images worker transcription sur GHCR : `agflow-transcription-worker` (CPU, base `python:3.12-slim`) et `agflow-transcription-worker-cuda` (GPU, base `nvidia/cuda:12.4.0-cudnn-runtime-ubuntu22.04`). ~6-10 min (CUDA plus long).
+- **`cleanup-old-ghcr-images.yml`** — `workflow_dispatch` only (manuel). Supprime les anciens packages GHCR `agflow-backend` / `agflow-frontend` après le rename vers `backend-roles` / `frontend-role`. Nécessite le secret `GHCR_DELETE_PAT` (cf. § Procédure ci-dessous). À retirer du repo une fois exécuté.
 
 **Directive** : toutes les images Docker sont buildées sur GitHub Actions, jamais en local. Aucun build sur la machine de dev Windows. Le `docker-compose.yml` pull depuis GHCR par défaut. Pour builder localement (sur LXC pve1 par exemple), copier `docker-compose.override.yml.example` vers `docker-compose.override.yml`.
 
@@ -260,3 +261,46 @@ Le `:latest` reste pointé sur le dernier push `main` (potentiellement instable)
 - **Logs** : récoltés par Grafana Alloy (déployé sur pve2) → Loki (LXC 116) → Grafana (`https://log.yoops.org`). Filtrer sur `service="transcription-worker-shared"`.
 - **GPU** : `nvidia-smi` sur l'hôte pve2 ou dans le container. Métriques Prometheus à brancher en Phase 2.
 - **Backlog jobs** : monitorer la table `transcription_jobs` en `status='queued'` avec `worker_pool_id='shared'`. Au-delà d'un seuil, prévoir un second worker GPU ou augmenter la concurrence.
+
+
+## Procédure : suppression des anciens packages GHCR
+
+Après le rename des images applicatives vers `backend-roles` / `frontend-role`,
+les anciens packages `agflow-backend` / `agflow-frontend` restent figés sur
+GHCR. Pour les supprimer définitivement :
+
+### 1. Créer un PAT (Personal Access Token) classic avec scope `delete:packages`
+
+GitHub → Settings (compte) → Developer settings → Personal access tokens →
+Tokens (classic) → Generate new token (classic) :
+- **Note** : "GHCR delete agflow.roles"
+- **Expiration** : 30 jours (largement suffisant pour un cleanup one-shot)
+- **Scopes cochés** : `delete:packages` (et automatiquement `read:packages`)
+
+Copier le token affiché (`ghp_xxx`).
+
+### 2. Stocker le PAT dans les secrets du repo
+
+Repo → Settings → Secrets and variables → Actions → New repository secret :
+- **Name** : `GHCR_DELETE_PAT`
+- **Secret** : coller le `ghp_xxx`
+
+### 3. Exécuter le workflow
+
+Repo → Actions → `cleanup-old-ghcr-images` → Run workflow :
+- Branche : `main`
+- `confirm` : taper `DELETE` (en majuscules, sans guillemets)
+- Run workflow
+
+Le job tente l'endpoint `/users/{owner}/packages` puis `/orgs/{owner}/packages`,
+tolère le 404 (déjà supprimé), et matrix sur les 2 packages en parallèle.
+
+### 4. Cleanup post-suppression
+
+Une fois les anciens packages effectivement absents de GHCR :
+
+- Supprimer le secret `GHCR_DELETE_PAT` du repo
+- Supprimer le PAT côté GitHub (Settings → Personal access tokens → Revoke)
+- Supprimer le fichier `.github/workflows/cleanup-old-ghcr-images.yml` (commit
+  séparé pour ne pas polluer l'historique)
+
