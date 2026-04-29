@@ -201,3 +201,90 @@ def test_put_publication_config_with_minimal_body_uses_defaults(
     assert resp.status_code == 200
     assert upsert_calls[0]["branch"] == "main"
     assert upsert_calls[0]["license_choice"] == "none"
+
+
+# ---------------------------------------------------------------------------
+# Publish / Unpublish / History (T9)
+# ---------------------------------------------------------------------------
+
+
+def test_publish_404_when_project_unknown(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_builder.routes import github_publish as route
+
+    async def fake_get(pid: UUID, *, pool: Any) -> Any:
+        return None
+
+    monkeypatch.setattr(route.role_projects, "get_by_id", fake_get)
+    resp = client.post(f"/api/role-projects/{uuid4()}/publish-to-github")
+    assert resp.status_code == 404
+
+
+def test_publish_400_when_config_missing(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_builder.routes import github_publish as route
+
+    async def fake_get_project(pid: UUID, *, pool: Any) -> Any:
+        return {"id": pid, "tenant_id": uuid4(), "display_name": "X"}
+
+    async def fake_get_config(pid: UUID, *, pool: Any) -> Any:
+        return None
+
+    monkeypatch.setattr(route.role_projects, "get_by_id", fake_get_project)
+    monkeypatch.setattr(
+        route.role_publication_config, "get_by_project_id", fake_get_config,
+    )
+    resp = client.post(f"/api/role-projects/{uuid4()}/publish-to-github")
+    assert resp.status_code == 400
+
+
+def test_unpublish_404_when_project_unknown(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_builder.routes import github_publish as route
+
+    async def fake_get(pid: UUID, *, pool: Any) -> Any:
+        return None
+
+    monkeypatch.setattr(route.role_projects, "get_by_id", fake_get)
+    resp = client.delete(f"/api/role-projects/{uuid4()}/github-publication")
+    assert resp.status_code == 404
+
+
+def test_list_publications_returns_history(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datetime import UTC, datetime
+
+    from role_builder.routes import github_publish as route
+
+    project_id = uuid4()
+    rows = [
+        {
+            "id": uuid4(),
+            "role_project_id": project_id,
+            "tenant_id": uuid4(),
+            "user_id": uuid4(),
+            "commit_sha": "abc",
+            "published_at": datetime.now(tz=UTC),
+            "files_count": 5,
+            "summary": "Pushed",
+        }
+    ]
+
+    async def fake_list(pid: UUID, *, limit: int = 50, pool: Any) -> Any:
+        return rows
+
+    monkeypatch.setattr(route.role_publications, "list_by_project", fake_list)
+    resp = client.get(f"/api/role-projects/{project_id}/publications")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["commit_sha"] == "abc"
+    assert body[0]["files_count"] == 5

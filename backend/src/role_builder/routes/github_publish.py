@@ -22,13 +22,19 @@ from role_builder.auth.dependencies import CurrentUser, get_current_user
 from role_builder.db import db_pool
 from role_builder.db_helpers import (
     github_integrations,
+    role_documents,
+    role_projects,
     role_publication_config,
+    role_publications,
 )
 from role_builder.schemas.github import (
     GithubRepo,
     PublicationConfigOut,
     PublicationConfigRequest,
+    PublicationOut,
+    PublishResponse,
 )
+from role_builder.services.github_publish import publisher as gh_publisher
 from role_builder.services.github_publish.api_client import GitHubApiClient
 from role_builder.services.openbao_client import OpenBaoClient
 
@@ -132,3 +138,141 @@ async def set_publication_config(
         license=body.license_choice,
     )
     return {"status": "saved"}
+
+
+# ---------------------------------------------------------------------------
+# Publish / Unpublish / History (T9)
+# ---------------------------------------------------------------------------
+
+
+async def _api_for_user(user: CurrentUser) -> tuple[GitHubApiClient, str]:
+    """Helper : récupère le token via OpenBao et instancie un GitHubApiClient.
+    Lève HTTPException 400 si non connecté, 502 si token manquant.
+    Retourne aussi le github_login pour le README/LICENSE.
+    """
+    integration = await github_integrations.get_by_user_id(
+        user.user_id, pool=db_pool.pool,
+    )
+    if integration is None:
+        raise HTTPException(status_code=400, detail="GitHub not connected")
+
+    openbao = OpenBaoClient()
+    try:
+        token_data = await openbao.get(str(integration["openbao_path"]))
+    finally:
+        await openbao.aclose()
+
+    access_token = (
+        str(token_data["access_token"])
+        if token_data and "access_token" in token_data
+        else ""
+    )
+    if not access_token:
+        raise HTTPException(
+            status_code=502, detail="GitHub token missing in OpenBao",
+        )
+
+    return (
+        GitHubApiClient(access_token=access_token),
+        str(integration["github_login"]),
+    )
+
+
+@router.post(
+    "/role-projects/{project_id}/publish-to-github",
+    response_model=PublishResponse,
+)
+async def publish_to_github(
+    project_id: UUID,
+    user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> PublishResponse:
+    project = await role_projects.get_by_id(project_id, pool=db_pool.pool)
+    if project is None:
+        raise HTTPException(status_code=404, detail="role project not found")
+    config = await role_publication_config.get_by_project_id(
+        project_id, pool=db_pool.pool,
+    )
+    if config is None:
+        raise HTTPException(
+            status_code=400,
+            detail="publication config not set for this project",
+        )
+    docs_by_section = await role_documents.list_current_by_project_grouped(
+        project_id, pool=db_pool.pool,
+    )
+
+    api, github_login = await _api_for_user(user)
+    try:
+        result = await gh_publisher.push_publication(
+            project=project,
+            docs_by_section=docs_by_section,
+            config=config,
+            github_login=github_login,
+            user_id=user.user_id,
+            tenant_id=user.tenant_id,
+            api=api,
+            insert_publication=role_publications.insert,
+            pool=db_pool.pool,
+        )
+    except httpx.HTTPStatusError as exc:
+        raise _bad_gateway(exc) from exc
+    finally:
+        await api.aclose()
+
+    return PublishResponse(**result)
+
+
+@router.delete("/role-projects/{project_id}/github-publication")
+async def unpublish_from_github(
+    project_id: UUID,
+    user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> dict[str, int]:
+    project = await role_projects.get_by_id(project_id, pool=db_pool.pool)
+    if project is None:
+        raise HTTPException(status_code=404, detail="role project not found")
+    config = await role_publication_config.get_by_project_id(
+        project_id, pool=db_pool.pool,
+    )
+    if config is None:
+        raise HTTPException(
+            status_code=400,
+            detail="publication config not set for this project",
+        )
+    docs_by_section = await role_documents.list_current_by_project_grouped(
+        project_id, pool=db_pool.pool,
+    )
+
+    api, github_login = await _api_for_user(user)
+    try:
+        deleted = await gh_publisher.delete_publication(
+            project=project,
+            docs_by_section=docs_by_section,
+            config=config,
+            github_login=github_login,
+            api=api,
+        )
+    except httpx.HTTPStatusError as exc:
+        raise _bad_gateway(exc) from exc
+    finally:
+        await api.aclose()
+
+    log.info(
+        "github.unpublish.completed",
+        project_id=str(project_id),
+        deleted_files=deleted,
+    )
+    return {"deleted_files": deleted}
+
+
+@router.get(
+    "/role-projects/{project_id}/publications",
+    response_model=list[PublicationOut],
+)
+async def list_publications(
+    project_id: UUID,
+    user: Annotated[CurrentUser, Depends(get_current_user)],  # noqa: ARG001
+) -> list[PublicationOut]:
+    rows = await role_publications.list_by_project(
+        project_id, pool=db_pool.pool,
+    )
+    return [PublicationOut(**r) for r in rows]
