@@ -189,22 +189,38 @@
       Ajouter des badges (shields.io) ? Stats du corpus ? Pour le MVP, le
       template simple proposé.
 
-- [ ] **Licence par défaut suggérée**
-      CC-BY ? MIT ? Apache 2.0 ? À discuter avec Beard.
+- [x] **Licence par défaut suggérée**
+      → **Décision (sprint 8) :** sélecteur utilisateur dans
+      `PublishToGithubConfigDialog` (5 choix : `none` / `polyform-nc` /
+      `cc-by-nc-sa-4.0` / `cc-by-4.0` / `mit`). Pas de défaut imposé.
+      Cf. section Sprint 8.
 
-- [ ] **Tag/release par version au lieu de commits simples ?**
-      Pour le MVP, juste commits. Tags en Phase 2 si pertinent.
+- [x] **Tag/release par version au lieu de commits simples ?**
+      → **Décision (post-sprint-8, Phase 2.D) :** **tags annotés auto**
+      après chaque publication réussie. Format
+      `role-{slug-display-name}-v{N}` où N = (publications déjà faites)
+      + 1. Best-effort : si `create_tag` échoue (tag déjà existant
+      typique), le push reste réussi mais `tag_name=None`. URL releases
+      exposée dans `PublishResponse.tag_url`.
 
-- [ ] **Optimisation push : API Trees pour 1 commit unique**
-      Pour le MVP, N PUT séquentiels. Pour la Phase 2, utiliser l'API
-      `git_data` pour faire un seul commit avec tous les fichiers.
+- [x] **Optimisation push : API Trees pour 1 commit unique**
+      → **Décision (post-sprint-8, Phase 2.B/C) :** **migré vers
+      Git data API** (push ET unpublish). Push : create_blobs en
+      parallèle → create_tree → create_commit → update_ref. Unpublish :
+      create_tree avec items[].sha=null. ~5 round-trips au lieu de 60,
+      atomique (pas d'état partiel sur crash). L'ancienne implem reste
+      sous `push_publication_legacy_n_put` pour fallback.
 
-- [ ] **Multi-comptes GitHub par user**
-      Pour le MVP, 1 seul compte par user. À étendre en Phase 2 si besoin.
+- [x] **Multi-comptes GitHub par user**
+      → **Décision (sprint 8) :** **1 seul compte** par user pour MVP
+      (UNIQUE constraint sur `user_id` dans `github_integrations`).
+      Reportée Phase 2 si demande utilisateur.
 
-- [ ] **State CSRF en mémoire vs persistant**
-      In-memory pour le MVP (mono-instance). Pour la prod multi-instance,
-      migrer vers Redis ou table PG temporaire.
+- [x] **State CSRF en mémoire vs persistant**
+      → **Décision (sprint 8) :** **table PG `oauth_states`** (migration
+      0012). Marche en multi-instance, survit aux redémarrages. Cleanup
+      automatique via `scheduler.cleanup_oauth_states` (interval 30 min)
+      en complément du filtre côté `consume_state`.
 
 ---
 
@@ -929,27 +945,28 @@ Sprint 8 = publication GitHub. Dernier sprint MVP planifié.
 
 ### Architecture publication
 
-- [x] **N PUT séquentiels vs API Trees pour 1 commit**
-      → **Décision (sprint 8) :** **N PUT séquentiels** pour MVP
-      (~30 fichiers × 60 appels ≈ 10-20 s par publication). Acceptable.
-      Optimisation Trees (1 commit pour N fichiers via `git_data` API)
-      reportée Phase 2 quand le volume justifiera.
+- [x] **Strategy push : Git data API (Trees)** *(post-sprint-8, Phase 2.B)*
+      → **Décision finale :** Trees API atomique (cf. `services/github_publish/publisher.py`).
+      Pas de N×PUT séquentiel en production. L'ancienne implem reste sous
+      `push_publication_legacy_n_put` pour fallback.
 
 - [x] **Sha tracking pour update existing files**
-      → **Décision (sprint 8) :** GET `/contents/{path}` avant PUT pour
-      récupérer le sha si fichier existant (404 → création neuve, 200 →
-      update). Implémenté dans `GitHubApiClient.get_content_sha` qui
-      retourne `str | None`. Permet la republication propre sans
-      recréer l'arborescence.
+      → **Décision (sprint 8) :** N/A en Trees API (le `base_tree` gère
+      le merge automatiquement). Sur l'ancienne implem `legacy_n_put`,
+      GET `/contents/{path}` avant PUT pour récupérer le sha existant.
 
 ### Reportés Phase 2
 
-- [ ] **Optimisation Trees API** (1 commit pour N fichiers)
-      Quand le volume de publications devient significatif.
+- [x] **Optimisation Trees API** (1 commit pour N fichiers)
+      → **Décision (post-sprint-8, Phase 2.B) :** livré. ~5 round-trips
+      séquentiels + N create_blob parallèles ≈ 2-3 s pour 30 fichiers,
+      contre ~10-20 s avant. Atomique : pas d'état partiel sur crash.
 
-- [ ] **Tags / releases auto par version**
-      Pas dans le scope MVP. Chaque republication = un nouveau commit,
-      pas de tag git.
+- [x] **Tags / releases auto par version**
+      → **Décision (post-sprint-8, Phase 2.D) :** livré. Tag annoté
+      `role-{slug-display-name}-v{N}` créé automatiquement après chaque
+      publication réussie (best-effort : `tag_name=None` dans la réponse
+      si conflit 422). URL releases dans `PublishResponse.tag_url`.
 
 - [ ] **Modération + vitrine officielle**
       Phase ultérieure, à designer séparément (probablement un service
