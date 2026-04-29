@@ -383,3 +383,193 @@ def test_get_run_returns_404_if_not_found(
     resp = client.get(f"/api/runs/{run_id}")
     assert resp.status_code == 404, resp.text
     assert resp.json()["detail"] == "run not found"
+
+
+# ---------------------------------------------------------------------------
+# POST /api/role-projects/{id}/runs/full-pipeline
+# ---------------------------------------------------------------------------
+
+
+def test_full_pipeline_chains_all_5_stages_with_identity(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """full-pipeline enchaîne extract → cluster → decompose → write-docs (par plan)
+    → synthesize-identity. Retourne tous les run_ids."""
+    from role_builder.routes import synthesis as synthesis_route
+
+    project_id = uuid4()
+    extract_id = uuid4()
+    cluster_id = uuid4()
+    decompose_id = uuid4()
+    plan_a_id = uuid4()
+    plan_b_id = uuid4()
+    doc_runs_a = [uuid4(), uuid4()]
+    doc_runs_b = [uuid4()]
+    identity_id = uuid4()
+
+    extract_calls: list[Any] = []
+
+    async def fake_extract(pid: UUID, *, pool: Any, chunks_per_batch: int = 5,
+                           **kwargs: Any) -> UUID:
+        extract_calls.append({"pid": pid, "chunks": chunks_per_batch})
+        return extract_id
+
+    async def fake_cluster(pid: UUID, *, pool: Any, signal_run_id: UUID | None = None,
+                           **kwargs: Any) -> UUID:
+        assert signal_run_id == extract_id
+        return cluster_id
+
+    async def fake_decompose(pid: UUID, *, pool: Any,
+                             cluster_run_id: UUID | None = None, **kwargs: Any) -> UUID:
+        assert cluster_run_id == cluster_id
+        return decompose_id
+
+    async def fake_list_plans(rid: UUID, *, pool: Any) -> list[dict[str, Any]]:
+        assert rid == decompose_id
+        return [{"id": plan_a_id}, {"id": plan_b_id}]
+
+    write_calls: list[UUID] = []
+
+    async def fake_write(pid: UUID, plan_id: UUID, *, pool: Any,
+                         parallelism: int = 3, **kwargs: Any) -> list[UUID]:
+        write_calls.append(plan_id)
+        return doc_runs_a if plan_id == plan_a_id else doc_runs_b
+
+    async def fake_identity(pid: UUID, *, pool: Any, **kwargs: Any) -> UUID:
+        return identity_id
+
+    monkeypatch.setattr(synthesis_route.extractor, "run_extraction", fake_extract)
+    monkeypatch.setattr(synthesis_route.clusterer, "run_clustering", fake_cluster)
+    monkeypatch.setattr(synthesis_route.decomposer, "run_decomposition", fake_decompose)
+    monkeypatch.setattr(synthesis_route.document_plans, "list_plans_by_run", fake_list_plans)
+    monkeypatch.setattr(
+        synthesis_route.document_writer, "write_all_documents_for_plan", fake_write,
+    )
+    monkeypatch.setattr(
+        synthesis_route.identity_synthesizer, "synthesize_identity", fake_identity,
+    )
+
+    resp = client.post(
+        f"/api/role-projects/{project_id}/runs/full-pipeline",
+        json={"chunks_per_batch": 8, "parallelism": 2, "include_identity": True},
+    )
+    assert resp.status_code == 202, resp.text
+    body = resp.json()
+    assert body["extract_run_id"] == str(extract_id)
+    assert body["cluster_run_id"] == str(cluster_id)
+    assert body["decompose_run_id"] == str(decompose_id)
+    assert body["identity_run_id"] == str(identity_id)
+    # 3 doc runs au total (2 + 1)
+    assert len(body["document_run_ids"]) == 3
+    # chunks_per_batch propagé à extract
+    assert extract_calls[0]["chunks"] == 8
+    # 2 plans, 2 appels write_all
+    assert write_calls == [plan_a_id, plan_b_id]
+
+
+def test_full_pipeline_skips_identity_when_flag_false(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """include_identity=False → identity_run_id=None, synthesize_identity pas appelé."""
+    from role_builder.routes import synthesis as synthesis_route
+
+    project_id = uuid4()
+    identity_called = False
+
+    async def fake_extract(pid: UUID, *, pool: Any, **kwargs: Any) -> UUID:
+        return uuid4()
+
+    async def fake_cluster(pid: UUID, *, pool: Any, **kwargs: Any) -> UUID:
+        return uuid4()
+
+    async def fake_decompose(pid: UUID, *, pool: Any, **kwargs: Any) -> UUID:
+        return uuid4()
+
+    async def fake_list_plans(rid: UUID, *, pool: Any) -> list[dict[str, Any]]:
+        return []
+
+    async def fake_identity(pid: UUID, *, pool: Any, **kwargs: Any) -> UUID:
+        nonlocal identity_called
+        identity_called = True
+        return uuid4()
+
+    monkeypatch.setattr(synthesis_route.extractor, "run_extraction", fake_extract)
+    monkeypatch.setattr(synthesis_route.clusterer, "run_clustering", fake_cluster)
+    monkeypatch.setattr(synthesis_route.decomposer, "run_decomposition", fake_decompose)
+    monkeypatch.setattr(synthesis_route.document_plans, "list_plans_by_run", fake_list_plans)
+    monkeypatch.setattr(
+        synthesis_route.identity_synthesizer, "synthesize_identity", fake_identity,
+    )
+
+    resp = client.post(
+        f"/api/role-projects/{project_id}/runs/full-pipeline",
+        json={"include_identity": False},
+    )
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["identity_run_id"] is None
+    assert body["document_run_ids"] == []  # liste vide car list_plans_by_run = []
+    assert identity_called is False
+
+
+def test_full_pipeline_passes_instruction_overrides(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Vérifie que les 4 instruction_override (extract/cluster/decompose/identity)
+    sont propagés correctement aux fonctions internes."""
+    from role_builder.routes import synthesis as synthesis_route
+
+    project_id = uuid4()
+    instructions: dict[str, str | None] = {}
+
+    async def fake_extract(pid: UUID, *, pool: Any, instruction_override: str | None = None,
+                           **kwargs: Any) -> UUID:
+        instructions["extract"] = instruction_override
+        return uuid4()
+
+    async def fake_cluster(pid: UUID, *, pool: Any, instruction_override: str | None = None,
+                           **kwargs: Any) -> UUID:
+        instructions["cluster"] = instruction_override
+        return uuid4()
+
+    async def fake_decompose(pid: UUID, *, pool: Any, instruction_override: str | None = None,
+                             **kwargs: Any) -> UUID:
+        instructions["decompose"] = instruction_override
+        return uuid4()
+
+    async def fake_list_plans(rid: UUID, *, pool: Any) -> list[dict[str, Any]]:
+        return []
+
+    async def fake_identity(pid: UUID, *, pool: Any, instruction_override: str | None = None,
+                            **kwargs: Any) -> UUID:
+        instructions["identity"] = instruction_override
+        return uuid4()
+
+    monkeypatch.setattr(synthesis_route.extractor, "run_extraction", fake_extract)
+    monkeypatch.setattr(synthesis_route.clusterer, "run_clustering", fake_cluster)
+    monkeypatch.setattr(synthesis_route.decomposer, "run_decomposition", fake_decompose)
+    monkeypatch.setattr(synthesis_route.document_plans, "list_plans_by_run", fake_list_plans)
+    monkeypatch.setattr(
+        synthesis_route.identity_synthesizer, "synthesize_identity", fake_identity,
+    )
+
+    resp = client.post(
+        f"/api/role-projects/{project_id}/runs/full-pipeline",
+        json={
+            "extract_instruction_override": "extract-extra",
+            "cluster_instruction_override": "cluster-extra",
+            "decompose_instruction_override": "decompose-extra",
+            "identity_instruction_override": "identity-extra",
+        },
+    )
+    assert resp.status_code == 202
+    assert instructions == {
+        "extract": "extract-extra",
+        "cluster": "cluster-extra",
+        "decompose": "decompose-extra",
+        "identity": "identity-extra",
+    }
+

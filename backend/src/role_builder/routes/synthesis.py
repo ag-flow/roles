@@ -26,13 +26,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from role_builder.auth.dependencies import CurrentUser, get_current_user
 from role_builder.db import db_pool
-from role_builder.db_helpers import role_documents, runs
+from role_builder.db_helpers import document_plans, role_documents, runs
 from role_builder.schemas.runs import RunOut
 from role_builder.schemas.synthesis import (
+    FullPipelineResponse,
     RegenerateDocumentRequest,
     TriggerClusterRequest,
     TriggerDecomposeRequest,
     TriggerExtractRequest,
+    TriggerFullPipelineRequest,
     TriggerIdentityRequest,
     TriggerOutMultipleRuns,
     TriggerOutSingleRun,
@@ -167,6 +169,109 @@ async def trigger_identity_synthesis(
     )
     log.info("api.synthesis.identity_triggered", project_id=str(project_id), run_id=str(run_id))
     return TriggerOutSingleRun(run_id=run_id)
+
+
+@router.post(
+    "/role-projects/{project_id}/runs/full-pipeline",
+    status_code=202,
+    response_model=FullPipelineResponse,
+)
+async def trigger_full_pipeline(
+    project_id: UUID,
+    request: TriggerFullPipelineRequest,
+    user: Annotated[CurrentUser, Depends(get_current_user)],  # noqa: ARG001
+) -> FullPipelineResponse:
+    """Enchaîne les 5 étages de synthèse en un seul appel.
+
+    Ordre d'exécution séquentiel :
+    1. Extract (signaux) → ``extract_run_id``
+    2. Cluster (groupes thématiques) → ``cluster_run_id``
+    3. Decompose (plans de documents par section) → ``decompose_run_id``
+    4. Pour chaque plan créé par 3 : write_all_documents_for_plan en
+       parallèle (limite ``parallelism``) → ``document_run_ids``
+    5. Si ``include_identity=True`` : synthesize_identity →
+       ``identity_run_id`` (sinon ``None``)
+
+    L'endpoint est synchrone bloquant — pour un corpus typique (~30
+    chunks), le pipeline complet prend 2-5 min selon la latence Mistral.
+    Pour gros corpus (> 100 chunks), préférer les endpoints individuels
+    et un orchestrateur côté frontend pour pouvoir interrompre.
+    """
+    pool = db_pool.pool
+
+    extract_run_id = await extractor.run_extraction(
+        project_id,
+        instruction_override=request.extract_instruction_override,
+        chunks_per_batch=request.chunks_per_batch,
+        pool=pool,
+    )
+    log.info(
+        "api.full_pipeline.extract_done",
+        project_id=str(project_id),
+        run_id=str(extract_run_id),
+    )
+
+    cluster_run_id = await clusterer.run_clustering(
+        project_id,
+        signal_run_id=extract_run_id,
+        instruction_override=request.cluster_instruction_override,
+        pool=pool,
+    )
+    log.info(
+        "api.full_pipeline.cluster_done",
+        project_id=str(project_id),
+        run_id=str(cluster_run_id),
+    )
+
+    decompose_run_id = await decomposer.run_decomposition(
+        project_id,
+        cluster_run_id=cluster_run_id,
+        instruction_override=request.decompose_instruction_override,
+        pool=pool,
+    )
+    log.info(
+        "api.full_pipeline.decompose_done",
+        project_id=str(project_id),
+        run_id=str(decompose_run_id),
+    )
+
+    plans = await document_plans.list_plans_by_run(decompose_run_id, pool=pool)
+    document_run_ids: list[UUID] = []
+    for plan in plans:
+        run_ids = await document_writer.write_all_documents_for_plan(
+            project_id,
+            plan["id"],
+            parallelism=request.parallelism,
+            pool=pool,
+        )
+        document_run_ids.extend(run_ids)
+    log.info(
+        "api.full_pipeline.documents_done",
+        project_id=str(project_id),
+        plans_count=len(plans),
+        runs_count=len(document_run_ids),
+    )
+
+    identity_run_id: UUID | None = None
+    if request.include_identity:
+        identity_run_id = await identity_synthesizer.synthesize_identity(
+            project_id,
+            instruction_override=request.identity_instruction_override,
+            pool=pool,
+        )
+        log.info(
+            "api.full_pipeline.identity_done",
+            project_id=str(project_id),
+            run_id=str(identity_run_id),
+        )
+
+    return FullPipelineResponse(
+        extract_run_id=extract_run_id,
+        cluster_run_id=cluster_run_id,
+        decompose_run_id=decompose_run_id,
+        document_run_ids=document_run_ids,
+        identity_run_id=identity_run_id,
+    )
 
 
 @router.post(

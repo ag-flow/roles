@@ -45,3 +45,30 @@ class TriggerOutSingleRun(BaseModel):
 
 class TriggerOutMultipleRuns(BaseModel):
     run_ids: list[UUID]
+
+
+class TriggerFullPipelineRequest(BaseModel):
+    """Body de POST /role-projects/{id}/runs/full-pipeline.
+
+    Tous les champs sont optionnels — chaque étage utilise son prompt par
+    défaut si non fourni. ``include_identity`` permet de skip le 5e étage
+    si l'identity est déjà OK et qu'on régénère juste les sections.
+    """
+
+    chunks_per_batch: int = 5
+    parallelism: int = 3
+    include_identity: bool = True
+    extract_instruction_override: str | None = None
+    cluster_instruction_override: str | None = None
+    decompose_instruction_override: str | None = None
+    identity_instruction_override: str | None = None
+
+
+class FullPipelineResponse(BaseModel):
+    """Tous les run_ids créés par le pipeline complet."""
+
+    extract_run_id: UUID
+    cluster_run_id: UUID
+    decompose_run_id: UUID
+    document_run_ids: list[UUID]
+    identity_run_id: UUID | None = None
