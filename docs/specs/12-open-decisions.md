@@ -891,6 +891,84 @@ progression du push.
 
 ---
 
+## Sprint 8 — Décisions actées et observations
+
+Sprint 8 = publication GitHub. Dernier sprint MVP planifié.
+
+### Licence et OAuth
+
+- [x] **Licence par défaut suggérée dans le README**
+      → **Décision (sprint 8) :** **option C — sélecteur utilisateur**
+      dans `PublishToGithubConfigDialog`. 5 choix : `none` /
+      `polyform-nc` / `cc-by-nc-sa-4.0` / `cc-by-4.0` / `mit`. Persisté
+      dans `role_publication_config.license_choice` (migration 0013).
+      Le `readme_builder.render_license_file` retourne le contenu d'un
+      fichier LICENSE selon le choix (ou None si 'none' → pas de fichier
+      publié). Validation côté Pydantic via `Literal` (rejette
+      ex. 'GPL-3.0' avec 422). La licence du logiciel reste
+      PolyForm-NC (cf. fichier `LICENSE` au repo root, sprint 8 chore).
+
+- [x] **State CSRF : in-memory ou table PG ?**
+      → **Décision (sprint 8) :** **option B — table PG `oauth_states`**
+      (migration 0012). `state` PRIMARY KEY, `expires_at` à 10 min.
+      Helper `consume_state` utilise `DELETE...RETURNING` pour atomicité
+      anti-replay. `cleanup_expired` à la demande (pas de pg_cron MVP).
+      Marche en multi-instance et survit aux redémarrages. Plus safe que
+      l'in-memory du spec original.
+
+- [x] **Multi-comptes GitHub par user**
+      → **Décision (sprint 8) :** **1 seul compte par user** pour MVP
+      (UNIQUE constraint sur `user_id` déjà en place dans la table
+      `github_integrations` migration 0006). Reportée Phase 2 si besoin.
+
+- [x] **Indépendance push ag.flow ↔ publication GitHub**
+      → **Décision (sprint 8) :** totalement indépendants. L'utilisateur
+      peut publier sur GitHub un rôle qu'il n'a pas (encore) poussé sur
+      ag.flow. Aucune dépendance entre `target_role_id` (ag.flow) et
+      `role_publications` (GitHub) au niveau DB.
+
+### Architecture publication
+
+- [x] **N PUT séquentiels vs API Trees pour 1 commit**
+      → **Décision (sprint 8) :** **N PUT séquentiels** pour MVP
+      (~30 fichiers × 60 appels ≈ 10-20 s par publication). Acceptable.
+      Optimisation Trees (1 commit pour N fichiers via `git_data` API)
+      reportée Phase 2 quand le volume justifiera.
+
+- [x] **Sha tracking pour update existing files**
+      → **Décision (sprint 8) :** GET `/contents/{path}` avant PUT pour
+      récupérer le sha si fichier existant (404 → création neuve, 200 →
+      update). Implémenté dans `GitHubApiClient.get_content_sha` qui
+      retourne `str | None`. Permet la republication propre sans
+      recréer l'arborescence.
+
+### Reportés Phase 2
+
+- [ ] **Optimisation Trees API** (1 commit pour N fichiers)
+      Quand le volume de publications devient significatif.
+
+- [ ] **Tags / releases auto par version**
+      Pas dans le scope MVP. Chaque republication = un nouveau commit,
+      pas de tag git.
+
+- [ ] **Modération + vitrine officielle**
+      Phase ultérieure, à designer séparément (probablement un service
+      ag.flow distinct).
+
+- [ ] **Format final du README** : badges shields.io, stats
+      Itération design ultérieure.
+
+- [ ] **OAuth pour autres providers de transcription**
+      Cf. spec 07 — OAuth Deepgram/AssemblyAI/etc. quand disponible.
+
+- [ ] **Tests E2E du push réel vers une instance GitHub**
+      Tests unitaires couvrent l'orchestration (httpx mocké). Test E2E =
+      pousser un rôle complet vers un repo de test et valider que tous
+      les fichiers apparaissent. À faire dès qu'un repo de test est
+      configuré.
+
+---
+
 ## Convention de naming
 
 Pour cocher un item dans ce fichier, préférer le format :
