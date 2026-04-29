@@ -121,3 +121,91 @@ async def test_delete_content_passes_sha_and_message(stubbed_env: None) -> None:
     assert body["sha"] == "abc"
     assert body["message"] == "del"
     assert body["branch"] == "main"
+
+
+# ---------------------------------------------------------------------------
+# Git data API (Trees) — Phase 2.B
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_ref_sha_returns_object_sha(stubbed_env: None) -> None:
+    from role_builder.services.github_publish.api_client import GitHubApiClient
+
+    client = GitHubApiClient(access_token="ghp_x")
+    fake = _resp(200, {"object": {"sha": "head-commit-sha", "type": "commit"}})
+    with patch.object(client._http, "get", new=AsyncMock(return_value=fake)) as get_mock:  # noqa: SLF001
+        sha = await client.get_ref_sha("a", "r", "main")
+    assert sha == "head-commit-sha"
+    assert "git/ref/heads/main" in get_mock.call_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_get_commit_tree_sha_extracts_tree_sha(stubbed_env: None) -> None:
+    from role_builder.services.github_publish.api_client import GitHubApiClient
+
+    client = GitHubApiClient(access_token="ghp_x")
+    fake = _resp(200, {"tree": {"sha": "tree-sha"}, "parents": []})
+    with patch.object(client._http, "get", new=AsyncMock(return_value=fake)):  # noqa: SLF001
+        sha = await client.get_commit_tree_sha("a", "r", "commit-sha")
+    assert sha == "tree-sha"
+
+
+@pytest.mark.asyncio
+async def test_create_blob_posts_content_and_encoding(stubbed_env: None) -> None:
+    from role_builder.services.github_publish.api_client import GitHubApiClient
+
+    client = GitHubApiClient(access_token="ghp_x")
+    fake = _resp(201, {"sha": "blob-sha"})
+    with patch.object(client._http, "post", new=AsyncMock(return_value=fake)) as post_mock:  # noqa: SLF001
+        sha = await client.create_blob("a", "r", content="hello", encoding="utf-8")
+    assert sha == "blob-sha"
+    body = post_mock.call_args.kwargs["json"]
+    assert body == {"content": "hello", "encoding": "utf-8"}
+
+
+@pytest.mark.asyncio
+async def test_create_tree_passes_base_tree_and_items(stubbed_env: None) -> None:
+    from role_builder.services.github_publish.api_client import GitHubApiClient
+
+    client = GitHubApiClient(access_token="ghp_x")
+    fake = _resp(201, {"sha": "new-tree-sha"})
+    with patch.object(client._http, "post", new=AsyncMock(return_value=fake)) as post_mock:  # noqa: SLF001
+        items = [{"path": "x.md", "mode": "100644", "type": "blob", "sha": "blob-1"}]
+        sha = await client.create_tree(
+            "a", "r", base_tree_sha="base-tree", items=items,
+        )
+    assert sha == "new-tree-sha"
+    body = post_mock.call_args.kwargs["json"]
+    assert body["base_tree"] == "base-tree"
+    assert body["tree"] == items
+
+
+@pytest.mark.asyncio
+async def test_create_commit_returns_sha(stubbed_env: None) -> None:
+    from role_builder.services.github_publish.api_client import GitHubApiClient
+
+    client = GitHubApiClient(access_token="ghp_x")
+    fake = _resp(201, {"sha": "commit-sha"})
+    with patch.object(client._http, "post", new=AsyncMock(return_value=fake)) as post_mock:  # noqa: SLF001
+        sha = await client.create_commit(
+            "a", "r", message="msg", tree_sha="t", parent_sha="p",
+        )
+    assert sha == "commit-sha"
+    body = post_mock.call_args.kwargs["json"]
+    assert body["message"] == "msg"
+    assert body["tree"] == "t"
+    assert body["parents"] == ["p"]
+
+
+@pytest.mark.asyncio
+async def test_update_ref_returns_object_sha(stubbed_env: None) -> None:
+    from role_builder.services.github_publish.api_client import GitHubApiClient
+
+    client = GitHubApiClient(access_token="ghp_x")
+    fake = _resp(200, {"object": {"sha": "new-head"}})
+    with patch.object(client._http, "patch", new=AsyncMock(return_value=fake)) as patch_mock:  # noqa: SLF001
+        sha = await client.update_ref("a", "r", "main", new_sha="new-head")
+    assert sha == "new-head"
+    body = patch_mock.call_args.kwargs["json"]
+    assert body == {"sha": "new-head", "force": False}

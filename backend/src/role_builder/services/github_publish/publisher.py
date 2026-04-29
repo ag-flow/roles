@@ -1,13 +1,17 @@
 """Construction et push des fichiers d'un rôle vers GitHub.
 
 Compose les 4-N fichiers (README.md + role.json + identity.md + LICENSE
-optionnel + sections/<sec>/<doc>.md), puis pousse chacun via PUT contents/.
-Les fichiers existants sont mis à jour avec leur sha (~30 fichiers max
-typique → 60 appels GET+PUT, ~10-20s par publication).
+optionnel + sections/<sec>/<doc>.md), puis pousse via Git data API
+(create blobs → create tree → create commit → update ref) — atomique en
+1 commit, ~5 appels HTTP indépendamment du nombre de fichiers.
+
+L'ancienne implémentation N×PUT (`/contents`) reste disponible pour les
+tests existants mais n'est plus appelée par les routes.
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from collections.abc import Awaitable, Callable
@@ -93,11 +97,102 @@ async def push_publication(
     insert_publication: Callable[..., Awaitable[dict[str, Any]]],
     pool: asyncpg.Pool,
 ) -> dict[str, Any]:
-    """Push tous les fichiers d'un rôle vers GitHub.
+    """Push tous les fichiers d'un rôle vers GitHub via Git data API (atomique).
 
     1. Build files (README + role.json + identity + sections + LICENSE)
-    2. Pour chaque file : GET sha existant → PUT (avec sha si update)
-    3. Insert role_publications row avec le commit_sha du dernier PUT
+    2. GET ref → sha du commit HEAD de la branche
+    3. GET commit/{sha} → sha du tree racine
+    4. POST blobs en parallèle (1 par fichier) → sha de chaque blob
+    5. POST trees avec base_tree=<root_tree> et items=[{path, mode, type, sha}]
+    6. POST commits avec parents=[<head_commit>]
+    7. PATCH refs/heads/<branch> avec le nouveau commit sha
+    8. Insert role_publications row
+
+    ~5 appels HTTP + N create_blob (parallélisable) ≈ 2-3 s pour 30 fichiers,
+    contre ~10-20 s avec l'ancienne stratégie N×PUT séquentielle. Et atomique :
+    si une étape échoue, le repo n'est pas dans un état partiel — la branche
+    pointe toujours sur HEAD.
+    """
+    files = await build_publication_files(
+        project=project,
+        docs_by_section=docs_by_section,
+        github_login=github_login,
+        license_choice=str(config.get("license_choice") or "none"),
+    )
+
+    owner, repo = str(config["repo_full_name"]).split("/", 1)
+    base_path = str(config["target_subdirectory"]).strip("/")
+    branch = str(config["branch"])
+    commit_msg = _format_message(str(config["commit_message_template"]), project)
+
+    head_sha = await api.get_ref_sha(owner, repo, branch)
+    base_tree_sha = await api.get_commit_tree_sha(owner, repo, head_sha)
+
+    # Création des blobs en parallèle — 1 round-trip cumulé au lieu de N
+    async def _make_blob(relpath: str, content: str) -> dict[str, str]:
+        sha = await api.create_blob(owner, repo, content=content, encoding="utf-8")
+        full_path = f"{base_path}/{relpath}" if base_path else relpath
+        return {
+            "path": full_path,
+            "mode": "100644",
+            "type": "blob",
+            "sha": sha,
+        }
+
+    items = await asyncio.gather(
+        *(_make_blob(relpath, content) for relpath, content in files.items()),
+    )
+
+    new_tree_sha = await api.create_tree(
+        owner, repo, base_tree_sha=base_tree_sha, items=items,
+    )
+    new_commit_sha = await api.create_commit(
+        owner, repo, message=commit_msg, tree_sha=new_tree_sha, parent_sha=head_sha,
+    )
+    await api.update_ref(owner, repo, branch, new_sha=new_commit_sha)
+
+    summary = f"Pushed to {config['repo_full_name']}/{base_path}"
+    await insert_publication(
+        role_project_id=project["id"],
+        tenant_id=tenant_id,
+        user_id=user_id,
+        commit_sha=new_commit_sha,
+        files_count=len(files),
+        summary=summary,
+        pool=pool,
+    )
+
+    log.info(
+        "github.publish.completed",
+        project_id=str(project["id"]),
+        files_count=len(files),
+        commit_sha=new_commit_sha,
+        strategy="trees-api",
+    )
+    return {
+        "commit_sha": new_commit_sha,
+        "url": f"https://github.com/{owner}/{repo}/tree/{branch}/{base_path}",
+        "files_count": len(files),
+    }
+
+
+async def push_publication_legacy_n_put(
+    *,
+    project: dict[str, Any],
+    docs_by_section: dict[str, list[dict[str, Any]]],
+    config: dict[str, Any],
+    github_login: str,
+    user_id: UUID,
+    tenant_id: UUID,
+    api: GitHubApiClient,
+    insert_publication: Callable[..., Awaitable[dict[str, Any]]],
+    pool: asyncpg.Pool,
+) -> dict[str, Any]:
+    """Ancienne implémentation N PUT séquentiels (1 commit par fichier).
+
+    Conservée pour fallback en cas de souci avec la Trees API. Pas exposée
+    par les routes — accessible uniquement par tests / appel programmatique.
+    Voir ``push_publication`` pour la version atomique.
     """
     files = await build_publication_files(
         project=project,
@@ -137,12 +232,6 @@ async def push_publication(
         pool=pool,
     )
 
-    log.info(
-        "github.publish.completed",
-        project_id=str(project["id"]),
-        files_count=len(files),
-        commit_sha=last_commit_sha,
-    )
     return {
         "commit_sha": last_commit_sha,
         "url": f"https://github.com/{owner}/{repo}/tree/{branch}/{base_path}",

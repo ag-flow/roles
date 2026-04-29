@@ -100,5 +100,112 @@ class GitHubApiClient:
         resp.raise_for_status()
         return str(resp.json()["commit"]["sha"])
 
+    # -----------------------------------------------------------------
+    # Git data API (Trees) — pour publier N fichiers en 1 commit atomique.
+    # -----------------------------------------------------------------
+
+    async def get_ref_sha(
+        self,
+        owner: str,
+        repo: str,
+        branch: str,
+    ) -> str:
+        """GET /git/ref/heads/{branch} → sha du dernier commit de la branche.
+
+        Lève httpx.HTTPStatusError si la branche n'existe pas (404).
+        """
+        resp = await self._http.get(
+            f"https://api.github.com/repos/{owner}/{repo}/git/ref/heads/{branch}",
+        )
+        resp.raise_for_status()
+        return str(resp.json()["object"]["sha"])
+
+    async def get_commit_tree_sha(
+        self,
+        owner: str,
+        repo: str,
+        commit_sha: str,
+    ) -> str:
+        """GET /git/commits/{sha} → sha du tree racine de ce commit."""
+        resp = await self._http.get(
+            f"https://api.github.com/repos/{owner}/{repo}/git/commits/{commit_sha}",
+        )
+        resp.raise_for_status()
+        return str(resp.json()["tree"]["sha"])
+
+    async def create_blob(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        content: str,
+        encoding: str = "utf-8",
+    ) -> str:
+        """POST /git/blobs avec encoding 'utf-8' (texte) ou 'base64' → sha du blob."""
+        resp = await self._http.post(
+            f"https://api.github.com/repos/{owner}/{repo}/git/blobs",
+            json={"content": content, "encoding": encoding},
+        )
+        resp.raise_for_status()
+        return str(resp.json()["sha"])
+
+    async def create_tree(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        base_tree_sha: str,
+        items: list[dict[str, str]],
+    ) -> str:
+        """POST /git/trees avec base_tree pour merge avec l'existant.
+
+        items = liste de {path, mode='100644', type='blob', sha}.
+        Retourne le sha du nouveau tree.
+        """
+        resp = await self._http.post(
+            f"https://api.github.com/repos/{owner}/{repo}/git/trees",
+            json={"base_tree": base_tree_sha, "tree": items},
+        )
+        resp.raise_for_status()
+        return str(resp.json()["sha"])
+
+    async def create_commit(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        message: str,
+        tree_sha: str,
+        parent_sha: str,
+    ) -> str:
+        """POST /git/commits → sha du nouveau commit."""
+        resp = await self._http.post(
+            f"https://api.github.com/repos/{owner}/{repo}/git/commits",
+            json={
+                "message": message,
+                "tree": tree_sha,
+                "parents": [parent_sha],
+            },
+        )
+        resp.raise_for_status()
+        return str(resp.json()["sha"])
+
+    async def update_ref(
+        self,
+        owner: str,
+        repo: str,
+        branch: str,
+        *,
+        new_sha: str,
+        force: bool = False,
+    ) -> str:
+        """PATCH /git/refs/heads/{branch} → sha du commit pointé."""
+        resp = await self._http.patch(
+            f"https://api.github.com/repos/{owner}/{repo}/git/refs/heads/{branch}",
+            json={"sha": new_sha, "force": force},
+        )
+        resp.raise_for_status()
+        return str(resp.json()["object"]["sha"])
+
     async def aclose(self) -> None:
         await self._http.aclose()

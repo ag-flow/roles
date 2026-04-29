@@ -33,12 +33,25 @@ def _make_docs() -> dict[str, list[dict[str, Any]]]:
 
 
 class _StubGithubApi:
+    """Stub GitHubApiClient couvrant à la fois /contents (legacy) et git data."""
+
     def __init__(self, *, access_token: str = "ghp_x") -> None:
         self.access_token = access_token
+        # /contents (legacy)
         self.put_calls: list[dict[str, Any]] = []
         self.delete_calls: list[dict[str, Any]] = []
         self.existing_shas: dict[str, str] = {}
+        # git data API (Trees)
+        self.blob_calls: list[dict[str, str]] = []
+        self.tree_items: list[dict[str, str]] = []
+        self.created_commit_msg: str | None = None
+        self.head_commit_sha: str = "head-sha"
+        self.base_tree_sha: str = "base-tree-sha"
+        self.new_tree_sha: str = "new-tree-sha"
+        self.new_commit_sha: str = "new-commit-sha"
+        self.update_ref_calls: list[dict[str, Any]] = []
 
+    # ---- /contents (legacy)
     async def get_content_sha(
         self, owner: str, repo: str, path: str, branch: str,
     ) -> str | None:
@@ -75,6 +88,60 @@ class _StubGithubApi:
     ) -> str:
         self.delete_calls.append({"path": path, "existing_sha": existing_sha})
         return "del-commit"
+
+    # ---- git data API (Trees)
+    async def get_ref_sha(self, owner: str, repo: str, branch: str) -> str:
+        return self.head_commit_sha
+
+    async def get_commit_tree_sha(
+        self, owner: str, repo: str, commit_sha: str,
+    ) -> str:
+        return self.base_tree_sha
+
+    async def create_blob(
+        self, owner: str, repo: str, *, content: str, encoding: str = "utf-8",
+    ) -> str:
+        idx = len(self.blob_calls)
+        sha = f"blob-{idx}"
+        self.blob_calls.append({"content": content, "encoding": encoding, "sha": sha})
+        return sha
+
+    async def create_tree(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        base_tree_sha: str,
+        items: list[dict[str, str]],
+    ) -> str:
+        self.tree_items = list(items)
+        return self.new_tree_sha
+
+    async def create_commit(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        message: str,
+        tree_sha: str,
+        parent_sha: str,
+    ) -> str:
+        self.created_commit_msg = message
+        return self.new_commit_sha
+
+    async def update_ref(
+        self,
+        owner: str,
+        repo: str,
+        branch: str,
+        *,
+        new_sha: str,
+        force: bool = False,
+    ) -> str:
+        self.update_ref_calls.append(
+            {"branch": branch, "new_sha": new_sha, "force": force},
+        )
+        return new_sha
 
     async def aclose(self) -> None:
         return None
@@ -132,9 +199,10 @@ async def test_build_publication_files_skips_license_when_none(
 
 
 @pytest.mark.asyncio
-async def test_push_publication_pushes_all_files_and_records(
+async def test_push_publication_uses_trees_api_atomic(
     stubbed_env: None,
 ) -> None:
+    """push_publication utilise Git data API : 1 commit atomique pour N fichiers."""
     from role_builder.services.github_publish import publisher
 
     project = _make_project()
@@ -167,27 +235,70 @@ async def test_push_publication_pushes_all_files_and_records(
         pool=pool,
     )
 
-    # Tous les fichiers sont publiés (5 docs + LICENSE = 6)
-    assert len(api.put_calls) == 6
-    pushed_paths = [c["path"] for c in api.put_calls]
-    assert all(p.startswith("ux-clea/") for p in pushed_paths)
-    # Aucun n'a de existing_sha (fichiers neufs)
-    assert all(c["existing_sha"] is None for c in api.put_calls)
-    # 1 record en DB
+    # 6 blobs créés (5 docs + LICENSE) — 1 par fichier, parallélisés
+    assert len(api.blob_calls) == 6
+    # Tree avec items = 6 entries préfixées par le subdir
+    assert len(api.tree_items) == 6
+    paths = [item["path"] for item in api.tree_items]
+    assert all(p.startswith("ux-clea/") for p in paths)
+    # Tous mode 100644 (file) et type blob
+    assert all(item["mode"] == "100644" for item in api.tree_items)
+    assert all(item["type"] == "blob" for item in api.tree_items)
+    # 1 commit créé avec le bon message templaté
+    assert api.created_commit_msg == "Update Agent"
+    # Branche mise à jour avec le nouveau commit_sha
+    assert api.update_ref_calls == [
+        {"branch": "main", "new_sha": "new-commit-sha", "force": False},
+    ]
+    # Aucun PUT /contents (legacy) — c'est bien la nouvelle stratégie
+    assert api.put_calls == []
+    # 1 record DB avec le commit_sha atomique
     assert len(insert_calls) == 1
+    assert insert_calls[0]["commit_sha"] == "new-commit-sha"
     assert insert_calls[0]["files_count"] == 6
-    assert "alice/roles" in insert_calls[0]["summary"]
-    # Commit message templaté
-    assert "Update Agent" in api.put_calls[0]["message"]
-    # Result exposé proprement
-    assert result["files_count"] == 6
+    assert result["commit_sha"] == "new-commit-sha"
     assert "alice/roles" in result["url"]
 
 
 @pytest.mark.asyncio
-async def test_push_publication_uses_existing_sha_for_existing_files(
+async def test_push_publication_handles_empty_subdirectory(
     stubbed_env: None,
 ) -> None:
+    """Si target_subdirectory est vide, les paths du tree ne sont pas préfixés."""
+    from role_builder.services.github_publish import publisher
+
+    project = _make_project()
+    docs = _make_docs()
+    config = {
+        "repo_full_name": "alice/roles",
+        "target_subdirectory": "",
+        "branch": "main",
+        "commit_message_template": "Update {role_name}",
+        "license_choice": "none",
+    }
+    api = _StubGithubApi()
+
+    async def fake_insert(**kwargs: Any) -> dict[str, Any]:
+        return {"id": uuid4(), "published_at": None}
+
+    pool = MagicMock()
+    await publisher.push_publication(
+        project=project, docs_by_section=docs, config=config,
+        github_login="alice", user_id=uuid4(), tenant_id=project["tenant_id"],
+        api=api, insert_publication=fake_insert, pool=pool,
+    )
+    paths = [item["path"] for item in api.tree_items]
+    # Pas de préfixe — README.md à la racine du repo, etc.
+    assert "README.md" in paths
+    assert "role.json" in paths
+    assert "sections/role/doc1.md" in paths
+
+
+@pytest.mark.asyncio
+async def test_push_publication_legacy_n_put_still_works(
+    stubbed_env: None,
+) -> None:
+    """L'ancienne implem N×PUT séquentielle reste fonctionnelle (fallback)."""
     from role_builder.services.github_publish import publisher
 
     project = _make_project()
@@ -197,7 +308,7 @@ async def test_push_publication_uses_existing_sha_for_existing_files(
         "target_subdirectory": "ux-clea",
         "branch": "main",
         "commit_message_template": "Update {role_name}",
-        "license_choice": "none",
+        "license_choice": "mit",
     }
     api = _StubGithubApi()
     api.existing_shas["ux-clea/README.md"] = "old-sha"
@@ -206,19 +317,18 @@ async def test_push_publication_uses_existing_sha_for_existing_files(
         return {"id": uuid4(), "published_at": None}
 
     pool = MagicMock()
-    await publisher.push_publication(
-        project=project,
-        docs_by_section=docs,
-        config=config,
-        github_login="alice",
-        user_id=uuid4(),
-        tenant_id=project["tenant_id"],
-        api=api,
-        insert_publication=fake_insert,
-        pool=pool,
+    await publisher.push_publication_legacy_n_put(
+        project=project, docs_by_section=docs, config=config,
+        github_login="alice", user_id=uuid4(), tenant_id=project["tenant_id"],
+        api=api, insert_publication=fake_insert, pool=pool,
     )
+    # 6 fichiers PUT, et le README utilise existing_sha
+    assert len(api.put_calls) == 6
     readme_call = next(c for c in api.put_calls if c["path"] == "ux-clea/README.md")
     assert readme_call["existing_sha"] == "old-sha"
+    # Pas d'appel git data API
+    assert api.blob_calls == []
+    assert api.update_ref_calls == []
 
 
 # ---------------------------------------------------------------------------
