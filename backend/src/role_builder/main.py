@@ -17,6 +17,7 @@ from role_builder.routes import (
     agflow_export,
     corpus,
     credentials,
+    github_auth,
     health,
     me,
     mistral_config,
@@ -146,4 +147,5 @@ app.include_router(mistral_config.router, prefix="/api", tags=["mistral-config"]
 app.include_router(role_projects_route.router, prefix="/api", tags=["role-projects"])
 app.include_router(agflow_export.router, prefix="/api", tags=["agflow-export"])
 app.include_router(role_documents_route.router, prefix="/api", tags=["role-documents"])
+app.include_router(github_auth.router, prefix="/api", tags=["github-auth"])
 app.include_router(websocket.router, tags=["websocket"])
