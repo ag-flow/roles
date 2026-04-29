@@ -48,12 +48,14 @@
       sont-ils marqués "obsolètes" ? Pour le MVP, rien d'automatique,
       mais à ajouter en Phase 2.
 
-- [ ] **Diff visuel des role_documents (versions)**
-      Algorithme à utiliser : diff-match-patch, jsdiff, autre ?
+- [x] **Diff visuel des role_documents (versions)**
+      → **Décision (sprint 7) :** `react-diff-viewer-continued` en split
+      view (cf. section Sprint 7).
 
-- [ ] **Edition manuelle d'un role_document après génération**
-      Flag `locked=true` pour empêcher l'écrasement par régénération
-      automatique. UI à designer pour le toggle.
+- [x] **Edition manuelle d'un role_document après génération**
+      → **Décision (sprint 7) :** `PATCH /role-documents/{id}` édite
+      in-place. Lock/unlock pour empêcher l'écrasement par régénération.
+      UI : bouton "Éditer" désactivé si locked (cf. section Sprint 7).
 
 ---
 
@@ -788,6 +790,104 @@ Trois bugs introduits par Sprint 2 H + Sprint 3 H qui empêchaient les builds CI
       `node_modules_locked_*` resté dans `frontend/` à nettoyer).
       → **Action :** ajouter `node_modules_locked_*/` au `.gitignore`
       ou nettoyer manuellement quand l'IDE relâche les locks.
+
+---
+
+## Sprint 7 — Décisions actées et observations
+
+Sprint 7 = export ag.flow + onglet Rôle frontend. Backend Phase A/B (livré
+avant pause) puis Phase D (ce commit) = page rôle complète + WebSocket de
+progression du push.
+
+- [x] **Push ag.flow : sync HTTP ou async WebSocket ?**
+      → **Décision (sprint 7) :** **variante A — sync HTTP + WS pour
+      progression**. L'endpoint `POST /role-projects/{id}/push-to-agflow`
+      reste synchrone et renvoie le résultat final (2-10s typique). Le
+      canal WS `agflow_push_events` sert uniquement à afficher les étapes
+      intermédiaires en live (`zip_built` → `role_ready` → `zip_uploaded`
+      → `prompts_generated` → `done` ou `failed`). Plus simple à coder, le
+      client gère l'erreur HTTP comme d'habitude, le WS est purement
+      visuel et peut se déconnecter sans casser la logique.
+
+- [x] **Format du payload `agflow_push_events`**
+      → **Décision (sprint 7) :** JSON
+      `{tenant_id, project_id, step, status, detail?}` avec
+      `step ∈ {zip_built, role_ready, zip_uploaded, prompts_generated,
+      done, failed}` et `status ∈ {in_progress, done, failed}`. Filtrage
+      par `tenant_id` côté `WSRelay` comme les autres canaux. Les
+      émissions sont best-effort : un échec d'émission `pg_notify` est
+      loggé en warning mais ne casse jamais le push.
+
+- [x] **Échec partiel sur `prompts_generated` : couleur du banner ?**
+      → **Décision (sprint 7) :** **rouge** (border-left `#dc2626`),
+      conformément à la convention StatusIndicator (rouge = action
+      requise). Texte explicite "Rôle uploadé sur ag.flow, mais la
+      génération du prompt a échoué" + bouton "Réessayer la génération du
+      prompt" qui appelle `/generate-prompts-on-agflow`. Pas d'orange
+      malgré que ce soit un état "partiel" — le rouge match la sémantique
+      "il faut faire quelque chose".
+
+- [x] **Conflit 409 sur `display_name` côté ag.flow**
+      → **Décision (sprint 7) :** **bloquant**, pas de rename inline.
+      Modale d'erreur dédiée affichant "Le nom 'X' existe déjà sur
+      ag.flow. Renommez votre projet (paramètres) avant de pousser." Le
+      frontend détecte le 409 via `ApiError.status === 409`. Le rename se
+      fait côté Role Builder, pas côté push-flow.
+
+- [x] **Édition manuelle d'un role_document après génération (était open)**
+      → **Décision (sprint 7) :** `PATCH /role-documents/{id}` édite le
+      content **in-place** sur la version courante, sans créer de nouvelle
+      version. Si l'utilisateur veut versionner ses éditions, il bascule
+      le `locked` (avec `lock_document` / `unlock_document`) — un doc
+      verrouillé n'est plus écrasable par régénération. UI : bouton
+      "Éditer" désactivé si `locked`, bouton "Régénérer" désactivé si
+      `locked`.
+
+- [x] **Diff visuel des role_documents (était open)**
+      → **Décision (sprint 7) :** `react-diff-viewer-continued` (MIT, 4.x)
+      en split view, leftTitle/rightTitle dynamiques. Le package est typé
+      comme une class component legacy → encapsulation en
+      FunctionComponent typée minimaliste pour rester compatible TS
+      strict + React 18.
+
+- [x] **Auto-cleanup des tests Testing Library**
+      → **Décision (sprint 7) :** `globals: false` côté Vitest désactive
+      le cleanup implicite de RTL. Ajout de `afterEach(cleanup)` dans
+      `src/test/setup.ts` pour éviter les fuites de DOM entre tests
+      composants. Important pour les tests qui assertent l'absence d'un
+      élément (`queryBy*().toBeNull()`).
+
+- [x] **Cache SWR entre tests**
+      → **Décision (sprint 7) :** SWR mémorise par clé entre tests. Pour
+      les tests composants qui dépendent du cycle loading→loaded, wrap le
+      composant dans `<SWRConfig value={{ provider: () => new Map() }}>`.
+      Pattern interne (`FreshSWR` dans `VersionDiff.test.tsx`).
+
+- [x] **Surcharges typées de `useWebSocketEvent`**
+      → **Décision (sprint 7) :** signature de `useWebSocketEvent`
+      surchargée par canal : `'agflow_push_events'` reçoit
+      `PushEventPayload`, les 4 autres canaux reçoivent `WSEventPayload`.
+      Les callers obtiennent le bon type sans cast. Implémentation
+      interne : `Listener = (payload: unknown) => void` dans
+      `connection.ts`.
+
+- [ ] **Suppression d'un rôle ag.flow depuis Role Builder**
+      Reporté Phase 2. Pour MVP, l'utilisateur supprime via l'admin
+      ag.flow s'il le souhaite. Si on supprime un projet Role Builder, on
+      garde le `target_role_id` historique mais on ne peut plus pousser.
+
+- [ ] **Endpoint multipart streamé pour ZIP > 10 MB**
+      Reporté. Pour un rôle typique (3 sections × 10 docs × ~500 mots),
+      le ZIP fait ~100-200 KB. Largement sous les limites HTTP standard.
+      Si on dépasse 10 MB un jour, prévoir un endpoint multipart streamé
+      côté ag.flow + côté Role Builder.
+
+- [ ] **Tests end-to-end du push réel**
+      Reporté. Le push a été testé unitairement (build ZIP, NOTIFY,
+      orchestration). Test E2E réel = pousser un rôle complet vers une
+      instance ag.flow staging et valider l'apparition dans son admin.
+      À faire dès qu'une instance ag.flow staging est dispo et que la
+      Phase 8 (publication) est entamée.
 
 ---
 
