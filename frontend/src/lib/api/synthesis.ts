@@ -69,3 +69,31 @@ export async function regenerateDocument(
 export async function setCurrentVersion(docId: string): Promise<{ status: string }> {
   return api<{ status: string }>(`/api/role-documents/${docId}/set-current`, { method: 'POST' });
 }
+
+export interface TriggerFullPipelineRequest {
+  chunks_per_batch?: number;
+  parallelism?: number;
+  include_identity?: boolean;
+  extract_instruction_override?: string | null;
+  cluster_instruction_override?: string | null;
+  decompose_instruction_override?: string | null;
+  identity_instruction_override?: string | null;
+}
+
+export interface FullPipelineResponse {
+  extract_run_id: string;
+  cluster_run_id: string;
+  decompose_run_id: string;
+  document_run_ids: string[];
+  identity_run_id: string | null;
+}
+
+export async function triggerFullPipeline(
+  projectId: string,
+  body: TriggerFullPipelineRequest = {},
+): Promise<FullPipelineResponse> {
+  return api<FullPipelineResponse>(
+    `/api/role-projects/${projectId}/runs/full-pipeline`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}

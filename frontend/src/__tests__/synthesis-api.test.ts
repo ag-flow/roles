@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   triggerExtraction,
   triggerDocumentWriting,
+  triggerFullPipeline,
   regenerateDocument,
   setCurrentVersion,
   triggerClustering,
@@ -245,5 +246,52 @@ describe('runs API client', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe('http://localhost:8000/api/runs/run-99');
     expect(calls[0]!.init.method).toBeUndefined();
+  });
+
+  it('triggerFullPipeline POST avec le body complet', async () => {
+    const payload = {
+      extract_run_id: 'r1',
+      cluster_run_id: 'r2',
+      decompose_run_id: 'r3',
+      document_run_ids: ['r4', 'r5', 'r6'],
+      identity_run_id: 'r7',
+    };
+    const { calls, fn } = mockFetch({ json: async () => payload });
+    globalThis.fetch = fn;
+
+    const result = await triggerFullPipeline('rp-1', {
+      chunks_per_batch: 8,
+      parallelism: 2,
+      include_identity: true,
+    });
+
+    expect(result).toEqual(payload);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe(
+      'http://localhost:8000/api/role-projects/rp-1/runs/full-pipeline',
+    );
+    expect(calls[0]!.init.method).toBe('POST');
+    expect(calls[0]!.init.body).toBe(
+      JSON.stringify({
+        chunks_per_batch: 8,
+        parallelism: 2,
+        include_identity: true,
+      }),
+    );
+  });
+
+  it('triggerFullPipeline avec body vide envoie {}', async () => {
+    const { calls, fn } = mockFetch({
+      json: async () => ({
+        extract_run_id: 'a',
+        cluster_run_id: 'b',
+        decompose_run_id: 'c',
+        document_run_ids: [],
+        identity_run_id: null,
+      }),
+    });
+    globalThis.fetch = fn;
+    await triggerFullPipeline('rp-1');
+    expect(calls[0]!.init.body).toBe('{}');
   });
 });

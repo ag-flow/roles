@@ -6,6 +6,7 @@ import {
   triggerClustering,
   triggerDecomposition,
   triggerDocumentWriting,
+  triggerFullPipeline,
   triggerIdentitySynthesis,
 } from '@/lib/api/synthesis';
 
@@ -14,7 +15,7 @@ interface Props {
   onRunStarted?: (runId: string | string[]) => void;
 }
 
-type Stage = 'extract' | 'cluster' | 'decompose' | 'write' | 'identity';
+type Stage = 'extract' | 'cluster' | 'decompose' | 'write' | 'identity' | 'full';
 
 export function PipelineStepper({ projectId, onRunStarted }: Props) {
   const [loading, setLoading] = useState<Record<Stage, boolean>>({
@@ -23,6 +24,7 @@ export function PipelineStepper({ projectId, onRunStarted }: Props) {
     decompose: false,
     write: false,
     identity: false,
+    full: false,
   });
   const [lastRunIds, setLastRunIds] = useState<Record<string, string>>({});
 
@@ -107,6 +109,43 @@ export function PipelineStepper({ projectId, onRunStarted }: Props) {
     }
   }
 
+  async function handleFullPipeline() {
+    if (
+      !window.confirm(
+        'Lancer le pipeline complet (extract → cluster → decompose → write-documents → identity) ? '
+        + 'L\'opération est synchrone et peut prendre 2-5 min selon la taille du corpus.',
+      )
+    ) {
+      return;
+    }
+    setStageLoading('full', true);
+    try {
+      const result = await triggerFullPipeline(projectId, { include_identity: true });
+      const docCount = result.document_run_ids.length;
+      const idText = result.identity_run_id
+        ? `, identity ${result.identity_run_id.slice(0, 8)}`
+        : '';
+      alert(
+        `Pipeline terminé — extract ${result.extract_run_id.slice(0, 8)}, `
+        + `cluster ${result.cluster_run_id.slice(0, 8)}, `
+        + `decompose ${result.decompose_run_id.slice(0, 8)}, `
+        + `${docCount} doc run(s)${idText}.`,
+      );
+      // Notifie pour rafraichir la liste des runs
+      onRunStarted?.([
+        result.extract_run_id,
+        result.cluster_run_id,
+        result.decompose_run_id,
+        ...result.document_run_ids,
+        ...(result.identity_run_id ? [result.identity_run_id] : []),
+      ]);
+    } catch (err) {
+      alert(`Erreur pipeline : ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setStageLoading('full', false);
+    }
+  }
+
   const buttonStyle: React.CSSProperties = {
     padding: '0.5rem 1rem',
     borderRadius: 6,
@@ -123,14 +162,48 @@ export function PipelineStepper({ projectId, onRunStarted }: Props) {
     cursor: 'not-allowed',
   };
 
+  const fullButtonStyle: React.CSSProperties = {
+    ...buttonStyle,
+    background: '#7c3aed',
+    color: 'white',
+    border: 0,
+    fontWeight: 600,
+  };
+
+  const anyStageLoading = Object.values(loading).some((v) => v);
+
   return (
+    <div style={{ marginBottom: '1.5rem' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem',
+          padding: '0.75rem 1rem',
+          background: '#faf5ff',
+          borderRadius: 8,
+          border: '1px solid #e9d5ff',
+          marginBottom: '0.75rem',
+        }}
+      >
+        <button
+          onClick={handleFullPipeline}
+          disabled={anyStageLoading}
+          style={anyStageLoading ? { ...fullButtonStyle, opacity: 0.5, cursor: 'not-allowed' } : fullButtonStyle}
+        >
+          {loading.full ? 'Pipeline en cours…' : '⚡ Lancer le pipeline complet'}
+        </button>
+        <span style={{ fontSize: '0.85rem', color: '#6b46c1' }}>
+          extract → cluster → decompose → write-documents → identity
+        </span>
+      </div>
+
     <div
       style={{
         display: 'flex',
         gap: '0.75rem',
         flexWrap: 'wrap',
         alignItems: 'center',
-        marginBottom: '1.5rem',
         padding: '1rem',
         background: '#f9f9f9',
         borderRadius: 8,
@@ -185,6 +258,7 @@ export function PipelineStepper({ projectId, onRunStarted }: Props) {
       >
         {loading.identity ? 'En cours…' : 'Générer identity'}
       </button>
+    </div>
     </div>
   );
 }
