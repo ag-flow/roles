@@ -14,11 +14,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import UUID
 
 import asyncpg
+import httpx
 import structlog
 
 from role_builder.services.github_publish.api_client import GitHubApiClient
@@ -28,6 +30,24 @@ from role_builder.services.github_publish.readme_builder import (
 )
 
 log = structlog.get_logger(__name__)
+
+
+def _slugify(name: str) -> str:
+    """Slug ASCII pour un nom de tag git : minuscules, [a-z0-9-], pas de doubles tirets.
+
+    >>> _slugify("UX Designer Clea")
+    'ux-designer-clea'
+    >>> _slugify("Été à Paris !")
+    'ete-a-paris'
+    """
+    # Normalisation accents (Café → Cafe)
+    import unicodedata
+
+    decomposed = unicodedata.normalize("NFKD", name)
+    ascii_only = decomposed.encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-zA-Z0-9-]+", "-", ascii_only).strip("-").lower()
+    slug = re.sub(r"-+", "-", slug)
+    return slug or "role"
 
 
 def _build_role_json(
@@ -96,6 +116,7 @@ async def push_publication(
     api: GitHubApiClient,
     insert_publication: Callable[..., Awaitable[dict[str, Any]]],
     pool: asyncpg.Pool,
+    tag_version_number: int | None = None,
 ) -> dict[str, Any]:
     """Push tous les fichiers d'un rôle vers GitHub via Git data API (atomique).
 
@@ -106,7 +127,10 @@ async def push_publication(
     5. POST trees avec base_tree=<root_tree> et items=[{path, mode, type, sha}]
     6. POST commits avec parents=[<head_commit>]
     7. PATCH refs/heads/<branch> avec le nouveau commit sha
-    8. Insert role_publications row
+    8. (Optionnel) POST git/tags + POST git/refs avec ref=refs/tags/role-<slug>-v<N>
+       si ``tag_version_number`` est fourni — best-effort, n'interrompt pas le
+       push si échec (ex: tag déjà existant).
+    9. Insert role_publications row
 
     ~5 appels HTTP + N create_blob (parallélisable) ≈ 2-3 s pour 30 fichiers,
     contre ~10-20 s avec l'ancienne stratégie N×PUT séquentielle. Et atomique :
@@ -151,6 +175,33 @@ async def push_publication(
     )
     await api.update_ref(owner, repo, branch, new_sha=new_commit_sha)
 
+    tag_name: str | None = None
+    tag_url: str | None = None
+    if tag_version_number is not None:
+        slug = _slugify(str(project["display_name"]))
+        tag_name = f"role-{slug}-v{tag_version_number}"
+        try:
+            tag_obj_sha = await api.create_tag(
+                owner, repo,
+                tag=tag_name,
+                message=f"Publication v{tag_version_number} : {project['display_name']}",
+                commit_sha=new_commit_sha,
+            )
+            await api.create_tag_ref(
+                owner, repo, tag=tag_name, tag_sha=tag_obj_sha,
+            )
+            tag_url = f"https://github.com/{owner}/{repo}/releases/tag/{tag_name}"
+            log.info("github.publish.tag_created", tag=tag_name)
+        except httpx.HTTPStatusError as exc:
+            # Tag déjà existant ou autre erreur GitHub — best-effort, on log
+            # mais on ne casse pas le push.
+            log.warning(
+                "github.publish.tag_create_failed",
+                tag=tag_name,
+                status=exc.response.status_code if exc.response else None,
+            )
+            tag_name = None
+
     summary = f"Pushed to {config['repo_full_name']}/{base_path}"
     await insert_publication(
         role_project_id=project["id"],
@@ -167,12 +218,15 @@ async def push_publication(
         project_id=str(project["id"]),
         files_count=len(files),
         commit_sha=new_commit_sha,
+        tag_name=tag_name,
         strategy="trees-api",
     )
     return {
         "commit_sha": new_commit_sha,
         "url": f"https://github.com/{owner}/{repo}/tree/{branch}/{base_path}",
         "files_count": len(files),
+        "tag_name": tag_name,
+        "tag_url": tag_url,
     }
 
 

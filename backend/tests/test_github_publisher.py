@@ -50,6 +50,10 @@ class _StubGithubApi:
         self.new_tree_sha: str = "new-tree-sha"
         self.new_commit_sha: str = "new-commit-sha"
         self.update_ref_calls: list[dict[str, Any]] = []
+        self.create_tag_calls: list[dict[str, Any]] = []
+        self.create_tag_ref_calls: list[dict[str, Any]] = []
+        # Si non-None, create_tag lève cette exception (simule conflict 422)
+        self.create_tag_raises: Exception | None = None
 
     # ---- /contents (legacy)
     async def get_content_sha(
@@ -142,6 +146,36 @@ class _StubGithubApi:
             {"branch": branch, "new_sha": new_sha, "force": force},
         )
         return new_sha
+
+    # ---- tags
+    async def create_tag(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        tag: str,
+        message: str,
+        commit_sha: str,
+        tagger_name: str = "Role Builder",
+        tagger_email: str = "x@y.z",
+    ) -> str:
+        if self.create_tag_raises is not None:
+            raise self.create_tag_raises
+        self.create_tag_calls.append(
+            {"tag": tag, "message": message, "commit_sha": commit_sha},
+        )
+        return f"tagobj-{tag}"
+
+    async def create_tag_ref(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        tag: str,
+        tag_sha: str,
+    ) -> str:
+        self.create_tag_ref_calls.append({"tag": tag, "tag_sha": tag_sha})
+        return f"tagref-{tag}"
 
     async def aclose(self) -> None:
         return None
@@ -384,6 +418,136 @@ async def test_delete_publication_uses_trees_api_with_sha_null(
     assert api.update_ref_calls == [
         {"branch": "main", "new_sha": "new-commit-sha", "force": False},
     ]
+
+
+@pytest.mark.asyncio
+async def test_push_publication_creates_annotated_tag_when_version_provided(
+    stubbed_env: None,
+) -> None:
+    """tag_version_number=N → crée le tag role-{slug}-v{N} après le commit."""
+    from role_builder.services.github_publish import publisher
+
+    project = _make_project(display_name="UX Designer Clea")
+    docs = _make_docs()
+    config = {
+        "repo_full_name": "alice/roles",
+        "target_subdirectory": "ux-clea",
+        "branch": "main",
+        "commit_message_template": "Update {role_name}",
+        "license_choice": "none",
+    }
+    api = _StubGithubApi()
+
+    async def fake_insert(**kwargs: Any) -> dict[str, Any]:
+        return {"id": uuid4(), "published_at": None}
+
+    pool = MagicMock()
+    result = await publisher.push_publication(
+        project=project, docs_by_section=docs, config=config,
+        github_login="alice", user_id=uuid4(), tenant_id=project["tenant_id"],
+        api=api, insert_publication=fake_insert, pool=pool,
+        tag_version_number=3,
+    )
+
+    assert len(api.create_tag_calls) == 1
+    tag_call = api.create_tag_calls[0]
+    assert tag_call["tag"] == "role-ux-designer-clea-v3"
+    assert tag_call["commit_sha"] == "new-commit-sha"
+    assert "v3" in tag_call["message"]
+    # Tag ref créé après l'objet tag
+    assert len(api.create_tag_ref_calls) == 1
+    assert api.create_tag_ref_calls[0]["tag"] == "role-ux-designer-clea-v3"
+    # Result expose tag_name + tag_url
+    assert result["tag_name"] == "role-ux-designer-clea-v3"
+    assert result["tag_url"] == (
+        "https://github.com/alice/roles/releases/tag/role-ux-designer-clea-v3"
+    )
+
+
+@pytest.mark.asyncio
+async def test_push_publication_no_tag_when_version_none(
+    stubbed_env: None,
+) -> None:
+    """tag_version_number=None → aucun tag créé, result.tag_name=None."""
+    from role_builder.services.github_publish import publisher
+
+    project = _make_project()
+    docs = _make_docs()
+    config = {
+        "repo_full_name": "alice/roles",
+        "target_subdirectory": "ux-clea",
+        "branch": "main",
+        "commit_message_template": "Update {role_name}",
+        "license_choice": "none",
+    }
+    api = _StubGithubApi()
+
+    async def fake_insert(**kwargs: Any) -> dict[str, Any]:
+        return {"id": uuid4(), "published_at": None}
+
+    pool = MagicMock()
+    result = await publisher.push_publication(
+        project=project, docs_by_section=docs, config=config,
+        github_login="alice", user_id=uuid4(), tenant_id=project["tenant_id"],
+        api=api, insert_publication=fake_insert, pool=pool,
+    )
+    assert api.create_tag_calls == []
+    assert api.create_tag_ref_calls == []
+    assert result["tag_name"] is None
+    assert result["tag_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_push_publication_tag_creation_failure_does_not_break_push(
+    stubbed_env: None,
+) -> None:
+    """Si create_tag raise httpx.HTTPStatusError (ex: tag déjà existant 422),
+    le push réussit quand même (best-effort sur le tag)."""
+    import httpx
+
+    from role_builder.services.github_publish import publisher
+
+    project = _make_project()
+    docs = _make_docs()
+    config = {
+        "repo_full_name": "alice/roles",
+        "target_subdirectory": "ux-clea",
+        "branch": "main",
+        "commit_message_template": "Update {role_name}",
+        "license_choice": "none",
+    }
+    api = _StubGithubApi()
+    api.create_tag_raises = httpx.HTTPStatusError(
+        "422 Unprocessable Entity",
+        request=httpx.Request("POST", "x"),
+        response=httpx.Response(422, request=httpx.Request("POST", "x")),
+    )
+
+    async def fake_insert(**kwargs: Any) -> dict[str, Any]:
+        return {"id": uuid4(), "published_at": None}
+
+    pool = MagicMock()
+    result = await publisher.push_publication(
+        project=project, docs_by_section=docs, config=config,
+        github_login="alice", user_id=uuid4(), tenant_id=project["tenant_id"],
+        api=api, insert_publication=fake_insert, pool=pool,
+        tag_version_number=1,
+    )
+    # Push complet
+    assert result["commit_sha"] == "new-commit-sha"
+    # Mais tag absent
+    assert result["tag_name"] is None
+    assert api.create_tag_ref_calls == []
+
+
+def test_slugify_handles_accents_and_punctuation() -> None:
+    from role_builder.services.github_publish.publisher import _slugify
+
+    assert _slugify("UX Designer Clea") == "ux-designer-clea"
+    assert _slugify("Été à Paris !") == "ete-a-paris"
+    assert _slugify("Multiple   Spaces") == "multiple-spaces"
+    assert _slugify("") == "role"
+    assert _slugify("---") == "role"
 
 
 @pytest.mark.asyncio

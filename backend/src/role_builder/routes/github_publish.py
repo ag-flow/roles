@@ -201,6 +201,12 @@ async def publish_to_github(
         project_id, pool=db_pool.pool,
     )
 
+    # Numéro de version du tag = (nombre de publications déjà faites) + 1
+    existing = await role_publications.list_by_project(
+        project_id, limit=1000, pool=db_pool.pool,
+    )
+    next_version = len(existing) + 1
+
     api, github_login = await _api_for_user(user)
     try:
         result = await gh_publisher.push_publication(
@@ -213,6 +219,7 @@ async def publish_to_github(
             api=api,
             insert_publication=role_publications.insert,
             pool=db_pool.pool,
+            tag_version_number=next_version,
         )
     except httpx.HTTPStatusError as exc:
         raise _bad_gateway(exc) from exc

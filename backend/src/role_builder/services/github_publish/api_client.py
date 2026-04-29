@@ -211,5 +211,53 @@ class GitHubApiClient:
         resp.raise_for_status()
         return str(resp.json()["object"]["sha"])
 
+    async def create_tag(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        tag: str,
+        message: str,
+        commit_sha: str,
+        tagger_name: str = "Role Builder",
+        tagger_email: str = "role-builder@example.invalid",
+    ) -> str:
+        """POST /git/tags — crée l'objet tag annoté, retourne son sha.
+
+        Cet objet n'est PAS encore visible : il faut appeler ``create_tag_ref``
+        derrière pour créer la référence ``refs/tags/{tag}``.
+        """
+        resp = await self._http.post(
+            f"https://api.github.com/repos/{owner}/{repo}/git/tags",
+            json={
+                "tag": tag,
+                "message": message,
+                "object": commit_sha,
+                "type": "commit",
+                "tagger": {
+                    "name": tagger_name,
+                    "email": tagger_email,
+                },
+            },
+        )
+        resp.raise_for_status()
+        return str(resp.json()["sha"])
+
+    async def create_tag_ref(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        tag: str,
+        tag_sha: str,
+    ) -> str:
+        """POST /git/refs avec ref=refs/tags/{tag} → expose le tag annoté."""
+        resp = await self._http.post(
+            f"https://api.github.com/repos/{owner}/{repo}/git/refs",
+            json={"ref": f"refs/tags/{tag}", "sha": tag_sha},
+        )
+        resp.raise_for_status()
+        return str(resp.json()["object"]["sha"])
+
     async def aclose(self) -> None:
         await self._http.aclose()

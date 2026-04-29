@@ -167,6 +167,19 @@ export function PublishToGithubButton({ projectId }: Props) {
               Voir sur GitHub →
             </a>
           </p>
+          {step.result.tag_name && step.result.tag_url && (
+            <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
+              Tag annoté :{' '}
+              <a
+                href={step.result.tag_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontFamily: 'monospace' }}
+              >
+                {step.result.tag_name}
+              </a>
+            </p>
+          )}
           <button
             type="button"
             onClick={() => setStep({ kind: 'idle' })}

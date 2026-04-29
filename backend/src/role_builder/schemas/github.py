@@ -61,6 +61,8 @@ class PublishResponse(BaseModel):
     commit_sha: str | None
     url: str
     files_count: int
+    tag_name: str | None = None
+    tag_url: str | None = None
 
 
 class PublicationOut(BaseModel):

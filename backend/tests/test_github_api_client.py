@@ -209,3 +209,41 @@ async def test_update_ref_returns_object_sha(stubbed_env: None) -> None:
     assert sha == "new-head"
     body = patch_mock.call_args.kwargs["json"]
     assert body == {"sha": "new-head", "force": False}
+
+
+@pytest.mark.asyncio
+async def test_create_tag_posts_annotated_tag_object(stubbed_env: None) -> None:
+    from role_builder.services.github_publish.api_client import GitHubApiClient
+
+    client = GitHubApiClient(access_token="ghp_x")
+    fake = _resp(201, {"sha": "tag-obj-sha"})
+    with patch.object(client._http, "post", new=AsyncMock(return_value=fake)) as post_mock:  # noqa: SLF001
+        sha = await client.create_tag(
+            "a", "r",
+            tag="role-x-v1",
+            message="Initial publication",
+            commit_sha="commit-sha",
+        )
+    assert sha == "tag-obj-sha"
+    body = post_mock.call_args.kwargs["json"]
+    assert body["tag"] == "role-x-v1"
+    assert body["message"] == "Initial publication"
+    assert body["object"] == "commit-sha"
+    assert body["type"] == "commit"
+    assert body["tagger"]["name"] == "Role Builder"
+    assert body["tagger"]["email"]
+
+
+@pytest.mark.asyncio
+async def test_create_tag_ref_posts_refs_tags(stubbed_env: None) -> None:
+    from role_builder.services.github_publish.api_client import GitHubApiClient
+
+    client = GitHubApiClient(access_token="ghp_x")
+    fake = _resp(201, {"object": {"sha": "tag-ref-sha"}})
+    with patch.object(client._http, "post", new=AsyncMock(return_value=fake)) as post_mock:  # noqa: SLF001
+        sha = await client.create_tag_ref(
+            "a", "r", tag="role-x-v1", tag_sha="tag-obj-sha",
+        )
+    assert sha == "tag-ref-sha"
+    body = post_mock.call_args.kwargs["json"]
+    assert body == {"ref": "refs/tags/role-x-v1", "sha": "tag-obj-sha"}

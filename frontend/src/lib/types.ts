@@ -293,6 +293,10 @@ export interface PublishResponse {
   commit_sha: string | null;
   url: string;
   files_count: number;
+  /** Nom du tag annoté créé (ex: 'role-ux-clea-v3') ou null. */
+  tag_name?: string | null;
+  /** URL GitHub releases du tag, ou null. */
+  tag_url?: string | null;
 }
 
 export interface Publication {
