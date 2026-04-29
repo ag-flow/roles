@@ -788,6 +788,16 @@ Trois bugs introduits par Sprint 2 H + Sprint 3 H qui empêchaient les builds CI
       public.
       → **Action :** upgrade vers la dernière patch 14.2.x au début du
       Sprint 2 ou 3 selon les retours sécurité.
+      → **Tentative (post-sprint-8, 2026-04-29) :** bump `next@14.2.35`
+      tenté mais bloqué par les locks Windows (cf. l'item suivant) — le
+      `npm install` partiel a corrompu `node_modules/next` (shim
+      `.bin/next` perdu, `dist/esm` ENOTEMPTY). Repository reverté à
+      `14.2.0` propre. **Pour appliquer ce bump : fermer tous les
+      watchers (VSCode, IDE, etc.) puis ``rm -rf node_modules &&
+      npm install next@14.2.35 eslint-config-next@14.2.35``**. CVEs
+      critiques restantes : Next.js auth bypass, request smuggling,
+      DoS via Server Components, etc. — ne pas déployer en prod sans
+      ce bump.
 
 - [ ] **Vérification end-to-end Phase F8 partielle (pas de Docker)**
       Environnement de dev Windows actuel n'a pas Docker installé. Les
