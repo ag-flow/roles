@@ -155,11 +155,15 @@ class GitHubApiClient:
         repo: str,
         *,
         base_tree_sha: str,
-        items: list[dict[str, str]],
+        items: list[dict[str, Any]],
     ) -> str:
         """POST /git/trees avec base_tree pour merge avec l'existant.
 
         items = liste de {path, mode='100644', type='blob', sha}.
+        Pour supprimer un fichier du tree, passer ``sha: None`` (sérialisé en
+        ``null`` dans le JSON envoyé à GitHub) — la combinaison
+        ``mode='100644'`` + ``type='blob'`` + ``sha=null`` enlève l'entrée.
+
         Retourne le sha du nouveau tree.
         """
         resp = await self._http.post(

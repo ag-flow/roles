@@ -247,11 +247,13 @@ async def delete_publication(
     github_login: str,
     api: GitHubApiClient,
 ) -> int:
-    """Supprime les fichiers du sous-répertoire publié.
+    """Supprime les fichiers du sous-répertoire publié — 1 commit atomique.
 
-    Reconstruit la liste des fichiers attendus, récupère leur sha actuel,
-    et envoie un DELETE pour chacun. Les fichiers déjà absents (404) sont
-    skippés. Retourne le nombre de fichiers effectivement supprimés.
+    Reconstruit la liste des fichiers attendus, vérifie ceux qui existent
+    encore (GET get_content_sha), puis envoie un seul commit Trees avec
+    ``sha: None`` pour chaque fichier à supprimer. Retourne le count.
+
+    Avantage vs N×DELETE : 1 commit unique au lieu de N, et atomique.
     """
     files = await build_publication_files(
         project=project,
@@ -262,21 +264,39 @@ async def delete_publication(
     owner, repo = str(config["repo_full_name"]).split("/", 1)
     base_path = str(config["target_subdirectory"]).strip("/")
     branch = str(config["branch"])
-    msg = f"Unpublish role {project['display_name']}"
 
-    deleted = 0
+    full_paths: list[str] = []
     for relpath in files:
         full_path = f"{base_path}/{relpath}" if base_path else relpath
         sha = await api.get_content_sha(owner, repo, full_path, branch)
-        if sha is None:
-            continue
-        await api.delete_content(
-            owner=owner,
-            repo=repo,
-            path=full_path,
-            branch=branch,
-            existing_sha=sha,
-            message=msg,
-        )
-        deleted += 1
-    return deleted
+        if sha is not None:
+            full_paths.append(full_path)
+
+    if not full_paths:
+        return 0
+
+    head_sha = await api.get_ref_sha(owner, repo, branch)
+    base_tree_sha = await api.get_commit_tree_sha(owner, repo, head_sha)
+
+    # Trees items avec sha=None → suppression. mode/type doivent rester.
+    items: list[dict[str, Any]] = [
+        {"path": p, "mode": "100644", "type": "blob", "sha": None}
+        for p in full_paths
+    ]
+    new_tree_sha = await api.create_tree(
+        owner, repo, base_tree_sha=base_tree_sha, items=items,
+    )
+    msg = f"Unpublish role {project['display_name']}"
+    new_commit_sha = await api.create_commit(
+        owner, repo, message=msg, tree_sha=new_tree_sha, parent_sha=head_sha,
+    )
+    await api.update_ref(owner, repo, branch, new_sha=new_commit_sha)
+
+    log.info(
+        "github.unpublish.completed",
+        project_id=str(project["id"]),
+        deleted_count=len(full_paths),
+        commit_sha=new_commit_sha,
+        strategy="trees-api",
+    )
+    return len(full_paths)

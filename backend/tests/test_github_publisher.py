@@ -337,9 +337,11 @@ async def test_push_publication_legacy_n_put_still_works(
 
 
 @pytest.mark.asyncio
-async def test_delete_publication_iterates_existing_files_only(
+async def test_delete_publication_uses_trees_api_with_sha_null(
     stubbed_env: None,
 ) -> None:
+    """delete_publication = 1 commit atomique avec items[].sha=None pour les
+    fichiers existants. Pas de N×DELETE."""
     from role_builder.services.github_publish import publisher
 
     project = _make_project()
@@ -352,7 +354,7 @@ async def test_delete_publication_iterates_existing_files_only(
         "license_choice": "mit",
     }
     api = _StubGithubApi()
-    # Seuls 4 fichiers existent (README, role.json, identity, LICENSE)
+    # 4 des 6 fichiers existent encore en repo
     api.existing_shas = {
         "ux-clea/README.md": "s1",
         "ux-clea/role.json": "s2",
@@ -361,13 +363,52 @@ async def test_delete_publication_iterates_existing_files_only(
     }
 
     deleted = await publisher.delete_publication(
-        project=project,
-        docs_by_section=docs,
-        config=config,
-        github_login="alice",
-        api=api,
+        project=project, docs_by_section=docs, config=config,
+        github_login="alice", api=api,
     )
-    # 4 fichiers existaient, 4 suppressions
     assert deleted == 4
-    assert len(api.delete_calls) == 4
-    assert all(c["existing_sha"] in {"s1", "s2", "s3", "s4"} for c in api.delete_calls)
+    # Aucun N×DELETE ni N×PUT
+    assert api.delete_calls == []
+    assert api.put_calls == []
+    # 1 tree avec sha=None pour les 4 fichiers existants
+    assert len(api.tree_items) == 4
+    assert all(item["sha"] is None for item in api.tree_items)
+    assert all(item["mode"] == "100644" for item in api.tree_items)
+    paths = {item["path"] for item in api.tree_items}
+    assert paths == {
+        "ux-clea/README.md", "ux-clea/role.json",
+        "ux-clea/identity.md", "ux-clea/LICENSE",
+    }
+    # 1 commit avec le bon message + branche update
+    assert api.created_commit_msg == "Unpublish role Agent"
+    assert api.update_ref_calls == [
+        {"branch": "main", "new_sha": "new-commit-sha", "force": False},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_delete_publication_no_op_when_nothing_exists(
+    stubbed_env: None,
+) -> None:
+    """Si aucun fichier n'existe en repo, retourne 0 sans créer de commit."""
+    from role_builder.services.github_publish import publisher
+
+    project = _make_project()
+    docs = _make_docs()
+    config = {
+        "repo_full_name": "alice/roles",
+        "target_subdirectory": "ux-clea",
+        "branch": "main",
+        "commit_message_template": "Update {role_name}",
+        "license_choice": "none",
+    }
+    api = _StubGithubApi()
+    # existing_shas vide
+
+    deleted = await publisher.delete_publication(
+        project=project, docs_by_section=docs, config=config,
+        github_login="alice", api=api,
+    )
+    assert deleted == 0
+    assert api.tree_items == []
+    assert api.update_ref_calls == []
