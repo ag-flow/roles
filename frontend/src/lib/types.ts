@@ -71,7 +71,8 @@ export type WSChannel =
   | 'source_items_changes'
   | 'runs_changes'
   | 'workers_changes'
-  | 'keys_changes';
+  | 'keys_changes'
+  | 'agflow_push_events';
 
 export interface Chunk {
   chunk_id: string;
@@ -178,6 +179,74 @@ export interface RoleDocument {
   locked: boolean;
   created_at: string;
   updated_at: string;
+}
+
+// ─── Sprint 7 Phase D : Role documents (UI editor) ───────────────────────────
+
+export interface RoleDocumentSummary {
+  id: string;
+  section: string;
+  name: string;
+  version: number;
+  is_current: boolean;
+  locked: boolean;
+  updated_at: string;
+}
+
+export interface RoleDocumentsBySection {
+  sections: Record<string, RoleDocumentSummary[]>;
+}
+
+// ─── Sprint 7 Phase D : Push to ag.flow ──────────────────────────────────────
+
+export interface PreviewSectionDoc {
+  name: string;
+  size: number;
+}
+
+export interface PreviewSection {
+  name: string;
+  documents: PreviewSectionDoc[];
+}
+
+export interface PushPreview {
+  display_name: string;
+  description: string | null;
+  identity_length: number;
+  target_role_id: string | null;
+  sections: PreviewSection[];
+  ready_to_push: boolean;
+  missing: string[];
+}
+
+export interface PushToAgflowRequest {
+  generate_prompts: boolean;
+}
+
+export interface PushToAgflowResponse {
+  agflow_role_id: string;
+  zip_size_bytes: number;
+  documents_count: number | null;
+  prompt_generated: boolean;
+  agflow_url: string;
+}
+
+export type PushStep =
+  | 'zip_built'
+  | 'role_ready'
+  | 'zip_uploaded'
+  | 'prompts_generated'
+  | 'done'
+  | 'failed';
+
+export type PushStatus = 'in_progress' | 'done' | 'failed';
+
+export interface PushEventPayload {
+  tenant_id: string;
+  project_id: string;
+  step: PushStep;
+  status: PushStatus;
+  detail?: Record<string, unknown>;
 }
 
 // ─── My Stack types ───────────────────────────────────────────────────────────
