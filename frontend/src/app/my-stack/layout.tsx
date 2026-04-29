@@ -8,6 +8,7 @@ const TABS = [
   { href: '/my-stack/social-accounts', label: 'Comptes réseaux sociaux' },
   { href: '/my-stack/transcription-services', label: 'Services de transcription' },
   { href: '/my-stack/mistral-config', label: 'Mistral pour la synthèse' },
+  { href: '/my-stack/publication', label: 'Publication GitHub' },
   { href: '/my-stack/quotas', label: 'Quotas et garde-fous' },
 ];
 
