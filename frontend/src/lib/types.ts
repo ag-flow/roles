@@ -249,6 +249,62 @@ export interface PushEventPayload {
   detail?: Record<string, unknown>;
 }
 
+// ─── Sprint 8 : GitHub publication ───────────────────────────────────────────
+
+export type LicenseChoice =
+  | 'none'
+  | 'polyform-nc'
+  | 'cc-by-nc-sa-4.0'
+  | 'cc-by-4.0'
+  | 'mit';
+
+export interface GithubIntegrationStatus {
+  connected: boolean;
+  github_login: string | null;
+  scope: string | null;
+  last_validated_at: string | null;
+}
+
+export interface GithubRepo {
+  full_name: string;
+  private: boolean;
+  default_branch: string;
+  html_url: string;
+}
+
+export interface PublicationConfig {
+  role_project_id: string;
+  repo_full_name: string;
+  target_subdirectory: string;
+  branch: string;
+  commit_message_template: string;
+  license_choice: LicenseChoice;
+}
+
+export interface PublicationConfigRequest {
+  repo_full_name: string;
+  target_subdirectory: string;
+  branch?: string;
+  commit_message_template?: string;
+  license_choice?: LicenseChoice;
+}
+
+export interface PublishResponse {
+  commit_sha: string | null;
+  url: string;
+  files_count: number;
+}
+
+export interface Publication {
+  id: string;
+  role_project_id: string;
+  user_id: string;
+  commit_sha: string;
+  published_at: string;
+  files_count: number | null;
+  summary: string | null;
+}
+
 // ─── My Stack types ───────────────────────────────────────────────────────────
 
 export type CredentialPlatform = 'youtube' | 'instagram' | 'tiktok';
