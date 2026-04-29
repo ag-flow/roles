@@ -632,11 +632,16 @@
       étendre à des clients machine (CLI, agent), il faudra implémenter
       le flow refresh côté backend.
 
-- [ ] **Auth WebSocket `/ws`**
-      Reporté Phase 3. Pattern prévu : query param `?token=<access_token>`,
-      validation via `KeycloakValidator.validate()` au moment du
-      `websocket.accept()`. Le frontend passera `session.accessToken` au
-      moment d'ouvrir la connexion WS.
+- [x] **Auth WebSocket `/ws`**
+      → **Décision (post-sprint-8, Phase 2.F) :** livré côté backend.
+      Query param `?token=<access_token>`, validation AVANT
+      `ws.accept()` via `authenticate_websocket(token)` qui miroir
+      `get_current_user`. Sur échec : `ws.close(code=1008)` Policy
+      Violation. tenant_id déduit du JWT (interdit le spoofing par
+      query param). Frontend à adapter quand `wsManager.connect()` sera
+      réellement appelé en prod (actuellement le hook `useWebSocketEvent`
+      existe mais la connexion n'est pas initialisée — TODO frontend
+      séparé).
 
 ---
 
