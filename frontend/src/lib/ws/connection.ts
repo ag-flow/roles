@@ -1,10 +1,10 @@
-import type { WSChannel, WSEventPayload } from '../types';
+import type { WSChannel } from '../types';
 
-type Listener = (payload: WSEventPayload) => void;
+type Listener = (payload: unknown) => void;
 
 interface QueuedEvent {
   channel: string;
-  payload: WSEventPayload;
+  payload: unknown;
 }
 
 export class WSManager {
