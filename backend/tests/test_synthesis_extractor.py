@@ -518,3 +518,161 @@ async def test_instruction_override_added_to_messages(
     assert messages[0]["role"] == "system"
     assert messages[1]["role"] == "user"
     assert messages[1]["content"] == "Focus sur les heuristiques uniquement."
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 sous-projet F : parallelism
+# ---------------------------------------------------------------------------
+
+
+async def test_parallelism_processes_all_batches_concurrently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """parallelism=3 traite 12 chunks (3 batches de 4) avec au moins 2
+    appels LLM en vol simultanément à un moment donné."""
+    import asyncio
+
+    from role_builder.synthesis import extractor
+
+    version = _make_stub_version()
+    project = _make_stub_project()
+    chunks = _make_chunks(12)
+    run_id = uuid4()
+
+    in_flight = 0
+    max_in_flight = 0
+
+    class _ConcurrencyTrackingClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[list[dict], dict | None]] = []
+
+        async def invoke_chat(
+            self, messages: list[dict], *, response_format: dict | None = None,
+        ) -> ChatResult:
+            nonlocal in_flight, max_in_flight
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+            await asyncio.sleep(0.02)  # laisse une chance aux autres tâches
+            in_flight -= 1
+            self.calls.append((messages, response_format))
+            return ChatResult(
+                content=_VALID_RESPONSE,
+                tokens_input=10,
+                tokens_output=20,
+                cost_usd=None,
+                model="mistral-test",
+            )
+
+    stub_client = _ConcurrencyTrackingClient()
+
+    async def fake_get_system_default(name: str, *, pool: Any) -> dict:
+        return version
+
+    async def fake_get_by_id(project_id: UUID, *, pool: Any) -> dict:
+        return project
+
+    async def fake_list_by_project(
+        project_id: UUID, *, limit: int, pool: Any,
+    ) -> list[dict]:
+        return chunks
+
+    async def fake_create_run(**kwargs: Any) -> UUID:
+        # Vérifie que parallelism est bien dans les parameters tracés
+        assert kwargs["parameters"]["parallelism"] == 3
+        return run_id
+
+    async def fake_noop(*args: Any, **kwargs: Any) -> Any:
+        return None
+
+    async def fake_insert_signal(**kwargs: Any) -> UUID:
+        return uuid4()
+
+    monkeypatch.setattr(
+        extractor.prompts_helper, "get_system_default_version",
+        fake_get_system_default,
+    )
+    monkeypatch.setattr(extractor.role_projects, "get_by_id", fake_get_by_id)
+    monkeypatch.setattr(
+        extractor.corpus_chunks, "list_by_project", fake_list_by_project,
+    )
+    monkeypatch.setattr(extractor.runs, "create_run", fake_create_run)
+    monkeypatch.setattr(extractor.runs, "mark_running", fake_noop)
+    monkeypatch.setattr(extractor.runs, "mark_done", fake_noop)
+    monkeypatch.setattr(extractor.signals_helper, "insert_signal", fake_insert_signal)
+    monkeypatch.setattr(extractor, "get_agflow_client", lambda: stub_client)
+
+    pool = _StubPool(_StubConn())
+    await extractor.run_extraction(
+        project["id"], chunks_per_batch=4, parallelism=3, pool=pool,
+    )
+
+    assert len(stub_client.calls) == 3  # 12 chunks / 4 = 3 batches
+    assert max_in_flight >= 2, (
+        f"parallelism=3 attendu ≥ 2 batches concurrents, observé {max_in_flight}"
+    )
+
+
+async def test_parallelism_default_is_sequential(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """parallelism=1 (défaut) : 1 seul batch en vol à la fois — rétro-compat
+    avec le comportement Sprint 5."""
+    import asyncio
+
+    from role_builder.synthesis import extractor
+
+    version = _make_stub_version()
+    project = _make_stub_project()
+    chunks = _make_chunks(10)
+    in_flight = 0
+    max_in_flight = 0
+
+    class _SeqClient:
+        async def invoke_chat(
+            self, messages: list[dict], *, response_format: dict | None = None,
+        ) -> ChatResult:
+            nonlocal in_flight, max_in_flight
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+            await asyncio.sleep(0.01)
+            in_flight -= 1
+            return ChatResult(
+                content=_VALID_RESPONSE,
+                tokens_input=5, tokens_output=5, cost_usd=None,
+                model="mistral-test",
+            )
+
+    async def fake_get_system_default(name: str, *, pool: Any) -> dict:
+        return version
+
+    async def fake_get_by_id(pid: UUID, *, pool: Any) -> dict:
+        return project
+
+    async def fake_list(pid: UUID, *, limit: int, pool: Any) -> list[dict]:
+        return chunks
+
+    async def fake_run(**kwargs: Any) -> UUID:
+        return uuid4()
+
+    async def fake_noop(*args: Any, **kwargs: Any) -> Any:
+        return None
+
+    async def fake_insert(**kwargs: Any) -> UUID:
+        return uuid4()
+
+    monkeypatch.setattr(
+        extractor.prompts_helper, "get_system_default_version",
+        fake_get_system_default,
+    )
+    monkeypatch.setattr(extractor.role_projects, "get_by_id", fake_get_by_id)
+    monkeypatch.setattr(extractor.corpus_chunks, "list_by_project", fake_list)
+    monkeypatch.setattr(extractor.runs, "create_run", fake_run)
+    monkeypatch.setattr(extractor.runs, "mark_running", fake_noop)
+    monkeypatch.setattr(extractor.runs, "mark_done", fake_noop)
+    monkeypatch.setattr(extractor.signals_helper, "insert_signal", fake_insert)
+    monkeypatch.setattr(extractor, "get_agflow_client", lambda: _SeqClient())
+
+    pool = _StubPool(_StubConn())
+    await extractor.run_extraction(project["id"], chunks_per_batch=2, pool=pool)
+
+    assert max_in_flight == 1

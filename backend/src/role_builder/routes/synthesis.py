@@ -70,6 +70,7 @@ async def trigger_extraction(
         prompt_version_id=request.prompt_version_id,
         instruction_override=request.instruction_override,
         chunks_per_batch=request.chunks_per_batch,
+        parallelism=request.parallelism,
         pool=pool,
     )
     log.info("api.synthesis.extract_triggered", project_id=str(project_id), run_id=str(run_id))
@@ -203,6 +204,7 @@ async def trigger_full_pipeline(
         project_id,
         instruction_override=request.extract_instruction_override,
         chunks_per_batch=request.chunks_per_batch,
+        parallelism=request.parallelism,
         pool=pool,
     )
     log.info(

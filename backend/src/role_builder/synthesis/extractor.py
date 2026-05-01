@@ -6,6 +6,7 @@ au LLM (extractor prompt), et stocke les signaux extraits dans la table signals.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Literal
 from uuid import UUID
@@ -49,6 +50,7 @@ async def run_extraction(
     prompt_version_id: UUID | None = None,
     instruction_override: str | None = None,
     chunks_per_batch: int = 5,
+    parallelism: int = 1,
     pool: asyncpg.Pool,
 ) -> UUID:
     """Extrait des signaux depuis tous les chunks indexés du projet.
@@ -59,7 +61,8 @@ async def run_extraction(
       2. Get role_project via role_projects.get_by_id. Si None → RuntimeError.
       3. List corpus_chunks.list_by_project(role_project_id, limit=10000). Si vide → RuntimeError.
       4. Create run (status='pending') puis mark_running.
-      5. Pour chaque batch de chunks_per_batch chunks :
+      5. Pour chaque batch de chunks_per_batch chunks (jusqu'à ``parallelism``
+         en parallèle via asyncio.Semaphore) :
          a. Format prompt template.
          b. Construire messages.
          c. Appel LLM → ChatResult.
@@ -69,6 +72,11 @@ async def run_extraction(
       6. Calculer cost_usd.
       7. mark_done.
       8. Si exception : mark_failed + re-raise.
+
+    ``parallelism`` (Phase 2 sous-projet F) : nombre maximum de batches LLM
+    en vol simultanément. Default 1 = séquentiel (comportement Sprint 5).
+    Pour les gros corpus (> 500 chunks), monter à 5-10 réduit drastiquement
+    le temps total. Borné par le rate limit Mistral et la mémoire LLM.
 
     Retourne run_id.
     """
@@ -103,19 +111,19 @@ async def run_extraction(
         tenant_id=tenant_id,
         prompt_version_id=resolved_prompt_version_id,
         input_summary={"chunks_count": len(all_chunks)},
-        parameters={"chunks_per_batch": chunks_per_batch},
+        parameters={
+            "chunks_per_batch": chunks_per_batch,
+            "parallelism": parallelism,
+        },
         instruction_override=instruction_override,
         pool=pool,
     )
     await runs.mark_running(run_id, pool=pool)
 
-    # 5. Boucle par batch
-    total_tokens_input = 0
-    total_tokens_output = 0
-    signals_count = 0
-    last_model = settings.mistral_chat_model
+    # 5. Boucle par batch (parallèle via Semaphore)
     agflow_client = get_agflow_client()
     batches_count = (len(all_chunks) + chunks_per_batch - 1) // chunks_per_batch
+    semaphore = asyncio.Semaphore(max(1, parallelism))
 
     log.info(
         "synthesis.extractor.run_started",
@@ -123,37 +131,37 @@ async def run_extraction(
         role_project_id=str(role_project_id),
         chunks_count=len(all_chunks),
         batches=batches_count,
+        parallelism=parallelism,
     )
 
-    try:
-        for i, batch_start in enumerate(range(0, len(all_chunks), chunks_per_batch)):
-            batch = all_chunks[batch_start : batch_start + chunks_per_batch]
+    async def _process_batch(
+        batch_index: int, batch: list[dict],
+    ) -> tuple[int, int, int, str]:
+        """Traite un batch de chunks et insère ses signaux. Retourne
+        ``(tokens_input, tokens_output, signals_count, model)``.
+        """
+        async with semaphore:
             chunks_text = _format_chunks_for_prompt(batch)
-
             prompt_text = template.format(
                 global_directives=global_directives,
                 chunks=chunks_text,
             )
-
             messages: list[dict] = [{"role": "system", "content": prompt_text}]
             if instruction_override:
                 messages.append({"role": "user", "content": instruction_override})
 
             result = await agflow_client.invoke_chat(
-                messages, response_format={"type": "json_object"}
+                messages, response_format={"type": "json_object"},
             )
-            last_model = result.model
-            batch_tokens_input = result.tokens_input
-            batch_tokens_output = result.tokens_output
-            total_tokens_input += batch_tokens_input
-            total_tokens_output += batch_tokens_output
 
             try:
                 parsed = _ExtractorResponse.model_validate_json(result.content)
             except (ValidationError, ValueError) as exc:
-                raise RuntimeError(f"ValidationError parsing extractor response: {exc}") from exc
+                raise RuntimeError(
+                    f"ValidationError parsing extractor response: {exc}",
+                ) from exc
 
-            batch_signals_count = 0
+            inserted = 0
             for signal in parsed.signals:
                 await signals_helper.insert_signal(
                     run_id=run_id,
@@ -165,17 +173,32 @@ async def run_extraction(
                     content=signal.content,
                     pool=pool,
                 )
-                signals_count += 1
-                batch_signals_count += 1
+                inserted += 1
 
             log.info(
                 "synthesis.extractor.batch_completed",
                 run_id=str(run_id),
-                batch_index=i,
-                tokens_input=batch_tokens_input,
-                tokens_output=batch_tokens_output,
-                signals_extracted=batch_signals_count,
+                batch_index=batch_index,
+                tokens_input=result.tokens_input,
+                tokens_output=result.tokens_output,
+                signals_extracted=inserted,
             )
+            return (
+                result.tokens_input, result.tokens_output, inserted, result.model,
+            )
+
+    try:
+        batches = [
+            all_chunks[start : start + chunks_per_batch]
+            for start in range(0, len(all_chunks), chunks_per_batch)
+        ]
+        results = await asyncio.gather(
+            *(_process_batch(i, b) for i, b in enumerate(batches)),
+        )
+        total_tokens_input = sum(r[0] for r in results)
+        total_tokens_output = sum(r[1] for r in results)
+        signals_count = sum(r[2] for r in results)
+        last_model = results[-1][3] if results else settings.mistral_chat_model
 
     except Exception as exc:
         log.exception("synthesis.extractor.run_failed", run_id=str(run_id), error=str(exc))

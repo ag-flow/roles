@@ -11,6 +11,10 @@ class TriggerExtractRequest(BaseModel):
     prompt_version_id: UUID | None = None
     instruction_override: str | None = None
     chunks_per_batch: int = 5
+    # Phase 2 sous-projet F : nombre max de batches LLM en parallèle.
+    # 1 = séquentiel (défaut, comportement Sprint 5). Mettre 5-10 pour les
+    # gros corpus (> 500 chunks) afin de réduire le temps total.
+    parallelism: int = 1
 
 
 class TriggerClusterRequest(BaseModel):

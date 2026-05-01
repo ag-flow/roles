@@ -552,10 +552,17 @@
       (true → reste true). Badge orange "obsolète" sur `RunCard`. Cf.
       `docs/superpowers/specs/2026-05-01-runs-obsolescence-design.md`.
 
-- [ ] **Map-reduce pour gros corpus (> 500 chunks dans extractor)**
+- [x] **Map-reduce pour gros corpus (> 500 chunks dans extractor)**
       Reporté. MVP : extractor envoie les chunks par batch séquentiel
       (`chunks_per_batch=5` par défaut). Si volume > 500 chunks, prévoir
       un map-reduce (extract par batch puis cluster intermediate).
+      → **Décision (Phase 2, 2026-05-01) :** map en parallèle via
+      `asyncio.Semaphore`. Param `parallelism: int = 1` (défaut séquentiel)
+      sur `run_extraction`, exposé dans `TriggerExtractRequest` et
+      `FullPipelineRequest`. Pour 500 chunks avec batch=5 et parallelism=10 :
+      ~10× plus rapide. La dé-dup des signaux via reduce intermediate est
+      reportée — l'étage clusterer fait un travail d'agrégation naturel
+      en aval, suffisant en pratique.
 
 - [ ] **Word-level confidence dans le RAG**
       Reporté. Le `corpus_search.find_relevant_chunks` retourne des chunks
