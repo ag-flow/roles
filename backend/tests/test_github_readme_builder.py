@@ -83,8 +83,117 @@ def test_render_license_none_returns_none() -> None:
 
 
 def test_render_license_unknown_raises() -> None:
-    from role_builder.services.github_publish.readme_builder import render_license_file
     import pytest
+
+    from role_builder.services.github_publish.readme_builder import render_license_file
 
     with pytest.raises(ValueError, match="unknown license_choice"):
         render_license_file("GPL-3.0", author_login="alice")
+
+
+# ---------------------------------------------------------------------------
+# Badges shields.io (Phase 2 sous-projet B)
+# ---------------------------------------------------------------------------
+
+
+def _project_basic() -> dict[str, str | list[str]]:
+    return {
+        "display_name": "Agent",
+        "description": "desc",
+        "language": "fr",
+        "service_types": ["claude-code"],
+    }
+
+
+def test_render_readme_includes_documents_count_badge() -> None:
+    from role_builder.services.github_publish.readme_builder import render_readme
+
+    docs = {
+        "Role": [{"name": "a"}, {"name": "b"}],
+        "Missions": [{"name": "c"}],
+    }
+    md = render_readme(project=_project_basic(), docs_by_section=docs, github_login="x")
+    assert "img.shields.io/badge/Documents-3-" in md
+
+
+def test_render_readme_includes_language_badge() -> None:
+    from role_builder.services.github_publish.readme_builder import render_readme
+
+    md = render_readme(
+        project=_project_basic(), docs_by_section={}, github_login="x",
+    )
+    assert "img.shields.io/badge/Language-fr-" in md
+
+
+def test_render_readme_includes_service_types_badge() -> None:
+    from role_builder.services.github_publish.readme_builder import render_readme
+
+    project = {**_project_basic(), "service_types": ["claude-code", "openai-assistant"]}
+    md = render_readme(project=project, docs_by_section={}, github_login="x")
+    # Shields.io échappe les '-' en '--' dans le label
+    assert "img.shields.io/badge/agflow-claude--code__openai--assistant" in md
+
+
+def test_render_readme_includes_license_badge_when_choice_provided() -> None:
+    from role_builder.services.github_publish.readme_builder import render_readme
+
+    md = render_readme(
+        project=_project_basic(),
+        docs_by_section={},
+        github_login="x",
+        license_choice="mit",
+    )
+    assert "img.shields.io/badge/License-MIT-green" in md
+
+
+def test_render_readme_skips_license_badge_when_none() -> None:
+    from role_builder.services.github_publish.readme_builder import render_readme
+
+    md = render_readme(
+        project=_project_basic(),
+        docs_by_section={},
+        github_login="x",
+        license_choice="none",
+    )
+    assert "License-" not in md
+
+
+def test_render_readme_license_badge_polyform_is_blue() -> None:
+    from role_builder.services.github_publish.readme_builder import render_readme
+
+    md = render_readme(
+        project=_project_basic(),
+        docs_by_section={},
+        github_login="x",
+        license_choice="polyform-nc",
+    )
+    assert "img.shields.io/badge/License-PolyForm--NC-blue" in md
+
+
+# ---------------------------------------------------------------------------
+# Stats du corpus
+# ---------------------------------------------------------------------------
+
+
+def test_render_readme_includes_corpus_stats_when_provided() -> None:
+    from role_builder.services.github_publish.readme_builder import render_readme
+
+    md = render_readme(
+        project=_project_basic(),
+        docs_by_section={},
+        github_login="x",
+        stats={"source_count": 12, "chunk_count": 530},
+    )
+    assert "## Stats du corpus" in md
+    assert "Sources scrapées : 12" in md
+    assert "Chunks indexés : 530" in md
+
+
+def test_render_readme_omits_stats_section_when_stats_none() -> None:
+    from role_builder.services.github_publish.readme_builder import render_readme
+
+    md = render_readme(
+        project=_project_basic(), docs_by_section={}, github_login="x",
+    )
+    assert "Stats du corpus" not in md
+    assert "Sources scrapées" not in md

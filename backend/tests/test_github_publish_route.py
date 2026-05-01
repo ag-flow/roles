@@ -8,7 +8,6 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-
 # ---------------------------------------------------------------------------
 # GET /api/github/repos
 # ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ import asyncpg
 import httpx
 import structlog
 
+from role_builder.db_helpers.corpus_stats import get_corpus_stats
 from role_builder.services.github_publish.api_client import GitHubApiClient
 from role_builder.services.github_publish.readme_builder import (
     render_license_file,
@@ -74,14 +75,21 @@ async def build_publication_files(
     docs_by_section: dict[str, list[dict[str, Any]]],
     github_login: str,
     license_choice: str,
+    stats: dict[str, int] | None = None,
 ) -> dict[str, str]:
-    """Compose tous les fichiers à publier (relpath → contenu texte)."""
+    """Compose tous les fichiers à publier (relpath → contenu texte).
+
+    ``stats`` optionnel (Phase 2 sous-projet B) injecte les compteurs
+    sources/chunks dans le README.
+    """
     files: dict[str, str] = {}
 
     files["README.md"] = render_readme(
         project=project,
         docs_by_section=docs_by_section,
         github_login=github_login,
+        license_choice=license_choice,
+        stats=stats,
     )
     files["role.json"] = json.dumps(
         _build_role_json(project, docs_by_section),
@@ -137,11 +145,13 @@ async def push_publication(
     si une étape échoue, le repo n'est pas dans un état partiel — la branche
     pointe toujours sur HEAD.
     """
+    stats = await get_corpus_stats(project["id"], pool=pool)
     files = await build_publication_files(
         project=project,
         docs_by_section=docs_by_section,
         github_login=github_login,
         license_choice=str(config.get("license_choice") or "none"),
+        stats=stats,
     )
 
     owner, repo = str(config["repo_full_name"]).split("/", 1)
@@ -248,11 +258,13 @@ async def push_publication_legacy_n_put(
     par les routes — accessible uniquement par tests / appel programmatique.
     Voir ``push_publication`` pour la version atomique.
     """
+    stats = await get_corpus_stats(project["id"], pool=pool)
     files = await build_publication_files(
         project=project,
         docs_by_section=docs_by_section,
         github_login=github_login,
         license_choice=str(config.get("license_choice") or "none"),
+        stats=stats,
     )
 
     owner, repo = str(config["repo_full_name"]).split("/", 1)

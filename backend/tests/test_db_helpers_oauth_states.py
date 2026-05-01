@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -87,7 +87,7 @@ async def test_insert_state_inserts_with_expires_at_aware(
     expires_at = args[4]
     assert isinstance(expires_at, datetime)
     assert expires_at.tzinfo is not None
-    delta = expires_at - datetime.now(tz=timezone.utc)
+    delta = expires_at - datetime.now(tz=UTC)
     assert 595 < delta.total_seconds() < 605
 
 
@@ -124,7 +124,7 @@ async def test_consume_state_returns_user_id_when_valid(
     stub_conn.fetchrow_return = {
         "user_id": user_id,
         "tenant_id": tenant_id,
-        "expires_at": datetime.now(tz=timezone.utc) + timedelta(minutes=5),
+        "expires_at": datetime.now(tz=UTC) + timedelta(minutes=5),
     }
 
     result = await oauth_states.consume_state("abc", pool=stub_pool)
@@ -159,7 +159,7 @@ async def test_consume_state_returns_none_when_expired(
     stub_conn.fetchrow_return = {
         "user_id": uuid4(),
         "tenant_id": uuid4(),
-        "expires_at": datetime.now(tz=timezone.utc) - timedelta(minutes=1),
+        "expires_at": datetime.now(tz=UTC) - timedelta(minutes=1),
     }
     result = await oauth_states.consume_state("expired", pool=stub_pool)
     assert result is None

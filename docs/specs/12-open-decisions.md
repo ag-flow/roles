@@ -190,9 +190,15 @@
 - [ ] **Modération et vitrine officielle**
       Phase ultérieure, à designer séparément.
 
-- [ ] **Format final du README**
+- [x] **Format final du README**
       Ajouter des badges (shields.io) ? Stats du corpus ? Pour le MVP, le
       template simple proposé.
+      → **Décision (Phase 2, 2026-05-01) :** badges shields.io ajoutés
+      (Documents count, Language, Service types ag.flow, License si
+      choice ≠ 'none' avec couleur par licence). Section "Stats du
+      corpus" optionnelle (sources scrapées + chunks indexés) injectée
+      par `push_publication` via `db_helpers/corpus_stats.get_corpus_stats`.
+      Cf. `docs/superpowers/specs/2026-05-01-readme-badges-stats-design.md`.
 
 - [x] **Licence par défaut suggérée**
       → **Décision (sprint 8) :** sélecteur utilisateur dans
