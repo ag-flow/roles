@@ -623,10 +623,16 @@
       MVP mono-tenant. À câbler quand on activera multi-tenant via claim
       mapper Keycloak (cf. décision Auth Keycloak ci-dessous).
 
-- [ ] **Re-chunking d'un transcript existant (rebuild corpus)**
+- [x] **Re-chunking d'un transcript existant (rebuild corpus)**
       Reporté Phase 2. Endpoint admin "rebuild corpus" qui dropperait
       `corpus_chunks` du projet et recréerait via les `chunking_jobs`.
       Utile si on change la stratégie de chunking ou la dim d'embeddings.
+      → **Décision (Phase 2, 2026-05-01) :** route
+      `POST /api/role-projects/{id}/corpus/rebuild` (202). Ownership
+      check + `delete_by_project` + `enqueue_for_project` (1 chunking_job
+      pending par source_item ayant un transcript). Bouton UI dans
+      l'onglet Corpus avec window.confirm.
+      Cf. `docs/superpowers/specs/2026-05-01-rebuild-corpus-design.md`.
 
 - [ ] **Déduplication de chunks similaires entre vidéos**
       Reporté. Pour MVP on indexe tout. Plus tard, détection de chunks

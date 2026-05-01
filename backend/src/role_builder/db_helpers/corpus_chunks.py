@@ -165,3 +165,20 @@ async def count_by_project(role_project_id: UUID, *, pool: asyncpg.Pool) -> int:
     async with pool.acquire() as conn:
         n = await conn.fetchval(_COUNT_BY_PROJECT_SQL, role_project_id)
     return int(n or 0)
+
+
+async def delete_by_project(role_project_id: UUID, *, pool: asyncpg.Pool) -> int:
+    """Supprime tous les chunks d'un projet. Retourne le rowcount.
+
+    Phase 2 sous-projet E : utilisé par le rebuild corpus pour repartir d'une
+    base vide avant re-chunking.
+    """
+    async with pool.acquire() as conn:
+        tag = await conn.execute(
+            "DELETE FROM corpus_chunks WHERE role_project_id = $1",
+            role_project_id,
+        )
+    try:
+        return int(tag.split()[-1])
+    except (IndexError, ValueError):
+        return 0

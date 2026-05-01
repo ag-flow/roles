@@ -43,3 +43,11 @@ export async function getTranscript(
 ): Promise<TranscriptResponse> {
   return api(`/api/role-projects/${projectId}/corpus/items/${itemId}/transcript`);
 }
+
+export async function rebuildCorpus(
+  projectId: string,
+): Promise<{ deleted_chunks: number; enqueued_jobs: number }> {
+  return api(`/api/role-projects/${projectId}/corpus/rebuild`, {
+    method: 'POST',
+  });
+}

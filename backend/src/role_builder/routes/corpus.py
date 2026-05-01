@@ -21,7 +21,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from role_builder.auth.dependencies import CurrentUser, get_current_user
 from role_builder.db import db_pool
+from role_builder.db_helpers import chunking_jobs as chunking_jobs_helper
 from role_builder.db_helpers import corpus_chunks as chunks_helper
+from role_builder.db_helpers import role_projects as role_projects_helper
 from role_builder.db_helpers import source_items as items_helper
 from role_builder.schemas.corpus import (
     AudioUrlResponse,
@@ -181,3 +183,46 @@ def _pick_search_fields(row: dict) -> dict:
     base = _pick_chunk_fields(row)
     base["similarity"] = float(row.get("similarity") or 0.0)
     return base
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 sous-projet E : rebuild corpus
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/role-projects/{project_id}/corpus/rebuild",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def rebuild_corpus(
+    project_id: UUID,
+    user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> dict[str, int]:
+    """Drop tous les chunks du projet et re-enqueue un chunking_job par
+    source_item ayant un transcript. Retourne ``{deleted_chunks, enqueued_jobs}``.
+
+    Action **destructrice** : supprime tous les corpus_chunks associés (les
+    embeddings seront recalculés au passage du worker). Les transcripts
+    eux-mêmes ne sont pas touchés.
+    """
+    project = await role_projects_helper.get_by_id(
+        project_id, pool=db_pool.pool,
+    )
+    if project is None:
+        raise HTTPException(status_code=404, detail="role_project not found")
+    if project["user_id"] != user.user_id:
+        raise HTTPException(status_code=403, detail="not the project owner")
+
+    deleted = await chunks_helper.delete_by_project(
+        project_id, pool=db_pool.pool,
+    )
+    enqueued = await chunking_jobs_helper.enqueue_for_project(
+        project_id, pool=db_pool.pool,
+    )
+    log.info(
+        "corpus.rebuild",
+        project_id=str(project_id),
+        deleted_chunks=deleted,
+        enqueued_jobs=enqueued,
+    )
+    return {"deleted_chunks": deleted, "enqueued_jobs": enqueued}

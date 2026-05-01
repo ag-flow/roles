@@ -139,3 +139,30 @@ async def list_jobs(
     async with pool.acquire() as conn:
         rows = await conn.fetch(query, *params)
     return [dict(r) if not isinstance(r, dict) else r for r in rows]
+
+
+_ENQUEUE_FOR_PROJECT_SQL = """
+    INSERT INTO chunking_jobs
+        (source_item_id, role_project_id, tenant_id, transcript_s3_key, status)
+    SELECT si.id, $1, si.tenant_id, si.transcript_s3_key, 'pending'
+    FROM source_items si
+    JOIN sources s ON s.id = si.source_id
+    WHERE s.role_project_id = $1
+      AND si.transcript_s3_key IS NOT NULL
+"""
+
+
+async def enqueue_for_project(
+    role_project_id: UUID, *, pool: asyncpg.Pool,
+) -> int:
+    """Enqueue un chunking_job pending pour chaque source_item du projet
+    qui a un transcript. Retourne le rowcount inséré.
+
+    Phase 2 sous-projet E : utilisé par le rebuild corpus.
+    """
+    async with pool.acquire() as conn:
+        tag = await conn.execute(_ENQUEUE_FOR_PROJECT_SQL, role_project_id)
+    try:
+        return int(tag.split()[-1])
+    except (IndexError, ValueError):
+        return 0
