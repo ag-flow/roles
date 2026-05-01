@@ -24,6 +24,17 @@ class GithubIntegrationStatus(BaseModel):
     last_validated_at: datetime | None = None
 
 
+class GithubIntegrationItem(BaseModel):
+    """Phase 2 D : représentation d'une intégration dans une liste."""
+
+    id: UUID
+    github_login: str
+    github_user_id: int
+    scope: str
+    last_validated_at: datetime | None = None
+    created_at: datetime
+
+
 class StartOAuthResponse(BaseModel):
     redirect_url: str
 

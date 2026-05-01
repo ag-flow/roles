@@ -17,6 +17,7 @@ from uuid import UUID
 import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from role_builder.auth.dependencies import CurrentUser, get_current_user
 from role_builder.db import db_pool
@@ -38,6 +39,16 @@ from role_builder.services.github_publish import publisher as gh_publisher
 from role_builder.services.github_publish.api_client import GitHubApiClient
 from role_builder.services.openbao_client import OpenBaoClient
 
+
+class PublishRequest(BaseModel):
+    """Phase 2 D : permet de cibler une intégration GitHub spécifique.
+
+    Si ``integration_id`` est None, on utilise la primary (la plus récente).
+    """
+
+    integration_id: UUID | None = None
+
+
 router = APIRouter()
 log = structlog.get_logger(__name__)
 
@@ -53,32 +64,10 @@ def _bad_gateway(exc: httpx.HTTPStatusError) -> HTTPException:
 @router.get("/github/repos", response_model=list[GithubRepo])
 async def list_repos(
     user: Annotated[CurrentUser, Depends(get_current_user)],
+    integration_id: UUID | None = None,
 ) -> list[GithubRepo]:
-    integration = await github_integrations.get_by_user_id(
-        user.user_id,
-        pool=db_pool.pool,
-    )
-    if integration is None:
-        raise HTTPException(status_code=400, detail="GitHub not connected")
-
-    openbao = OpenBaoClient()
-    try:
-        token_data = await openbao.get(str(integration["openbao_path"]))
-    finally:
-        await openbao.aclose()
-
-    access_token = (
-        str(token_data["access_token"])
-        if token_data and "access_token" in token_data
-        else ""
-    )
-    if not access_token:
-        raise HTTPException(
-            status_code=502,
-            detail="GitHub token missing in OpenBao",
-        )
-
-    api = GitHubApiClient(access_token=access_token)
+    """Liste les repos. ``integration_id`` cible une intégration spécifique."""
+    api, _login = await _api_for_user(user, integration_id=integration_id)
     try:
         repos = await api.list_repos()
     except httpx.HTTPStatusError as exc:
@@ -145,16 +134,34 @@ async def set_publication_config(
 # ---------------------------------------------------------------------------
 
 
-async def _api_for_user(user: CurrentUser) -> tuple[GitHubApiClient, str]:
+async def _api_for_user(
+    user: CurrentUser, *, integration_id: UUID | None = None,
+) -> tuple[GitHubApiClient, str]:
     """Helper : récupère le token via OpenBao et instancie un GitHubApiClient.
-    Lève HTTPException 400 si non connecté, 502 si token manquant.
-    Retourne aussi le github_login pour le README/LICENSE.
+
+    Si ``integration_id`` est fourni, on cible cette intégration précise (et
+    on vérifie qu'elle appartient bien au user). Sinon on prend la primary
+    (la plus récente).
+
+    Lève HTTPException 400 si non connecté, 403 si l'intégration appartient
+    à un autre user, 404 si l'intégration n'existe pas, 502 si token manquant.
     """
-    integration = await github_integrations.get_by_user_id(
-        user.user_id, pool=db_pool.pool,
-    )
-    if integration is None:
-        raise HTTPException(status_code=400, detail="GitHub not connected")
+    if integration_id is not None:
+        integration = await github_integrations.get_by_id(
+            integration_id, pool=db_pool.pool,
+        )
+        if integration is None:
+            raise HTTPException(status_code=404, detail="integration not found")
+        if integration["user_id"] != user.user_id:
+            raise HTTPException(
+                status_code=403, detail="not the integration owner",
+            )
+    else:
+        integration = await github_integrations.get_by_user_id(
+            user.user_id, pool=db_pool.pool,
+        )
+        if integration is None:
+            raise HTTPException(status_code=400, detail="GitHub not connected")
 
     openbao = OpenBaoClient()
     try:
@@ -185,6 +192,7 @@ async def _api_for_user(user: CurrentUser) -> tuple[GitHubApiClient, str]:
 async def publish_to_github(
     project_id: UUID,
     user: Annotated[CurrentUser, Depends(get_current_user)],
+    body: PublishRequest = PublishRequest(),  # noqa: B008
 ) -> PublishResponse:
     project = await role_projects.get_by_id(project_id, pool=db_pool.pool)
     if project is None:
@@ -207,7 +215,9 @@ async def publish_to_github(
     )
     next_version = len(existing) + 1
 
-    api, github_login = await _api_for_user(user)
+    api, github_login = await _api_for_user(
+        user, integration_id=body.integration_id,
+    )
     try:
         result = await gh_publisher.push_publication(
             project=project,

@@ -1,5 +1,6 @@
 import { api, ApiError } from './client';
 import type {
+  GithubIntegrationItem,
   GithubIntegrationStatus,
   GithubRepo,
   Publication,
@@ -23,8 +24,21 @@ export async function disconnect(): Promise<{ status: string }> {
   return api<{ status: string }>('/api/auth/github', { method: 'DELETE' });
 }
 
-export async function listRepos(): Promise<GithubRepo[]> {
-  return api<GithubRepo[]>('/api/github/repos');
+export async function listRepos(integrationId?: string): Promise<GithubRepo[]> {
+  const qs = integrationId ? `?integration_id=${encodeURIComponent(integrationId)}` : '';
+  return api<GithubRepo[]>(`/api/github/repos${qs}`);
+}
+
+// --- Phase 2 D : multi-comptes -----------------------------------------
+
+export async function listIntegrations(): Promise<GithubIntegrationItem[]> {
+  return api<GithubIntegrationItem[]>('/api/auth/github/integrations');
+}
+
+export async function deleteIntegration(integrationId: string): Promise<void> {
+  await api<void>(`/api/auth/github/integrations/${integrationId}`, {
+    method: 'DELETE',
+  });
 }
 
 export async function getPublicationConfig(
@@ -54,10 +68,12 @@ export async function setPublicationConfig(
 
 export async function publishToGithub(
   projectId: string,
+  integrationId?: string,
 ): Promise<PublishResponse> {
+  const body = integrationId ? { integration_id: integrationId } : {};
   return api<PublishResponse>(
     `/api/role-projects/${projectId}/publish-to-github`,
-    { method: 'POST' },
+    { method: 'POST', body: JSON.stringify(body) },
   );
 }
 

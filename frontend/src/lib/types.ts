@@ -266,6 +266,15 @@ export interface GithubIntegrationStatus {
   last_validated_at: string | null;
 }
 
+export interface GithubIntegrationItem {
+  id: string;
+  github_login: string;
+  github_user_id: number;
+  scope: string;
+  last_validated_at: string | null;
+  created_at: string;
+}
+
 export interface GithubRepo {
   full_name: string;
   private: boolean;

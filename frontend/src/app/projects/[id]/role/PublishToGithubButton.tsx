@@ -5,11 +5,12 @@ import useSWR from 'swr';
 import {
   getPublicationConfig,
   getStatus,
+  listIntegrations,
   listRepos,
   publishToGithub,
   setPublicationConfig,
 } from '@/lib/api/github';
-import type { PublishResponse } from '@/lib/types';
+import type { GithubIntegrationItem, PublishResponse } from '@/lib/types';
 import { PublishToGithubConfigDialog } from './PublishToGithubDialog';
 
 interface Props {
@@ -26,17 +27,27 @@ type Step =
 export function PublishToGithubButton({ projectId }: Props) {
   const [step, setStep] = useState<Step>({ kind: 'idle' });
   const [savingConfig, setSavingConfig] = useState(false);
+  const [selectedIntegrationId, setSelectedIntegrationId] = useState<string | null>(
+    null,
+  );
 
   const status = useSWR('github-status', getStatus);
+  const integrations = useSWR<GithubIntegrationItem[]>(
+    'github-integrations',
+    listIntegrations,
+  );
   const config = useSWR(['publication-config', projectId], () =>
     getPublicationConfig(projectId),
   );
-  const repos = useSWR('github-repos', () => listRepos(), {
-    // listRepos n'est utile qu'au moment où on configure
-    revalidateIfStale: false,
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-  });
+  const repos = useSWR(
+    ['github-repos', selectedIntegrationId],
+    () => listRepos(selectedIntegrationId ?? undefined),
+    {
+      revalidateIfStale: false,
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    },
+  );
 
   if (!status.data) {
     return null;
@@ -54,7 +65,10 @@ export function PublishToGithubButton({ projectId }: Props) {
   async function publish() {
     setStep({ kind: 'publishing' });
     try {
-      const result = await publishToGithub(projectId);
+      const result = await publishToGithub(
+        projectId,
+        selectedIntegrationId ?? undefined,
+      );
       setStep({ kind: 'done', result });
     } catch (err) {
       setStep({
@@ -84,8 +98,32 @@ export function PublishToGithubButton({ projectId }: Props) {
   const isConfigured = !!config.data;
   const buttonLabel = isConfigured ? 'Publier sur GitHub' : 'Configurer la publication';
 
+  const integrationsList = integrations.data ?? [];
+  const showIntegrationSelector = integrationsList.length > 1;
+
   return (
     <div>
+      {showIntegrationSelector && (
+        <div style={{ marginBottom: '0.5rem', fontSize: '0.85rem' }}>
+          <label>
+            Compte GitHub :{' '}
+            <select
+              value={selectedIntegrationId ?? ''}
+              onChange={(e) =>
+                setSelectedIntegrationId(e.target.value || null)
+              }
+              style={{ padding: '0.25rem' }}
+            >
+              <option value="">Compte par défaut (le plus récent)</option>
+              {integrationsList.map((it) => (
+                <option key={it.id} value={it.id}>
+                  @{it.github_login}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
         <button
           type="button"

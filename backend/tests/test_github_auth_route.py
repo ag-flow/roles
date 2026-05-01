@@ -168,10 +168,10 @@ def test_disconnect_when_not_connected_returns_not_connected_status(
 ) -> None:
     from role_builder.routes import github_auth as route
 
-    async def fake_get(user_id: UUID, *, pool: Any) -> Any:
-        return None
+    async def fake_list(user_id: UUID, *, pool: Any) -> list[Any]:
+        return []
 
-    monkeypatch.setattr(route.github_integrations, "get_by_user_id", fake_get)
+    monkeypatch.setattr(route.github_integrations, "list_by_user_id", fake_list)
 
     resp = client.delete("/api/auth/github")
     assert resp.status_code == 200
@@ -182,11 +182,15 @@ def test_disconnect_removes_token_and_integration(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Phase 2 D : disconnect supprime TOUTES les intégrations du user."""
     from role_builder.routes import github_auth as route
     from role_builder.services.openbao_client import OpenBaoClient
 
-    async def fake_get(user_id: UUID, *, pool: Any) -> Any:
-        return {"openbao_path": "github-tokens/t/u"}
+    async def fake_list(user_id: UUID, *, pool: Any) -> list[dict[str, Any]]:
+        return [
+            {"openbao_path": "github-tokens/t/u-perso"},
+            {"openbao_path": "github-tokens/t/u-org"},
+        ]
 
     deleted_paths: list[str] = []
 
@@ -200,9 +204,9 @@ def test_disconnect_removes_token_and_integration(
 
     async def fake_delete_integration(user_id: UUID, *, pool: Any) -> int:
         deleted_users.append(user_id)
-        return 1
+        return 2
 
-    monkeypatch.setattr(route.github_integrations, "get_by_user_id", fake_get)
+    monkeypatch.setattr(route.github_integrations, "list_by_user_id", fake_list)
     monkeypatch.setattr(OpenBaoClient, "delete", fake_delete_token)
     monkeypatch.setattr(OpenBaoClient, "aclose", fake_aclose)
     monkeypatch.setattr(
@@ -212,5 +216,140 @@ def test_disconnect_removes_token_and_integration(
     resp = client.delete("/api/auth/github")
     assert resp.status_code == 200
     assert resp.json() == {"status": "disconnected"}
-    assert deleted_paths == ["github-tokens/t/u"]
+    assert deleted_paths == [
+        "github-tokens/t/u-perso", "github-tokens/t/u-org",
+    ]
     assert len(deleted_users) == 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 D : nouvelles routes multi-comptes
+# ---------------------------------------------------------------------------
+
+
+def test_list_integrations_returns_all(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datetime import UTC, datetime
+
+    from role_builder.routes import github_auth as route
+
+    now = datetime.now(tz=UTC)
+    fake_rows = [
+        {
+            "id": uuid4(), "user_id": uuid4(), "tenant_id": uuid4(),
+            "github_login": "alice", "github_user_id": 1,
+            "openbao_path": "p1", "scope": "public_repo",
+            "last_validated_at": now, "created_at": now,
+        },
+        {
+            "id": uuid4(), "user_id": uuid4(), "tenant_id": uuid4(),
+            "github_login": "alice-org", "github_user_id": 2,
+            "openbao_path": "p2", "scope": "public_repo",
+            "last_validated_at": now, "created_at": now,
+        },
+    ]
+
+    async def fake_list(user_id: UUID, *, pool: Any) -> list[dict[str, Any]]:
+        return fake_rows
+
+    monkeypatch.setattr(route.github_integrations, "list_by_user_id", fake_list)
+
+    resp = client.get("/api/auth/github/integrations")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body) == 2
+    logins = {item["github_login"] for item in body}
+    assert logins == {"alice", "alice-org"}
+
+
+def test_list_integrations_returns_empty_when_none(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_builder.routes import github_auth as route
+
+    async def fake_list(user_id: UUID, *, pool: Any) -> list[Any]:
+        return []
+
+    monkeypatch.setattr(route.github_integrations, "list_by_user_id", fake_list)
+
+    resp = client.get("/api/auth/github/integrations")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_delete_integration_removes_token_and_row(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_builder.routes import github_auth as route
+    from role_builder.services.openbao_client import OpenBaoClient
+
+    fixed_user_id = UUID("00000000-0000-0000-0000-000000000001")
+    integration_id = uuid4()
+
+    async def fake_get(iid: UUID, *, pool: Any) -> dict[str, Any]:
+        return {
+            "id": iid, "user_id": fixed_user_id,
+            "openbao_path": "github-tokens/t/spec",
+            "github_login": "alice",
+        }
+
+    deleted_paths: list[str] = []
+
+    async def fake_delete_token(self: Any, path: str) -> None:
+        deleted_paths.append(path)
+
+    async def fake_aclose(self: Any) -> None:
+        return None
+
+    delete_calls: list[UUID] = []
+
+    async def fake_delete_by_id(iid: UUID, *, pool: Any) -> int:
+        delete_calls.append(iid)
+        return 1
+
+    monkeypatch.setattr(route.github_integrations, "get_by_id", fake_get)
+    monkeypatch.setattr(route.github_integrations, "delete_by_id", fake_delete_by_id)
+    monkeypatch.setattr(OpenBaoClient, "delete", fake_delete_token)
+    monkeypatch.setattr(OpenBaoClient, "aclose", fake_aclose)
+
+    resp = client.delete(f"/api/auth/github/integrations/{integration_id}")
+    assert resp.status_code == 204, resp.text
+    assert deleted_paths == ["github-tokens/t/spec"]
+    assert delete_calls == [integration_id]
+
+
+def test_delete_integration_returns_404_when_unknown(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_builder.routes import github_auth as route
+
+    async def fake_get(iid: UUID, *, pool: Any) -> Any:
+        return None
+
+    monkeypatch.setattr(route.github_integrations, "get_by_id", fake_get)
+    resp = client.delete(f"/api/auth/github/integrations/{uuid4()}")
+    assert resp.status_code == 404
+
+
+def test_delete_integration_returns_403_when_not_owner(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_builder.routes import github_auth as route
+
+    other_user = uuid4()  # ≠ fixé du conftest
+
+    async def fake_get(iid: UUID, *, pool: Any) -> dict[str, Any]:
+        return {
+            "id": iid, "user_id": other_user, "openbao_path": "p",
+            "github_login": "x",
+        }
+
+    monkeypatch.setattr(route.github_integrations, "get_by_id", fake_get)
+    resp = client.delete(f"/api/auth/github/integrations/{uuid4()}")
+    assert resp.status_code == 403

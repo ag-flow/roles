@@ -36,7 +36,10 @@ def test_list_repos_returns_subset_of_fields(
     from role_builder.services.openbao_client import OpenBaoClient
 
     async def fake_get(user_id: UUID, *, pool: Any) -> Any:
-        return {"openbao_path": "github-tokens/t/u"}
+        return {
+            "openbao_path": "github-tokens/t/u",
+            "github_login": "alice",
+        }
 
     async def fake_token(self: Any, path: str) -> Any:
         return {"access_token": "ghp_x"}

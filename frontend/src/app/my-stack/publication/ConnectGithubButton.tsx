@@ -1,19 +1,23 @@
 'use client';
 
 import { useState } from 'react';
-import { disconnect, startOAuth } from '@/lib/api/github';
-import type { GithubIntegrationStatus } from '@/lib/types';
+import useSWR from 'swr';
+import { deleteIntegration, listIntegrations, startOAuth } from '@/lib/api/github';
+import type { GithubIntegrationItem } from '@/lib/types';
 
 interface Props {
-  status: GithubIntegrationStatus;
-  onChange: () => void;
+  onChange?: () => void;
 }
 
-export function ConnectGithubButton({ status, onChange }: Props) {
+export function ConnectGithubButton({ onChange }: Props) {
+  const { data: integrations, mutate, isLoading } = useSWR<GithubIntegrationItem[]>(
+    'github-integrations',
+    listIntegrations,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function connect() {
+  async function addAccount() {
     setBusy(true);
     setError(null);
     try {
@@ -25,12 +29,13 @@ export function ConnectGithubButton({ status, onChange }: Props) {
     }
   }
 
-  async function handleDisconnect() {
+  async function removeOne(id: string) {
     setBusy(true);
     setError(null);
     try {
-      await disconnect();
-      onChange();
+      await deleteIntegration(id);
+      await mutate();
+      onChange?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur');
     } finally {
@@ -38,59 +43,79 @@ export function ConnectGithubButton({ status, onChange }: Props) {
     }
   }
 
-  if (!status.connected) {
-    return (
-      <div>
-        <button
-          type="button"
-          onClick={connect}
-          disabled={busy}
-          style={{
-            padding: '0.5rem 1rem',
-            background: '#24292f',
-            color: 'white',
-            border: 0,
-            borderRadius: 4,
-            cursor: busy ? 'not-allowed' : 'pointer',
-            opacity: busy ? 0.6 : 1,
-            fontSize: '0.875rem',
-            fontWeight: 600,
-          }}
-        >
-          Connecter GitHub
-        </button>
-        {error && (
-          <p style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: '0.5rem' }}>
-            {error}
-          </p>
-        )}
-      </div>
-    );
+  if (isLoading) {
+    return <p style={{ color: '#6b7280' }}>Chargement…</p>;
   }
+
+  const list = integrations ?? [];
 
   return (
     <div>
-      <p style={{ margin: 0 }}>
-        Connecté en tant que <strong>@{status.github_login}</strong>
-        {status.scope && ` (scope : ${status.scope})`}
-      </p>
+      {list.length === 0 ? (
+        <p style={{ color: '#6b7280', margin: '0 0 0.5rem 0' }}>
+          Aucun compte GitHub connecté.
+        </p>
+      ) : (
+        <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 0.75rem 0' }}>
+          {list.map((it) => (
+            <li
+              key={it.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem',
+                padding: '0.5rem 0.75rem',
+                marginBottom: '0.4rem',
+                border: '1px solid #d1d5db',
+                borderRadius: 4,
+              }}
+            >
+              <span style={{ flex: 1 }}>
+                <strong>@{it.github_login}</strong>
+                <span style={{ color: '#6b7280', fontSize: '0.85rem' }}>
+                  {' '}— scope : {it.scope}
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => removeOne(it.id)}
+                disabled={busy}
+                style={{
+                  padding: '0.3rem 0.7rem',
+                  background: 'white',
+                  color: '#dc2626',
+                  border: '1px solid #dc2626',
+                  borderRadius: 4,
+                  cursor: busy ? 'not-allowed' : 'pointer',
+                  fontSize: '0.8rem',
+                }}
+              >
+                Déconnecter
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
       <button
         type="button"
-        onClick={handleDisconnect}
+        onClick={addAccount}
         disabled={busy}
         style={{
-          marginTop: '0.5rem',
-          padding: '0.4rem 0.9rem',
-          background: 'white',
-          color: '#dc2626',
-          border: '1px solid #dc2626',
+          padding: '0.5rem 1rem',
+          background: '#24292f',
+          color: 'white',
+          border: 0,
           borderRadius: 4,
           cursor: busy ? 'not-allowed' : 'pointer',
-          fontSize: '0.8rem',
+          opacity: busy ? 0.6 : 1,
+          fontSize: '0.875rem',
+          fontWeight: 600,
         }}
       >
-        Déconnecter
+        {list.length === 0 ? 'Connecter GitHub' : 'Ajouter un compte'}
       </button>
+
       {error && (
         <p style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: '0.5rem' }}>
           {error}

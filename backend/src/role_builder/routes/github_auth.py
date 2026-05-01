@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import secrets as py_secrets
 from typing import Annotated
+from uuid import UUID
 
 import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi import status as http_status
 
 from role_builder.auth.dependencies import CurrentUser, get_current_user
 from role_builder.config import settings
@@ -22,6 +24,7 @@ from role_builder.db import db_pool
 from role_builder.db_helpers import github_integrations, oauth_states
 from role_builder.schemas.github import (
     CallbackResponse,
+    GithubIntegrationItem,
     GithubIntegrationStatus,
     StartOAuthResponse,
 )
@@ -110,11 +113,61 @@ async def status_endpoint(
 async def disconnect(
     user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> dict[str, str]:
-    integration = await github_integrations.get_by_user_id(
+    """Déconnecte TOUTES les intégrations GitHub du user (legacy)."""
+    integrations = await github_integrations.list_by_user_id(
         user.user_id, pool=db_pool.pool,
     )
-    if integration is None:
+    if not integrations:
         return {"status": "not-connected"}
+
+    openbao = OpenBaoClient()
+    try:
+        for integration in integrations:
+            await openbao.delete(str(integration["openbao_path"]))
+    finally:
+        await openbao.aclose()
+
+    await github_integrations.delete_by_user_id(user.user_id, pool=db_pool.pool)
+    log.info(
+        "github.oauth.disconnected",
+        user_id=str(user.user_id),
+        count=len(integrations),
+    )
+    return {"status": "disconnected"}
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 D : multi-comptes
+# ---------------------------------------------------------------------------
+
+
+@router.get("/auth/github/integrations", response_model=list[GithubIntegrationItem])
+async def list_integrations(
+    user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> list[GithubIntegrationItem]:
+    """Liste toutes les intégrations GitHub du user (peut être vide)."""
+    rows = await github_integrations.list_by_user_id(
+        user.user_id, pool=db_pool.pool,
+    )
+    return [GithubIntegrationItem(**r) for r in rows]
+
+
+@router.delete(
+    "/auth/github/integrations/{integration_id}",
+    status_code=http_status.HTTP_204_NO_CONTENT,
+)
+async def delete_integration(
+    integration_id: UUID,
+    user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> None:
+    """Supprime une intégration GitHub spécifique du user."""
+    integration = await github_integrations.get_by_id(
+        integration_id, pool=db_pool.pool,
+    )
+    if integration is None:
+        raise HTTPException(status_code=404, detail="integration not found")
+    if integration["user_id"] != user.user_id:
+        raise HTTPException(status_code=403, detail="not the integration owner")
 
     openbao = OpenBaoClient()
     try:
@@ -122,6 +175,10 @@ async def disconnect(
     finally:
         await openbao.aclose()
 
-    await github_integrations.delete_by_user_id(user.user_id, pool=db_pool.pool)
-    log.info("github.oauth.disconnected", user_id=str(user.user_id))
-    return {"status": "disconnected"}
+    await github_integrations.delete_by_id(integration_id, pool=db_pool.pool)
+    log.info(
+        "github.oauth.integration_deleted",
+        user_id=str(user.user_id),
+        integration_id=str(integration_id),
+        github_login=integration["github_login"],
+    )

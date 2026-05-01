@@ -226,6 +226,17 @@
       → **Décision (sprint 8) :** **1 seul compte** par user pour MVP
       (UNIQUE constraint sur `user_id` dans `github_integrations`).
       Reportée Phase 2 si demande utilisateur.
+      → **Décision (Phase 2, 2026-05-01) :** livré. Migration 0015 :
+      drop UNIQUE(user_id), add UNIQUE(user_id, github_user_id).
+      Helpers `list_by_user_id`, `get_by_id`, `delete_by_id`. Routes
+      `GET /api/auth/github/integrations` + `DELETE /api/auth/github/integrations/{id}`.
+      Routes `GET /api/github/repos` et `POST .../publish-to-github`
+      acceptent `integration_id` (défaut = primary = la plus récente).
+      UI `ConnectGithubButton` affiche la liste avec Déconnecter par item +
+      "Ajouter un compte". `PublishToGithubButton` affiche un sélecteur si
+      ≥ 2 intégrations. Pas de persistance du choix par projet (choix au
+      moment de chaque publication).
+      Cf. `docs/superpowers/specs/2026-05-01-github-multi-accounts-design.md`.
 
 - [x] **State CSRF en mémoire vs persistant**
       → **Décision (sprint 8) :** **table PG `oauth_states`** (migration
