@@ -1,11 +1,17 @@
 'use client';
 
+import { ColoredDiff } from '@/components/ColoredDiff';
 import type { Run } from '@/lib/types';
 
 interface Props {
   runA: Run;
   runB: Run;
   onClose: () => void;
+}
+
+function runHeader(run: Run, label: string): string {
+  const model = run.llm_model ?? '';
+  return `${label} — ${run.id.slice(0, 8)} · ${model} · ${run.status}`;
 }
 
 export function RunDiff({ runA, runB, onClose }: Props) {
@@ -48,68 +54,13 @@ export function RunDiff({ runA, runB, onClose }: Props) {
           <button onClick={onClose}>Fermer</button>
         </div>
 
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '1rem',
-            overflow: 'auto',
-            flex: 1,
-          }}
-        >
-          <div>
-            <h3 style={{ fontSize: '0.9rem', color: '#555', marginBottom: '0.5rem' }}>
-              Run A — {runA.id.slice(0, 8)}
-              <span
-                style={{
-                  marginLeft: '0.5rem',
-                  fontSize: '0.8rem',
-                  color: '#888',
-                }}
-              >
-                {runA.llm_model ?? ''} · {runA.status}
-              </span>
-            </h3>
-            <pre
-              style={{
-                whiteSpace: 'pre-wrap',
-                fontSize: '0.8rem',
-                background: '#f8f8f8',
-                borderRadius: 4,
-                padding: '0.75rem',
-                margin: 0,
-              }}
-            >
-              {runA.output ?? '(pas de contenu)'}
-            </pre>
-          </div>
-
-          <div>
-            <h3 style={{ fontSize: '0.9rem', color: '#555', marginBottom: '0.5rem' }}>
-              Run B — {runB.id.slice(0, 8)}
-              <span
-                style={{
-                  marginLeft: '0.5rem',
-                  fontSize: '0.8rem',
-                  color: '#888',
-                }}
-              >
-                {runB.llm_model ?? ''} · {runB.status}
-              </span>
-            </h3>
-            <pre
-              style={{
-                whiteSpace: 'pre-wrap',
-                fontSize: '0.8rem',
-                background: '#f8f8f8',
-                borderRadius: 4,
-                padding: '0.75rem',
-                margin: 0,
-              }}
-            >
-              {runB.output ?? '(pas de contenu)'}
-            </pre>
-          </div>
+        <div style={{ overflow: 'auto', flex: 1, fontSize: '0.85rem' }}>
+          <ColoredDiff
+            oldValue={runA.output ?? ''}
+            newValue={runB.output ?? ''}
+            leftTitle={runHeader(runA, 'Run A')}
+            rightTitle={runHeader(runB, 'Run B')}
+          />
         </div>
       </div>
     </div>

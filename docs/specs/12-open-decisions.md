@@ -545,9 +545,14 @@
       → synthesize_identity). Prudence : éviter de marquer
       automatiquement les docs comme `is_current=true`.
 
-- [ ] **Algo de diff coloré pour RunDiff/DiffViewer**
+- [x] **Algo de diff coloré pour RunDiff/DiffViewer**
       Reporté Phase 2. `diff-match-patch` (Google) ou `react-diff-view`
       pour mettre en évidence les changements ligne par ligne.
+      → **Décision (Phase 2, 2026-05-01) :** factorisation d'un composant
+      `ColoredDiff` partagé qui encapsule `react-diff-viewer-continued`
+      (déjà installé Sprint 7 pour `VersionDiff`). Refactor de `RunDiff`
+      (analyses) et `DiffViewer` (prompts) pour le consommer. Pas de
+      nouvelle dépendance. Cf. `docs/superpowers/specs/2026-05-01-diff-colore-design.md`.
 
 ---
 

@@ -1,21 +1,8 @@
 'use client';
 
-import type { FC } from 'react';
 import useSWR from 'swr';
-import ReactDiffViewerImport from 'react-diff-viewer-continued';
+import { ColoredDiff } from '@/components/ColoredDiff';
 import { getRoleDocument } from '@/lib/api/role-documents';
-
-// Le package est typé comme une class component (typages legacy React 17),
-// ce qui pose problème avec les types stricts React 18. On le ré-encapsule en
-// FunctionComponent typée minimaliste — les props utilisées sont stables.
-interface ReactDiffViewerLikeProps {
-  oldValue: string;
-  newValue: string;
-  splitView?: boolean;
-  leftTitle?: string;
-  rightTitle?: string;
-}
-const ReactDiffViewer = ReactDiffViewerImport as unknown as FC<ReactDiffViewerLikeProps>;
 
 interface Props {
   currentContent: string;
@@ -81,10 +68,9 @@ export function VersionDiff({
         <p style={{ color: '#6b7280', margin: 0 }}>Chargement…</p>
       ) : (
         <div style={{ fontSize: '0.85rem' }}>
-          <ReactDiffViewer
+          <ColoredDiff
             oldValue={other.data.content}
             newValue={currentContent}
-            splitView={true}
             leftTitle={`v${other.data.version}`}
             rightTitle={`v${currentVersion} (current)`}
           />
