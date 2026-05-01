@@ -87,6 +87,30 @@ async def update_mistral_secret_ref(
         raise ValueError(f"role_project {role_project_id} not found")
 
 
+async def update_global_directives(
+    role_project_id: UUID,
+    directives: str | None,
+    *,
+    pool: asyncpg.Pool,
+) -> None:
+    """UPDATE role_projects SET global_directives=$2, updated_at=now() WHERE id=$1.
+
+    Lève ValueError si rows=0. ``directives`` peut être None pour reset.
+    """
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE role_projects SET global_directives = $2, updated_at = now() WHERE id = $1",
+            role_project_id,
+            directives,
+        )
+    try:
+        rows = int(result.split()[-1])
+    except (IndexError, ValueError):
+        rows = 0
+    if rows == 0:
+        raise ValueError(f"role_project {role_project_id} not found")
+
+
 async def update_target_role_id(
     role_project_id: UUID,
     target_role_id: str,

@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from role_builder.auth.dependencies import CurrentUser, get_current_user
 from role_builder.db import db_pool
 from role_builder.db_helpers import prompts as prompts_helper
+from role_builder.db_helpers import runs as runs_helper
 from role_builder.schemas.prompts import CreateVersionRequest, PromptOut, PromptVersionOut
 
 log = structlog.get_logger(__name__)
@@ -109,8 +110,13 @@ async def set_system_default(
         await prompts_helper.set_system_default(prompt_id, version_id, pool=pool)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="version not found for this prompt") from exc
+
+    obsolete_count = await runs_helper.mark_obsolete_for_prompt(
+        prompt_id, except_version_id=version_id, pool=pool,
+    )
     log.info(
         "api.prompts.system_default_updated",
         prompt_id=str(prompt_id),
         version_id=str(version_id),
+        runs_marked_obsolete=obsolete_count,
     )

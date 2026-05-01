@@ -23,4 +23,5 @@ class RunOut(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     error: str | None
+    is_obsolete: bool = False
     created_at: datetime

@@ -130,6 +130,7 @@ export interface Run {
   started_at: string | null;
   completed_at: string | null;
   error: string | null;
+  is_obsolete?: boolean;
   created_at: string;
 }
 

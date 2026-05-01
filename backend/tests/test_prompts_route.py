@@ -132,12 +132,48 @@ def test_put_system_default_returns_204(
         called["prompt_id"] = pid
         called["version_id"] = vid
 
+    async def fake_mark_obsolete(
+        pid: UUID, *, except_version_id: UUID, pool: Any,
+    ) -> int:
+        called["mark_obsolete_prompt_id"] = pid
+        called["mark_obsolete_except"] = except_version_id
+        return 0
+
     monkeypatch.setattr(prompts_route.prompts_helper, "set_system_default", fake_set_system_default)
+    monkeypatch.setattr(prompts_route.runs_helper, "mark_obsolete_for_prompt", fake_mark_obsolete)
 
     resp = client.put(f"/api/prompts/{prompt_id}/system-default/{version_id}")
     assert resp.status_code == 204, resp.text
     assert called["prompt_id"] == prompt_id
     assert called["version_id"] == version_id
+
+
+def test_put_system_default_marks_old_runs_obsolete(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Phase 2 sous-projet C : PUT system-default propage l'obsolescence
+    aux runs ayant utilisé une autre version de ce prompt."""
+    from role_builder.routes import prompts as prompts_route
+
+    prompt_id = uuid4()
+    version_id = uuid4()
+    obsolete_calls: list[tuple[UUID, UUID]] = []
+
+    async def fake_set(pid: UUID, vid: UUID, *, pool: Any) -> None:
+        return None
+
+    async def fake_mark_obsolete(
+        pid: UUID, *, except_version_id: UUID, pool: Any,
+    ) -> int:
+        obsolete_calls.append((pid, except_version_id))
+        return 4
+
+    monkeypatch.setattr(prompts_route.prompts_helper, "set_system_default", fake_set)
+    monkeypatch.setattr(prompts_route.runs_helper, "mark_obsolete_for_prompt", fake_mark_obsolete)
+
+    resp = client.put(f"/api/prompts/{prompt_id}/system-default/{version_id}")
+    assert resp.status_code == 204
+    assert obsolete_calls == [(prompt_id, version_id)]
 
 
 def test_put_system_default_returns_404_when_version_not_in_prompt(

@@ -156,3 +156,59 @@ async def get_run(run_id: UUID, *, pool: asyncpg.Pool) -> dict[str, Any] | None:
     if row is None:
         return None
     return dict(row) if not isinstance(row, dict) else row
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 sous-projet C : marquage obsolescence
+# ---------------------------------------------------------------------------
+
+_MARK_OBSOLETE_FOR_PROJECT_SQL = """
+    UPDATE runs SET is_obsolete = true
+    WHERE role_project_id = $1 AND is_obsolete = false
+"""
+
+_MARK_OBSOLETE_FOR_PROMPT_SQL = """
+    UPDATE runs SET is_obsolete = true
+    WHERE prompt_version_id IN (
+        SELECT id FROM prompt_versions
+        WHERE prompt_id = $1 AND id != $2
+    )
+    AND is_obsolete = false
+"""
+
+
+def _rowcount(tag: str) -> int:
+    """Parse le tag retourné par asyncpg.execute (ex: 'UPDATE 5')."""
+    try:
+        return int(tag.split()[-1])
+    except (IndexError, ValueError):
+        return 0
+
+
+async def mark_obsolete_for_project(
+    role_project_id: UUID, *, pool: asyncpg.Pool,
+) -> int:
+    """Marque obsolete tous les runs encore actifs d'un role_project.
+
+    Appelé quand role_projects.global_directives est édité. Retourne le
+    nombre de lignes touchées.
+    """
+    async with pool.acquire() as conn:
+        tag = await conn.execute(_MARK_OBSOLETE_FOR_PROJECT_SQL, role_project_id)
+    return _rowcount(tag)
+
+
+async def mark_obsolete_for_prompt(
+    prompt_id: UUID, *, except_version_id: UUID, pool: asyncpg.Pool,
+) -> int:
+    """Marque obsolete les runs ayant utilisé une autre version du prompt.
+
+    Appelé après set_system_default(prompt_id, new_version_id). La nouvelle
+    version system_default n'est pas affectée — les runs qui l'ont utilisée
+    restent valides.
+    """
+    async with pool.acquire() as conn:
+        tag = await conn.execute(
+            _MARK_OBSOLETE_FOR_PROMPT_SQL, prompt_id, except_version_id,
+        )
+    return _rowcount(tag)

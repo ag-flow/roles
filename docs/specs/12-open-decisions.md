@@ -528,11 +528,18 @@
       cohérent avec le reste du codebase (ChunkCard, CorpusSearchClient).
       À documenter dans CLAUDE.md si décision de garder ce statu quo.
 
-- [ ] **Cache obsolescence des runs**
+- [x] **Cache obsolescence des runs**
       Reporté Phase 2. Si l'utilisateur édite `global_directives` ou
       remplace une version system_default, les anciens runs deviennent
       conceptuellement "obsolètes" sans changement de status. À ajouter :
       colonne `runs.is_obsolete` ou view `v_active_runs`.
+      → **Décision (Phase 2, 2026-05-01) :** colonne
+      `runs.is_obsolete BOOLEAN` (migration 0014). Marquage déclenché par
+      `PATCH /role-projects/{id}/global-directives` (nouvelle route) →
+      `mark_obsolete_for_project`, et par `PUT /prompts/{id}/system-default/{vid}` →
+      `mark_obsolete_for_prompt(except_version_id=vid)`. Drapeau monotone
+      (true → reste true). Badge orange "obsolète" sur `RunCard`. Cf.
+      `docs/superpowers/specs/2026-05-01-runs-obsolescence-design.md`.
 
 - [ ] **Map-reduce pour gros corpus (> 500 chunks dans extractor)**
       Reporté. MVP : extractor envoie les chunks par batch séquentiel

@@ -75,6 +75,22 @@ export function RunCard({ run, onCompare }: Props) {
           <span style={{ fontSize: '0.85rem', color: '#666' }}>
             {run.llm_model ?? '—'}
           </span>
+          {run.is_obsolete && (
+            <span
+              title="Ce run a été généré avec d'anciennes directives globales ou un prompt précédent."
+              style={{
+                display: 'inline-block',
+                padding: '2px 8px',
+                borderRadius: 4,
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                background: '#fed7aa',
+                color: '#9a3412',
+              }}
+            >
+              obsolète
+            </span>
+          )}
         </div>
         <span style={{ fontSize: '0.8rem', color: '#999' }}>
           {formatRelativeDate(run.created_at)}
