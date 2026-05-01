@@ -5,6 +5,8 @@ import useSWR from 'swr';
 import { previewZip } from '@/lib/api/agflow-export';
 import { getPublicationConfig } from '@/lib/api/github';
 import { listRoleDocumentsGrouped } from '@/lib/api/role-documents';
+import { listRoleProjects } from '@/lib/api/role-projects';
+import { CustomSectionsEditor } from './CustomSectionsEditor';
 import { PublicationHistory } from './PublicationHistory';
 import { PushToAgflowButton } from './PushToAgflowButton';
 import { PublishToGithubButton } from './PublishToGithubButton';
@@ -21,6 +23,8 @@ export default function RolePage() {
   const publicationCfg = useSWR(['publication-config', projectId], () =>
     getPublicationConfig(projectId),
   );
+  const projects = useSWR('role-projects', listRoleProjects);
+  const currentProject = projects.data?.find((p) => p.id === projectId);
 
   if (preview.isLoading || docs.isLoading) {
     return <p style={{ color: '#6b7280' }}>Chargement…</p>;
@@ -65,6 +69,14 @@ export default function RolePage() {
           }}
         />
       </header>
+
+      {currentProject && (
+        <CustomSectionsEditor
+          projectId={projectId}
+          initial={currentProject.custom_sections ?? []}
+          onChange={() => projects.mutate()}
+        />
+      )}
 
       <RoleDocumentEditor
         projectId={projectId}

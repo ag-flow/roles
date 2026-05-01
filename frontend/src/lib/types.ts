@@ -393,6 +393,7 @@ export interface RoleProject {
   global_directives: string | null;
   mistral_secret_ref: string | null;
   identity: string | null;
+  custom_sections?: string[];
   created_at: string;
   updated_at: string;
 }

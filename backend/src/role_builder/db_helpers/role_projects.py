@@ -111,6 +111,33 @@ async def update_global_directives(
         raise ValueError(f"role_project {role_project_id} not found")
 
 
+async def update_custom_sections(
+    role_project_id: UUID,
+    custom_sections: list[str],
+    *,
+    pool: asyncpg.Pool,
+) -> None:
+    """Phase 2 G — UPDATE role_projects SET custom_sections=$2 WHERE id=$1.
+
+    Stocké en JSONB. La validation des noms (regex, plafond) est faite en
+    amont par Pydantic + la route. Lève ValueError si rows=0.
+    """
+    import json as _json
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE role_projects SET custom_sections = $2::jsonb, "
+            "updated_at = now() WHERE id = $1",
+            role_project_id,
+            _json.dumps(custom_sections),
+        )
+    try:
+        rows = int(result.split()[-1])
+    except (IndexError, ValueError):
+        rows = 0
+    if rows == 0:
+        raise ValueError(f"role_project {role_project_id} not found")
+
+
 async def update_target_role_id(
     role_project_id: UUID,
     target_role_id: str,

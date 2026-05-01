@@ -17,7 +17,10 @@ from role_builder.auth.dependencies import CurrentUser, get_current_user
 from role_builder.db import db_pool
 from role_builder.db_helpers import role_projects as role_projects_helper
 from role_builder.db_helpers import runs as runs_helper
-from role_builder.schemas.role_projects import RoleProjectOut
+from role_builder.schemas.role_projects import (
+    CustomSectionsPatch,
+    RoleProjectOut,
+)
 
 router = APIRouter()
 log = structlog.get_logger(__name__)
@@ -70,4 +73,36 @@ async def patch_global_directives(
         "role_projects.global_directives_updated",
         project_id=str(project_id),
         runs_marked_obsolete=rowcount,
+    )
+
+
+@router.patch(
+    "/role-projects/{project_id}/custom-sections",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def patch_custom_sections(
+    project_id: UUID,
+    body: CustomSectionsPatch,
+    user: CurrentUser = Depends(get_current_user),
+) -> None:
+    """Met à jour la liste des sections custom du projet.
+
+    Phase 2 sous-projet G — la liste remplace l'existante (PUT-like sur jsonb).
+    Validation des noms côté Pydantic (regex, plafond, anti-collision avec
+    Role/Missions/Skills).
+    """
+    pool = db_pool.pool
+    project = await role_projects_helper.get_by_id(project_id, pool=pool)
+    if project is None:
+        raise HTTPException(status_code=404, detail="role_project not found")
+    if project["user_id"] != user.user_id:
+        raise HTTPException(status_code=403, detail="not the project owner")
+
+    await role_projects_helper.update_custom_sections(
+        project_id, body.custom_sections, pool=pool,
+    )
+    log.info(
+        "role_projects.custom_sections_updated",
+        project_id=str(project_id),
+        count=len(body.custom_sections),
     )

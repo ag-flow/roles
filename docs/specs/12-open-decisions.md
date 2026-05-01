@@ -66,11 +66,28 @@
 
 ## Sections custom (§ 02, § 06)
 
-- [ ] **UX d'ajout d'une section custom**
+- [x] **UX d'ajout d'une section custom**
       Libre, ou suggestion par l'IA basée sur le corpus ?
+      → **Décision (Phase 2, 2026-05-01) :** **libre** (input texte) avec
+      validation regex stricte côté frontend ET côté Pydantic backend.
+      Suggestions IA reportées (out-of-scope).
 
-- [ ] **Limite de nombre de sections custom**
+- [x] **Limite de nombre de sections custom**
       Plafond technique à fixer (3 ? 5 ? illimité ?).
+      → **Décision (Phase 2, 2026-05-01) :** **5**. Au-delà, le prompt
+      decomposer perd en qualité car il doit produire un plan complet
+      pour chaque section.
+
+→ **Implémentation Phase 2, 2026-05-01** :
+      Migration 0016 : `role_projects.custom_sections jsonb`. Helper
+      `update_custom_sections` + schema `CustomSectionsPatch` (regex
+      `^[A-Za-z][A-Za-z0-9_-]{1,31}$`, anti-collision Role/Missions/Skills,
+      anti-doublons, max 5). Route
+      `PATCH /api/role-projects/{id}/custom-sections`. Decomposer
+      injecte les sections custom au prompt système via post-traitement
+      (concat) — rétro-compat avec les templates existants.
+      Frontend `CustomSectionsEditor` dans la page Rôle.
+      Cf. `docs/superpowers/specs/2026-05-01-sections-custom-design.md`.
 
 ---
 

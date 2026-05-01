@@ -211,3 +211,170 @@ def test_patch_global_directives_accepts_null(
     )
     assert resp.status_code == 204, resp.text
     assert update_calls == [(project["id"], None)]
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 sous-projet G — Sections custom
+# ---------------------------------------------------------------------------
+
+
+def test_patch_custom_sections_204_with_valid_names(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_builder.routes import role_projects as route
+
+    project = _make_project_row()
+    update_calls: list[tuple[UUID, list[str]]] = []
+
+    async def fake_get(pid: UUID, *, pool: Any) -> dict[str, Any]:
+        return project
+
+    async def fake_update(
+        pid: UUID, sections: list[str], *, pool: Any,
+    ) -> None:
+        update_calls.append((pid, sections))
+
+    monkeypatch.setattr(route.role_projects_helper, "get_by_id", fake_get)
+    monkeypatch.setattr(
+        route.role_projects_helper, "update_custom_sections", fake_update,
+    )
+
+    resp = client.patch(
+        f"/api/role-projects/{project['id']}/custom-sections",
+        json={"custom_sections": ["Outils", "Style-redactionnel"]},
+    )
+    assert resp.status_code == 204, resp.text
+    assert update_calls == [(project["id"], ["Outils", "Style-redactionnel"])]
+
+
+def test_patch_custom_sections_422_when_invalid_name(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_builder.routes import role_projects as route
+
+    project = _make_project_row()
+
+    async def fake_get(pid: UUID, *, pool: Any) -> dict[str, Any]:
+        return project
+
+    monkeypatch.setattr(route.role_projects_helper, "get_by_id", fake_get)
+
+    # Espace interdit par la regex
+    resp = client.patch(
+        f"/api/role-projects/{project['id']}/custom-sections",
+        json={"custom_sections": ["Section avec espace"]},
+    )
+    assert resp.status_code == 422
+
+
+def test_patch_custom_sections_422_when_conflict_with_standard(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_builder.routes import role_projects as route
+
+    project = _make_project_row()
+
+    async def fake_get(pid: UUID, *, pool: Any) -> dict[str, Any]:
+        return project
+
+    monkeypatch.setattr(route.role_projects_helper, "get_by_id", fake_get)
+
+    resp = client.patch(
+        f"/api/role-projects/{project['id']}/custom-sections",
+        json={"custom_sections": ["Role"]},  # collision standard
+    )
+    assert resp.status_code == 422
+
+
+def test_patch_custom_sections_422_when_too_many(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_builder.routes import role_projects as route
+
+    project = _make_project_row()
+
+    async def fake_get(pid: UUID, *, pool: Any) -> dict[str, Any]:
+        return project
+
+    monkeypatch.setattr(route.role_projects_helper, "get_by_id", fake_get)
+
+    resp = client.patch(
+        f"/api/role-projects/{project['id']}/custom-sections",
+        json={"custom_sections": ["A1", "A2", "A3", "A4", "A5", "A6"]},
+    )
+    assert resp.status_code == 422
+
+
+def test_patch_custom_sections_422_when_duplicate(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_builder.routes import role_projects as route
+
+    project = _make_project_row()
+
+    async def fake_get(pid: UUID, *, pool: Any) -> dict[str, Any]:
+        return project
+
+    monkeypatch.setattr(route.role_projects_helper, "get_by_id", fake_get)
+
+    resp = client.patch(
+        f"/api/role-projects/{project['id']}/custom-sections",
+        json={"custom_sections": ["Outils", "Outils"]},
+    )
+    assert resp.status_code == 422
+
+
+def test_patch_custom_sections_403_when_not_owner(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_builder.routes import role_projects as route
+
+    other_user = uuid4()
+    project = _make_project_row()
+    project["user_id"] = other_user
+
+    async def fake_get(pid: UUID, *, pool: Any) -> dict[str, Any]:
+        return project
+
+    monkeypatch.setattr(route.role_projects_helper, "get_by_id", fake_get)
+
+    resp = client.patch(
+        f"/api/role-projects/{project['id']}/custom-sections",
+        json={"custom_sections": []},
+    )
+    assert resp.status_code == 403
+
+
+def test_patch_custom_sections_accepts_empty_list(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Liste vide = reset = OK."""
+    from role_builder.routes import role_projects as route
+
+    project = _make_project_row()
+    update_calls: list[tuple[UUID, list[str]]] = []
+
+    async def fake_get(pid: UUID, *, pool: Any) -> dict[str, Any]:
+        return project
+
+    async def fake_update(pid: UUID, sections: list[str], *, pool: Any) -> None:
+        update_calls.append((pid, sections))
+
+    monkeypatch.setattr(route.role_projects_helper, "get_by_id", fake_get)
+    monkeypatch.setattr(
+        route.role_projects_helper, "update_custom_sections", fake_update,
+    )
+
+    resp = client.patch(
+        f"/api/role-projects/{project['id']}/custom-sections",
+        json={"custom_sections": []},
+    )
+    assert resp.status_code == 204
+    assert update_calls == [(project["id"], [])]

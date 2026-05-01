@@ -96,6 +96,8 @@ async def run_decomposition(
 
     tenant_id: UUID = project["tenant_id"]
     global_directives: str = project.get("global_directives") or ""
+    # Phase 2 sous-projet G : sections custom du projet à inclure dans le plan.
+    custom_sections: list[str] = project.get("custom_sections") or []
 
     # 3. Get clusters
     if cluster_run_id is not None:
@@ -166,6 +168,17 @@ async def run_decomposition(
             clusters=clusters_text,
             signals=signals_text,
         )
+
+        # Phase 2 sous-projet G : ajout des sections custom au prompt
+        # via concat (post-traitement) pour rester rétro-compatible avec
+        # les versions de template qui n'ont pas la variable.
+        if custom_sections:
+            prompt_text += (
+                "\n\nSections supplémentaires à produire en plus des 3 "
+                "obligatoires (Role / Missions / Skills). Pour chacune, "
+                "renvoie une entrée dans `sections` avec le même schéma :\n"
+                + "\n".join(f"- {name}" for name in custom_sections)
+            )
 
         # 7. Construire messages
         messages: list[dict] = [{"role": "system", "content": prompt_text}]

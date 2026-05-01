@@ -532,3 +532,135 @@ async def test_cluster_run_id_uses_list_by_run(monkeypatch: pytest.MonkeyPatch) 
     await decomposer.run_decomposition(project["id"], pool=pool)
     assert list_by_run_called is False
     assert list_by_project_called is True
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 sous-projet G : sections custom injectées dans le prompt
+# ---------------------------------------------------------------------------
+
+
+async def test_custom_sections_appended_to_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Si project.custom_sections est non-vide, le prompt système envoyé
+    au LLM contient le bloc listant les sections custom."""
+    from role_builder.synthesis import decomposer
+
+    signal_ids = [uuid4(), uuid4()]
+    version = _make_stub_version()
+    project = _make_stub_project()
+    project["custom_sections"] = ["Outils", "Style-redactionnel"]
+    clusters = _make_clusters(2, signal_ids)
+    signals = _make_signals(2)
+    valid_response = _make_valid_decomposer_response(signal_ids)
+
+    stub_client = _StubClient(valid_response)
+
+    async def fake_get_default(name: str, *, pool: Any) -> dict:
+        return version
+
+    async def fake_get_by_id(pid: UUID, *, pool: Any) -> dict:
+        return project
+
+    async def fake_list_clusters(pid: UUID, *, pool: Any) -> list[dict]:
+        return clusters
+
+    async def fake_signals(ids: list[UUID], *, pool: Any) -> list[dict]:
+        return signals
+
+    async def fake_create(**kwargs: Any) -> UUID:
+        return uuid4()
+
+    async def fake_noop(*args: Any, **kwargs: Any) -> Any:
+        return None
+
+    async def fake_insert(**kwargs: Any) -> UUID:
+        return uuid4()
+
+    monkeypatch.setattr(
+        decomposer.prompts_helper, "get_system_default_version", fake_get_default,
+    )
+    monkeypatch.setattr(decomposer.role_projects, "get_by_id", fake_get_by_id)
+    monkeypatch.setattr(
+        decomposer.clusters_helper, "list_clusters_by_project", fake_list_clusters,
+    )
+    monkeypatch.setattr(decomposer.signals_helper, "get_signals_by_ids", fake_signals)
+    monkeypatch.setattr(decomposer.runs, "create_run", fake_create)
+    monkeypatch.setattr(decomposer.runs, "mark_running", fake_noop)
+    monkeypatch.setattr(decomposer.runs, "mark_done", fake_noop)
+    monkeypatch.setattr(
+        decomposer.document_plans_helper, "insert_document_plan", fake_insert,
+    )
+    monkeypatch.setattr(decomposer, "get_agflow_client", lambda: stub_client)
+
+    pool = _StubPool(_StubConn())
+    await decomposer.run_decomposition(project["id"], pool=pool)
+
+    assert len(stub_client.calls) == 1
+    messages, _ = stub_client.calls[0]
+    system_content = messages[0]["content"]
+    assert "Sections supplémentaires" in system_content
+    assert "- Outils" in system_content
+    assert "- Style-redactionnel" in system_content
+
+
+async def test_no_custom_sections_means_no_extra_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Si project.custom_sections est vide ou absent, aucun bloc supplémentaire
+    n'est ajouté au prompt."""
+    from role_builder.synthesis import decomposer
+
+    signal_ids = [uuid4()]
+    version = _make_stub_version()
+    project = _make_stub_project()
+    # Pas de custom_sections du tout
+    clusters = _make_clusters(1, signal_ids)
+    signals = _make_signals(1)
+    valid_response = _make_valid_decomposer_response(signal_ids)
+
+    stub_client = _StubClient(valid_response)
+
+    async def fake_get_default(name: str, *, pool: Any) -> dict:
+        return version
+
+    async def fake_get_by_id(pid: UUID, *, pool: Any) -> dict:
+        return project
+
+    async def fake_list_clusters(pid: UUID, *, pool: Any) -> list[dict]:
+        return clusters
+
+    async def fake_signals(ids: list[UUID], *, pool: Any) -> list[dict]:
+        return signals
+
+    async def fake_create(**kwargs: Any) -> UUID:
+        return uuid4()
+
+    async def fake_noop(*args: Any, **kwargs: Any) -> Any:
+        return None
+
+    async def fake_insert(**kwargs: Any) -> UUID:
+        return uuid4()
+
+    monkeypatch.setattr(
+        decomposer.prompts_helper, "get_system_default_version", fake_get_default,
+    )
+    monkeypatch.setattr(decomposer.role_projects, "get_by_id", fake_get_by_id)
+    monkeypatch.setattr(
+        decomposer.clusters_helper, "list_clusters_by_project", fake_list_clusters,
+    )
+    monkeypatch.setattr(decomposer.signals_helper, "get_signals_by_ids", fake_signals)
+    monkeypatch.setattr(decomposer.runs, "create_run", fake_create)
+    monkeypatch.setattr(decomposer.runs, "mark_running", fake_noop)
+    monkeypatch.setattr(decomposer.runs, "mark_done", fake_noop)
+    monkeypatch.setattr(
+        decomposer.document_plans_helper, "insert_document_plan", fake_insert,
+    )
+    monkeypatch.setattr(decomposer, "get_agflow_client", lambda: stub_client)
+
+    pool = _StubPool(_StubConn())
+    await decomposer.run_decomposition(project["id"], pool=pool)
+
+    messages, _ = stub_client.calls[0]
+    system_content = messages[0]["content"]
+    assert "Sections supplémentaires" not in system_content
