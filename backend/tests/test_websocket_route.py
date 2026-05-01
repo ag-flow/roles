@@ -61,6 +61,7 @@ def app_with_stub_relay(
     monkeypatch.setattr(_settings, "disable_chunking_worker", True, raising=False)
     monkeypatch.setattr(_settings, "disable_scheduler", True, raising=False)
     monkeypatch.setattr(_settings, "disable_auth", True, raising=False)
+    monkeypatch.setattr(_settings, "disable_migrations", True, raising=False)
 
     class _StubPool:
         async def close(self) -> None:

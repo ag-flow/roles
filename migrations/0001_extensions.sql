@@ -1,6 +1,15 @@
--- Migration 0001 : Extensions PostgreSQL requises.
+-- Migration 0001 : marker historique.
+--
+-- Les extensions PostgreSQL requises (uuid-ossp, pgcrypto, vector) doivent
+-- être créées en amont par l'administrateur DB (compte superuser) lors du
+-- provisioning de la base, AVANT le premier démarrage du backend.
+--
+-- Le user applicatif `agflow_roles` ne dispose pas du privilège SUPERUSER
+-- nécessaire à `CREATE EXTENSION`. Tenter d'exécuter ces commandes ici
+-- ferait échouer le runner de migrations au boot.
+--
+-- Référence : install.sh --setup-db du repo ag-flow/Configurations.
 -- Référence : docs/specs/01-data-model.md § Extensions PostgreSQL requises.
-
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-CREATE EXTENSION IF NOT EXISTS "vector";
+--
+-- Cette migration est conservée comme marker pour préserver la séquence
+-- numérique 0001 → 0015. Elle n'exécute aucun SQL.

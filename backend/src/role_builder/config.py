@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     # Sprint 6 — Scheduler périodique (poll balance, reset mensuel)
     disable_scheduler: bool = False
 
+    # Phase 2 — Migrations DB embarquées dans l'image, exécutées au startup.
+    # disable_migrations=True dans les tests pour éviter le run au boot.
+    disable_migrations: bool = False
+    # Override explicite du dossier migrations (sinon /app/migrations en docker
+    # ou ../migrations en dev local, cf. main._resolve_migrations_dir).
+    migrations_dir: str | None = None
+
     # Sprint 5 — Cost tracking Mistral (rates par token, $2/$6 par million)
     mistral_input_token_rate_usd: float = 0.000002
     mistral_output_token_rate_usd: float = 0.000006

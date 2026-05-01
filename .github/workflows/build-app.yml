@@ -19,7 +19,10 @@ jobs:
     strategy:
       matrix:
         component:
-          - { name: "backend-roles", context: "backend", dockerfile: "Dockerfile" }
+          # backend-roles : contexte = racine du repo car le Dockerfile a besoin
+          # à la fois de backend/ ET de migrations/ (bundlées dans l'image pour
+          # exécution automatique au startup, cf. role_builder.migrations).
+          - { name: "backend-roles", context: ".", dockerfile: "backend/Dockerfile" }
           - { name: "frontend-roles", context: "frontend", dockerfile: "Dockerfile" }
     steps:
       - uses: actions/checkout@v4

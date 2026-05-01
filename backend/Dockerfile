@@ -13,10 +13,15 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml uv.lock /app/
+# Le contexte de build est la RACINE du repo (cf. .github/workflows/build-app.yml)
+# pour pouvoir embarquer migrations/ qui vit hors de backend/.
+COPY backend/pyproject.toml backend/uv.lock /app/
 RUN uv pip install --system --no-cache .
 
-COPY src/ /app/src/
+COPY backend/src/ /app/src/
+# Bundle des migrations DB pour exécution automatique au startup
+# (cf. role_builder.migrations.run_migrations appelé dans le lifespan).
+COPY migrations/ /app/migrations/
 
 ENV PYTHONPATH=/app/src
 

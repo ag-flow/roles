@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI
@@ -14,6 +15,7 @@ from role_builder import __version__
 from role_builder.config import settings
 from role_builder.db import db_pool
 from role_builder.logging_setup import configure_logging
+from role_builder.migrations import run_migrations
 from role_builder.routes import (
     agflow_export,
     corpus,
@@ -48,12 +50,38 @@ from role_builder.services.ws_relay import ws_relay
 log = structlog.get_logger(__name__)
 
 
+def _resolve_migrations_dir() -> Path:
+    """Résout le dossier migrations selon le contexte de déploiement.
+
+    - Image Docker (cf. backend/Dockerfile) : ``/app/migrations``
+    - Dev local (depuis backend/) : ``../migrations`` relatif à la racine du repo
+    - Override explicite : ``settings.migrations_dir`` (None par défaut)
+    """
+    if settings.migrations_dir is not None:
+        return Path(settings.migrations_dir)
+    docker_path = Path("/app/migrations")
+    if docker_path.is_dir():
+        return docker_path
+    # Fallback dev : remonter depuis backend/src/role_builder/main.py
+    return Path(__file__).resolve().parents[3] / "migrations"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup / shutdown lifecycle."""
     configure_logging(settings.log_level)
     if db_pool._pool is None:  # noqa: SLF001 — autorise injection en tests
         await db_pool.connect()
+
+    # Migrations DB — bloquant, exécuté avant que l'app commence à servir.
+    # Si fail (extension manquante, fichier corrompu, lock contention), on
+    # relève l'exception : le container redémarre en boucle, ce qui est
+    # voulu pour visibilité immédiate du problème.
+    if not settings.disable_migrations:
+        applied = await run_migrations(
+            _resolve_migrations_dir(), pool=db_pool.pool,
+        )
+        log.info("migrations.lifespan.applied", count=len(applied))
 
     stop = asyncio.Event()
     orchestrator_task: asyncio.Task[None] | None = None
