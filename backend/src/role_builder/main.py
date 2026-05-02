@@ -46,8 +46,8 @@ from role_builder.routes import (
 from role_builder.services.chunking_worker import ChunkingWorker
 from role_builder.services.scheduler import RoleBuilderScheduler
 from role_builder.services.scraper_orchestrator import ScraperOrchestrator
-from role_builder.services.worker_manager import WorkerManager
 from role_builder.services.vault_resolver import VaultResolver
+from role_builder.services.worker_manager import WorkerManager
 from role_builder.services.ws_relay import ws_relay
 
 log = structlog.get_logger(__name__)
