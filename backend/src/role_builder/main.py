@@ -47,6 +47,7 @@ from role_builder.services.chunking_worker import ChunkingWorker
 from role_builder.services.scheduler import RoleBuilderScheduler
 from role_builder.services.scraper_orchestrator import ScraperOrchestrator
 from role_builder.services.worker_manager import WorkerManager
+from role_builder.services.vault_resolver import VaultResolver
 from role_builder.services.ws_relay import ws_relay
 
 log = structlog.get_logger(__name__)
@@ -72,6 +73,15 @@ def _resolve_migrations_dir() -> Path:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup / shutdown lifecycle."""
     configure_logging(settings.log_level)
+    if not settings.disable_vault:
+        log.info("vault.resolver.starting")
+        try:
+            resolver = VaultResolver()
+            await asyncio.to_thread(resolver.resolve_settings, settings)
+            log.info("vault.resolver.done")
+        except RuntimeError as exc:
+            log.critical("vault.resolver.failed", error=str(exc))
+            raise
     if db_pool._pool is None:  # noqa: SLF001 — autorise injection en tests
         await db_pool.connect()
 

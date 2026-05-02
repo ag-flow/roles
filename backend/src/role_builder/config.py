@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     # Sprint 6 — Scheduler périodique (poll balance, reset mensuel)
     disable_scheduler: bool = False
 
+    # Harpocrate vault — désactiver pour les tests qui ne fournissent pas de token
+    disable_vault: bool = False
+
     # Phase 2 — Migrations DB embarquées dans l'image, exécutées au startup.
     # disable_migrations=True dans les tests pour éviter le run au boot.
     disable_migrations: bool = False
