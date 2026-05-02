@@ -92,6 +92,14 @@ services:
       MISTRAL_EMBED_MODEL: ${MISTRAL_EMBED_MODEL:-mistral-embed}
       MISTRAL_CHAT_MODEL: ${MISTRAL_CHAT_MODEL:-mistral-large-latest}
       DISABLE_CHUNKING_WORKER: ${DISABLE_CHUNKING_WORKER:-false}
+      # Auth admin local (sans OIDC). Activé via LOCAL_ADMIN_ENABLED=true
+      # avec LOCAL_ADMIN_PASSWORD non vide ET LOCAL_ADMIN_SECRET (>=32 chars).
+      # Le frontend appelle /api/auth/local-login avec ces creds.
+      LOCAL_ADMIN_ENABLED: ${LOCAL_ADMIN_ENABLED:-false}
+      LOCAL_ADMIN_USER: ${LOCAL_ADMIN_USER:-admin}
+      LOCAL_ADMIN_PASSWORD: ${LOCAL_ADMIN_PASSWORD:-}
+      LOCAL_ADMIN_SECRET: ${LOCAL_ADMIN_SECRET:-}
+      LOCAL_ADMIN_TOKEN_TTL_S: ${LOCAL_ADMIN_TOKEN_TTL_S:-43200}
     volumes:
       # Cross-app launcher menu — éditable côté CT sans rebuild
       - ./apps.json:/app/apps.json:ro
@@ -112,13 +120,11 @@ services:
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-}
       NEXTAUTH_URL: ${NEXTAUTH_URL:-}
       AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
-      # Login local (dev/test) — bypass Keycloak avec un user/password en env.
-      # Activer avec DEV_LOGIN_ENABLED=true et un DEV_LOGIN_PASSWORD non vide.
-      # Combiner avec DISABLE_AUTH=true côté backend pour que les requêtes
-      # API ne soient pas rejetées (le backend utilise alors un user fixe).
-      DEV_LOGIN_ENABLED: ${DEV_LOGIN_ENABLED:-false}
-      DEV_LOGIN_USER: ${DEV_LOGIN_USER:-admin}
-      DEV_LOGIN_PASSWORD: ${DEV_LOGIN_PASSWORD:-}
+      # Auth admin local (sans OIDC). Le frontend lit LOCAL_ADMIN_ENABLED
+      # pour afficher le form login local sur /login. L'authorize() appelle
+      # le backend /api/auth/local-login qui valide contre LOCAL_ADMIN_*
+      # (côté backend) et retourne un JWT propagé en Bearer.
+      LOCAL_ADMIN_ENABLED: ${LOCAL_ADMIN_ENABLED:-false}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
 

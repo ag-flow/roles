@@ -1,7 +1,15 @@
-"""FastAPI dependencies pour l'auth Keycloak.
+"""FastAPI dependencies pour l'auth (Keycloak OIDC + admin local optionnel).
 
-Expose `get_current_user`, qui valide l'access token Bearer et renvoie un
-`CurrentUser`. Mode bypass via `settings.disable_auth=True` pour les tests.
+Expose ``get_current_user``, qui valide l'access token Bearer et renvoie un
+``CurrentUser``. Trois modes :
+
+1. ``settings.disable_auth=True`` → bypass total (tests/dev), retourne un user fixe.
+2. JWT issuer ``"agflow-roles-local-admin"`` → validation HS256 locale
+   (cf. ``role_builder.auth.local_admin``). Activé via ``settings.local_admin_enabled``.
+3. JWT Keycloak (RS256, JWKS) → validation OIDC standard.
+
+Le dispatcher inspecte le claim ``iss`` SANS valider la signature pour choisir
+la bonne méthode, puis valide proprement.
 """
 
 from __future__ import annotations
@@ -12,6 +20,7 @@ from uuid import UUID
 
 from fastapi import Header, HTTPException, status
 
+from role_builder.auth import local_admin
 from role_builder.auth.keycloak import InvalidTokenError, KeycloakValidator
 from role_builder.config import TENANT_ID_DEFAULT, settings
 
@@ -50,15 +59,30 @@ _DISABLED_USER = CurrentUser(
 )
 
 
+def _claims_to_user(claims: dict[str, Any]) -> CurrentUser:
+    return CurrentUser(
+        user_id=UUID(claims["sub"]),
+        username=claims.get("preferred_username", ""),
+        email=claims.get("email"),
+        tenant_id=TENANT_ID_DEFAULT,
+        raw_token=claims,
+    )
+
+
+async def _validate_token(token: str) -> dict[str, Any]:
+    """Dispatch local admin (HS256) vs Keycloak (RS256) selon le claim ``iss``."""
+    if settings.local_admin_enabled and local_admin.is_local_admin_token(token):
+        try:
+            return local_admin.verify_token(token)
+        except local_admin.LocalAdminAuthError as exc:
+            raise InvalidTokenError(str(exc)) from exc
+    return await _get_validator().validate(token)
+
+
 async def get_current_user(
     authorization: Annotated[str | None, Header()] = None,
 ) -> CurrentUser:
-    """FastAPI dep : valide le Bearer token et retourne le `CurrentUser`.
-
-    - Si `settings.disable_auth=True` → renvoie `_DISABLED_USER` (tests/dev).
-    - Header absent ou non-Bearer → 401.
-    - Token invalide (signature, exp, claims) → 401.
-    """
+    """FastAPI dep : valide le Bearer token et retourne le `CurrentUser`."""
     if settings.disable_auth:
         return _DISABLED_USER
 
@@ -71,7 +95,7 @@ async def get_current_user(
 
     token = authorization[len("Bearer ") :]
     try:
-        claims = await _get_validator().validate(token)
+        claims = await _validate_token(token)
     except InvalidTokenError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -79,13 +103,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
-    return CurrentUser(
-        user_id=UUID(claims["sub"]),
-        username=claims.get("preferred_username", ""),
-        email=claims.get("email"),
-        tenant_id=TENANT_ID_DEFAULT,
-        raw_token=claims,
-    )
+    return _claims_to_user(claims)
 
 
 async def authenticate_websocket(token: str | None) -> CurrentUser:
@@ -107,11 +125,5 @@ async def authenticate_websocket(token: str | None) -> CurrentUser:
     if not token:
         raise InvalidTokenError("missing token")
 
-    claims = await _get_validator().validate(token)
-    return CurrentUser(
-        user_id=UUID(claims["sub"]),
-        username=claims.get("preferred_username", ""),
-        email=claims.get("email"),
-        tenant_id=TENANT_ID_DEFAULT,
-        raw_token=claims,
-    )
+    claims = await _validate_token(token)
+    return _claims_to_user(claims)

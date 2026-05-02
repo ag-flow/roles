@@ -19,6 +19,7 @@ from role_builder.migrations import run_migrations
 from role_builder.routes import (
     agflow_export,
     apps,
+    auth_local,
     corpus,
     credentials,
     github_auth,
@@ -185,4 +186,5 @@ app.include_router(github_auth.router, prefix="/api", tags=["github-auth"])
 app.include_router(github_publish.router, prefix="/api", tags=["github-publish"])
 app.include_router(version_route.router, prefix="/api", tags=["version"])
 app.include_router(apps.router, prefix="/api", tags=["apps"])
+app.include_router(auth_local.router, prefix="/api", tags=["auth-local"])
 app.include_router(websocket.router, tags=["websocket"])

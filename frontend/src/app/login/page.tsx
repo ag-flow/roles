@@ -1,8 +1,8 @@
-import { isDevLoginEnabled, isKeycloakEnabled, signIn } from '@/auth';
+import { isLocalAdminEnabled, isKeycloakEnabled, signIn } from '@/auth';
 
-// Lit les env vars (DEV_LOGIN_*, KEYCLOAK_ISSUER_URL) à chaque requête plutôt
-// qu'au build. Sinon le rendu SSG du build CI fige la page sur l'état où
-// aucune méthode d'auth n'est configurée.
+// Lit les env vars (LOCAL_ADMIN_*, KEYCLOAK_ISSUER_URL) à chaque requête
+// plutôt qu'au build. Sinon le rendu SSG du build CI fige la page sur
+// l'état où aucune méthode d'auth n'est configurée.
 export const dynamic = 'force-dynamic';
 
 export default function LoginPage() {
@@ -47,7 +47,7 @@ export default function LoginPage() {
         </section>
       )}
 
-      {isDevLoginEnabled && (
+      {isLocalAdminEnabled && (
         <section
           style={{
             marginTop: isKeycloakEnabled ? '2rem' : 0,
@@ -56,12 +56,12 @@ export default function LoginPage() {
           }}
         >
           <p style={{ color: '#666', marginBottom: '0.75rem' }}>
-            Connexion locale (mode dev / test).
+            Connexion administrateur local.
           </p>
           <form
             action={async (formData) => {
               'use server';
-              await signIn('dev-login', {
+              await signIn('local-admin', {
                 username: String(formData.get('username') ?? ''),
                 password: String(formData.get('password') ?? ''),
                 redirectTo: '/',
@@ -137,10 +137,11 @@ export default function LoginPage() {
         </section>
       )}
 
-      {!isKeycloakEnabled && !isDevLoginEnabled && (
+      {!isKeycloakEnabled && !isLocalAdminEnabled && (
         <p style={{ color: '#dc2626' }}>
           Aucune méthode d&apos;authentification n&apos;est configurée. Définissez
-          KEYCLOAK_ISSUER_URL ou DEV_LOGIN_PASSWORD côté frontend.
+          KEYCLOAK_ISSUER_URL côté frontend, ou activez l&apos;admin local
+          (LOCAL_ADMIN_ENABLED + LOCAL_ADMIN_PASSWORD côté backend).
         </p>
       )}
     </main>

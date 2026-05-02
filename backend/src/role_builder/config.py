@@ -81,6 +81,20 @@ class Settings(BaseSettings):
     # une liste vide et le menu reste caché.
     apps_file: str | None = None
 
+    # Phase 2 — Mode admin local (auth sans OIDC).
+    # Activé via local_admin_enabled=true ET local_admin_password non vide.
+    # Le frontend appelle POST /api/auth/local-login (user/pwd) → reçoit un
+    # JWT HS256 signé avec local_admin_secret. Toutes les routes API
+    # acceptent ce JWT en plus des JWT Keycloak (RS256/JWKS).
+    # Pour la prod : laisser disabled. Pour dev/test : enabled + définir
+    # local_admin_password ET local_admin_secret (min 32 chars).
+    local_admin_enabled: bool = False
+    local_admin_user: str = "admin"
+    local_admin_password: str = ""
+    local_admin_secret: str = ""
+    # Durée de vie du JWT local en secondes (défaut 12h).
+    local_admin_token_ttl_s: int = 43200
+
     # Sprint 5 — Cost tracking Mistral (rates par token, $2/$6 par million)
     mistral_input_token_rate_usd: float = 0.000002
     mistral_output_token_rate_usd: float = 0.000006
