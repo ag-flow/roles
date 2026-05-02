@@ -61,7 +61,7 @@ describe('agflow-export API client', () => {
     expect(result).toEqual(payload);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/preview-zip',
+      '/api/role-projects/rp-1/preview-zip',
     );
     expect(calls[0]!.init.method).toBeUndefined();
   });
@@ -82,7 +82,7 @@ describe('agflow-export API client', () => {
     expect(result).toEqual(payload);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/push-to-agflow',
+      '/api/role-projects/rp-1/push-to-agflow',
     );
     expect(calls[0]!.init.method).toBe('POST');
     expect(calls[0]!.init.body).toBe(JSON.stringify({ generate_prompts: true }));
@@ -97,14 +97,14 @@ describe('agflow-export API client', () => {
 
     expect(result).toEqual(payload);
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/generate-prompts-on-agflow',
+      '/api/role-projects/rp-1/generate-prompts-on-agflow',
     );
     expect(calls[0]!.init.method).toBe('POST');
   });
 
   it('downloadZipUrl construit l\'URL absolue (pour <a href=...>)', () => {
     expect(downloadZipUrl('rp-1')).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/download-zip',
+      '/api/role-projects/rp-1/download-zip',
     );
   });
 });

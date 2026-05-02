@@ -66,7 +66,7 @@ describe('credentials API client', () => {
 
     expect(result).toEqual(payload);
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/credentials');
+    expect(calls[0]!.url).toBe('/api/credentials');
     expect(calls[0]!.init.method).toBeUndefined();
   });
 
@@ -76,7 +76,7 @@ describe('credentials API client', () => {
 
     await listCredentials('youtube');
 
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/credentials?platform=youtube');
+    expect(calls[0]!.url).toBe('/api/credentials?platform=youtube');
   });
 
   it('createCredential envoie POST avec body JSON', async () => {
@@ -92,7 +92,7 @@ describe('credentials API client', () => {
 
     expect(result).toEqual(payload);
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/credentials');
+    expect(calls[0]!.url).toBe('/api/credentials');
     expect(calls[0]!.init.method).toBe('POST');
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({
       platform: 'instagram',
@@ -109,7 +109,7 @@ describe('credentials API client', () => {
     const result = await testCredential('cred-1');
 
     expect(result).toEqual(payload);
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/credentials/cred-1/test');
+    expect(calls[0]!.url).toBe('/api/credentials/cred-1/test');
     expect(calls[0]!.init.method).toBe('POST');
   });
 
@@ -119,7 +119,7 @@ describe('credentials API client', () => {
 
     await deleteCredential('cred-1');
 
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/credentials/cred-1');
+    expect(calls[0]!.url).toBe('/api/credentials/cred-1');
     expect(calls[0]!.init.method).toBe('DELETE');
   });
 });
@@ -145,7 +145,7 @@ describe('transcription-keys API client', () => {
     const result = await listKeys();
 
     expect(result).toEqual(payload);
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/transcription-keys');
+    expect(calls[0]!.url).toBe('/api/transcription-keys');
     expect(calls[0]!.init.method).toBeUndefined();
   });
 
@@ -162,7 +162,7 @@ describe('transcription-keys API client', () => {
     });
 
     expect(result).toEqual(payload);
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/transcription-keys');
+    expect(calls[0]!.url).toBe('/api/transcription-keys');
     expect(calls[0]!.init.method).toBe('POST');
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({
       provider: 'deepgram',
@@ -180,7 +180,7 @@ describe('transcription-keys API client', () => {
     const result = await updateKey('key-1', { workers_count: 3 });
 
     expect(result).toEqual(payload);
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/transcription-keys/key-1');
+    expect(calls[0]!.url).toBe('/api/transcription-keys/key-1');
     expect(calls[0]!.init.method).toBe('PATCH');
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ workers_count: 3 });
   });
@@ -193,7 +193,7 @@ describe('transcription-keys API client', () => {
     const result = await testKey('key-1');
 
     expect(result).toEqual(payload);
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/transcription-keys/key-1/test');
+    expect(calls[0]!.url).toBe('/api/transcription-keys/key-1/test');
     expect(calls[0]!.init.method).toBe('POST');
   });
 
@@ -205,7 +205,7 @@ describe('transcription-keys API client', () => {
     const result = await updateQuota('key-1', 50);
 
     expect(result).toEqual(payload);
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/transcription-keys/key-1/quota');
+    expect(calls[0]!.url).toBe('/api/transcription-keys/key-1/quota');
     expect(calls[0]!.init.method).toBe('PATCH');
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ monthly_cap_usd: 50 });
   });
@@ -233,7 +233,7 @@ describe('transcription-keys API client', () => {
     const result = await getUsage('key-1');
 
     expect(result).toEqual(payload);
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/transcription-keys/key-1/usage');
+    expect(calls[0]!.url).toBe('/api/transcription-keys/key-1/usage');
     expect(calls[0]!.init.method).toBeUndefined();
   });
 
@@ -243,7 +243,7 @@ describe('transcription-keys API client', () => {
 
     await deleteKey('key-1');
 
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/transcription-keys/key-1');
+    expect(calls[0]!.url).toBe('/api/transcription-keys/key-1');
     expect(calls[0]!.init.method).toBe('DELETE');
   });
 });
@@ -270,7 +270,7 @@ describe('mistral-config API client', () => {
 
     expect(result).toEqual(payload);
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/proj1/mistral-config',
+      '/api/role-projects/proj1/mistral-config',
     );
     expect(calls[0]!.init.method).toBeUndefined();
   });
@@ -284,7 +284,7 @@ describe('mistral-config API client', () => {
 
     expect(result).toEqual(payload);
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/proj1/mistral-config',
+      '/api/role-projects/proj1/mistral-config',
     );
     expect(calls[0]!.init.method).toBe('PUT');
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ secret_ref: 'mistral-key' });

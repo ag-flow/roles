@@ -69,7 +69,7 @@ describe('role-documents API client', () => {
 
     expect(result).toEqual(payload);
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/role-documents',
+      '/api/role-projects/rp-1/role-documents',
     );
   });
 
@@ -79,7 +79,7 @@ describe('role-documents API client', () => {
 
     await getRoleDocument('d1');
 
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/role-documents/d1');
+    expect(calls[0]!.url).toBe('/api/role-documents/d1');
   });
 
   it('listRoleDocumentVersions GET versions', async () => {
@@ -89,7 +89,7 @@ describe('role-documents API client', () => {
     await listRoleDocumentVersions('d1');
 
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-documents/d1/versions',
+      '/api/role-documents/d1/versions',
     );
   });
 
@@ -99,7 +99,7 @@ describe('role-documents API client', () => {
 
     await updateRoleDocumentContent('d1', 'nouveau contenu');
 
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/role-documents/d1');
+    expect(calls[0]!.url).toBe('/api/role-documents/d1');
     expect(calls[0]!.init.method).toBe('PATCH');
     expect(calls[0]!.init.body).toBe(
       JSON.stringify({ content: 'nouveau contenu' }),
@@ -112,7 +112,7 @@ describe('role-documents API client', () => {
 
     await lockRoleDocument('d1');
 
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/role-documents/d1/lock');
+    expect(calls[0]!.url).toBe('/api/role-documents/d1/lock');
     expect(calls[0]!.init.method).toBe('POST');
   });
 
@@ -124,7 +124,7 @@ describe('role-documents API client', () => {
 
     await unlockRoleDocument('d1');
 
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/role-documents/d1/unlock');
+    expect(calls[0]!.url).toBe('/api/role-documents/d1/unlock');
     expect(calls[0]!.init.method).toBe('POST');
   });
 
@@ -135,7 +135,7 @@ describe('role-documents API client', () => {
     await setCurrentRoleDocument('d1');
 
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-documents/d1/set-current',
+      '/api/role-documents/d1/set-current',
     );
     expect(calls[0]!.init.method).toBe('POST');
   });
@@ -147,7 +147,7 @@ describe('role-documents API client', () => {
     await regenerateRoleDocument('d1', 'plus formel');
 
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-documents/d1/regenerate',
+      '/api/role-documents/d1/regenerate',
     );
     expect(calls[0]!.init.method).toBe('POST');
     expect(calls[0]!.init.body).toBe(

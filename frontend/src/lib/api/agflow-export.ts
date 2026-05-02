@@ -5,8 +5,10 @@ import type {
   PushToAgflowResponse,
 } from '../types';
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+// Empty = relative URL → passe par le proxy Next.js
+// (cf. ``app/api/[...path]/route.ts``) qui injecte le Bearer token de la
+// session côté serveur.
+const API_BASE = '';
 
 export async function previewZip(projectId: string): Promise<PushPreview> {
   return api<PushPreview>(`/api/role-projects/${projectId}/preview-zip`);

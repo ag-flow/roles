@@ -58,7 +58,7 @@ describe('prompts API client', () => {
     expect(result).toEqual(payload);
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
-    expect(call.url).toBe('http://localhost:8000/api/prompts');
+    expect(call.url).toBe('/api/prompts');
     expect(call.init.method).toBeUndefined();
   });
 
@@ -81,7 +81,7 @@ describe('prompts API client', () => {
     expect(result).toEqual(payload);
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
-    expect(call.url).toBe('http://localhost:8000/api/prompts/p-1/versions');
+    expect(call.url).toBe('/api/prompts/p-1/versions');
     expect(call.init.method).toBeUndefined();
   });
 
@@ -102,7 +102,7 @@ describe('prompts API client', () => {
     expect(result).toEqual(payload);
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
-    expect(call.url).toBe('http://localhost:8000/api/prompts/p-1/versions');
+    expect(call.url).toBe('/api/prompts/p-1/versions');
     expect(call.init.method).toBe('POST');
     expect(JSON.parse(String(call.init.body))).toEqual({ template: 'Nouveau template' });
   });
@@ -115,7 +115,7 @@ describe('prompts API client', () => {
 
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
-    expect(call.url).toBe('http://localhost:8000/api/prompts/p-1/system-default/pv-2');
+    expect(call.url).toBe('/api/prompts/p-1/system-default/pv-2');
     expect(call.init.method).toBe('PUT');
   });
 

@@ -44,7 +44,7 @@ describe('github API client', () => {
     globalThis.fetch = fn;
     await github.getStatus();
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/auth/github/status',
+      '/api/auth/github/status',
     );
   });
 
@@ -55,7 +55,7 @@ describe('github API client', () => {
     globalThis.fetch = fn;
     await github.startOAuth();
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/auth/github/start',
+      '/api/auth/github/start',
     );
   });
 
@@ -65,7 +65,7 @@ describe('github API client', () => {
     });
     globalThis.fetch = fn;
     await github.disconnect();
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/auth/github');
+    expect(calls[0]!.url).toBe('/api/auth/github');
     expect(calls[0]!.init.method).toBe('DELETE');
   });
 
@@ -73,7 +73,7 @@ describe('github API client', () => {
     const { calls, fn } = mockFetch({ json: async () => [] });
     globalThis.fetch = fn;
     await github.listRepos();
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/github/repos');
+    expect(calls[0]!.url).toBe('/api/github/repos');
   });
 
   it('getPublicationConfig retourne null sur 404', async () => {
@@ -108,7 +108,7 @@ describe('github API client', () => {
       license_choice: 'mit',
     });
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/publication-config',
+      '/api/role-projects/rp-1/publication-config',
     );
     expect(calls[0]!.init.method).toBe('PUT');
     expect(calls[0]!.init.body).toBe(
@@ -127,7 +127,7 @@ describe('github API client', () => {
     globalThis.fetch = fn;
     await github.publishToGithub('rp-1');
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/publish-to-github',
+      '/api/role-projects/rp-1/publish-to-github',
     );
     expect(calls[0]!.init.method).toBe('POST');
   });
@@ -139,7 +139,7 @@ describe('github API client', () => {
     globalThis.fetch = fn;
     await github.unpublishFromGithub('rp-1');
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/github-publication',
+      '/api/role-projects/rp-1/github-publication',
     );
     expect(calls[0]!.init.method).toBe('DELETE');
   });
@@ -149,7 +149,7 @@ describe('github API client', () => {
     globalThis.fetch = fn;
     await github.listPublications('rp-1');
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/publications',
+      '/api/role-projects/rp-1/publications',
     );
   });
 

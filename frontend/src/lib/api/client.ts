@@ -1,4 +1,11 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+// Côté client (browser), tous les appels passent par le proxy Next.js
+// (cf. ``app/api/[...path]/route.ts``) qui injecte le Bearer token de la
+// session NextAuth côté serveur. ``API_BASE=''`` → URL relative same-origin.
+//
+// Côté SSR (Server Components), un caller qui veut taper directement le
+// backend doit utiliser ``BACKEND_INTERNAL_URL`` + un fetch manuel avec le
+// token de ``auth()`` (cf. usage dans ``app/page.tsx``).
+const API_BASE = '';
 
 export class ApiError extends Error {
   constructor(

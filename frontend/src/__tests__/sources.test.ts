@@ -64,7 +64,7 @@ describe('sources API client', () => {
     expect(result).toEqual(sourcePayload);
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
-    expect(call.url).toBe('http://localhost:8000/api/role-projects/rp-1/sources');
+    expect(call.url).toBe('/api/role-projects/rp-1/sources');
     expect(call.init.method).toBe('POST');
     expect(JSON.parse(String(call.init.body))).toEqual({
       url: 'https://youtube.com/@x',
@@ -82,7 +82,7 @@ describe('sources API client', () => {
     expect(result).toEqual({ job_id: 'j-1' });
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
-    expect(call.url).toBe('http://localhost:8000/api/sources/src-1/discover');
+    expect(call.url).toBe('/api/sources/src-1/discover');
     expect(call.init.method).toBe('POST');
     expect(call.init.body).toBeUndefined();
   });
@@ -103,7 +103,7 @@ describe('sources API client', () => {
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
     expect(call.url).toBe(
-      'http://localhost:8000/api/sources/src-1/items?min_duration_s=60&since_date=2026-01-01&status=pending_download&selected=true&limit=50&offset=10',
+      '/api/sources/src-1/items?min_duration_s=60&since_date=2026-01-01&status=pending_download&selected=true&limit=50&offset=10',
     );
   });
 
@@ -114,7 +114,7 @@ describe('sources API client', () => {
     await listItems('src-1');
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/sources/src-1/items');
+    expect(calls[0]!.url).toBe('/api/sources/src-1/items');
   });
 
   it('selectItems POST le body et renvoie le résultat', async () => {
@@ -130,7 +130,7 @@ describe('sources API client', () => {
 
     expect(result).toEqual({ selected_count: 2, jobs_created: 2 });
     const call = calls[0]!;
-    expect(call.url).toBe('http://localhost:8000/api/sources/src-1/items/select');
+    expect(call.url).toBe('/api/sources/src-1/items/select');
     expect(call.init.method).toBe('POST');
     expect(JSON.parse(String(call.init.body))).toEqual({
       item_ids: ['a', 'b'],

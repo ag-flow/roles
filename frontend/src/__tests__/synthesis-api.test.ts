@@ -60,7 +60,7 @@ describe('synthesis API client', () => {
     expect(result).toEqual(payload);
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
-    expect(call.url).toBe('http://localhost:8000/api/role-projects/rp-1/runs/extract');
+    expect(call.url).toBe('/api/role-projects/rp-1/runs/extract');
     expect(call.init.method).toBe('POST');
     expect(JSON.parse(String(call.init.body))).toEqual({ chunks_per_batch: 50 });
   });
@@ -76,7 +76,7 @@ describe('synthesis API client', () => {
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
     expect(call.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/runs/write-documents',
+      '/api/role-projects/rp-1/runs/write-documents',
     );
     expect(call.init.method).toBe('POST');
     expect(JSON.parse(String(call.init.body))).toEqual({
@@ -104,7 +104,7 @@ describe('synthesis API client', () => {
     await regenerateDocument('doc-1', 'Sois plus concis');
 
     const call = calls[0]!;
-    expect(call.url).toBe('http://localhost:8000/api/role-documents/doc-1/regenerate');
+    expect(call.url).toBe('/api/role-documents/doc-1/regenerate');
     expect(call.init.method).toBe('POST');
     expect(JSON.parse(String(call.init.body))).toEqual({
       instruction_override: 'Sois plus concis',
@@ -130,7 +130,7 @@ describe('synthesis API client', () => {
 
     expect(result).toEqual({ status: 'ok' });
     const call = calls[0]!;
-    expect(call.url).toBe('http://localhost:8000/api/role-documents/doc-3/set-current');
+    expect(call.url).toBe('/api/role-documents/doc-3/set-current');
     expect(call.init.method).toBe('POST');
   });
 
@@ -141,7 +141,7 @@ describe('synthesis API client', () => {
     await triggerClustering('rp-1', { signal_run_id: 'run-0' });
 
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/runs/cluster',
+      '/api/role-projects/rp-1/runs/cluster',
     );
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ signal_run_id: 'run-0' });
   });
@@ -153,7 +153,7 @@ describe('synthesis API client', () => {
     await triggerDecomposition('rp-1', { cluster_run_id: 'run-2' });
 
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/runs/decompose',
+      '/api/role-projects/rp-1/runs/decompose',
     );
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({
       cluster_run_id: 'run-2',
@@ -167,7 +167,7 @@ describe('synthesis API client', () => {
     await triggerIdentitySynthesis('rp-1', { instruction_override: 'Override' });
 
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/runs/synthesize-identity',
+      '/api/role-projects/rp-1/runs/synthesize-identity',
     );
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({
       instruction_override: 'Override',
@@ -194,7 +194,7 @@ describe('runs API client', () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/runs?status=done&limit=10',
+      '/api/role-projects/rp-1/runs?status=done&limit=10',
     );
     expect(calls[0]!.init.method).toBeUndefined();
   });
@@ -205,7 +205,7 @@ describe('runs API client', () => {
 
     await listRuns('rp-1');
 
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/role-projects/rp-1/runs');
+    expect(calls[0]!.url).toBe('/api/role-projects/rp-1/runs');
   });
 
   it('listRuns avec status seulement', async () => {
@@ -215,7 +215,7 @@ describe('runs API client', () => {
     await listRuns('rp-1', { status: 'running' });
 
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/runs?status=running',
+      '/api/role-projects/rp-1/runs?status=running',
     );
   });
 
@@ -244,7 +244,7 @@ describe('runs API client', () => {
 
     expect(result).toEqual(payload);
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/runs/run-99');
+    expect(calls[0]!.url).toBe('/api/runs/run-99');
     expect(calls[0]!.init.method).toBeUndefined();
   });
 
@@ -268,7 +268,7 @@ describe('runs API client', () => {
     expect(result).toEqual(payload);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/runs/full-pipeline',
+      '/api/role-projects/rp-1/runs/full-pipeline',
     );
     expect(calls[0]!.init.method).toBe('POST');
     expect(calls[0]!.init.body).toBe(

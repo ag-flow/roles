@@ -69,7 +69,7 @@ describe('corpus API client', () => {
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
     expect(call.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/corpus/search?q=hello%20world&limit=20',
+      '/api/role-projects/rp-1/corpus/search?q=hello%20world&limit=20',
     );
     expect(call.init.method).toBeUndefined();
   });
@@ -83,7 +83,7 @@ describe('corpus API client', () => {
     await searchCorpus('rp-1', 'q', 5);
 
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/corpus/search?q=q&limit=5',
+      '/api/role-projects/rp-1/corpus/search?q=q&limit=5',
     );
   });
 
@@ -99,7 +99,7 @@ describe('corpus API client', () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/corpus/chunks?source_item_id=i-1&limit=50&offset=10',
+      '/api/role-projects/rp-1/corpus/chunks?source_item_id=i-1&limit=50&offset=10',
     );
   });
 
@@ -109,7 +109,7 @@ describe('corpus API client', () => {
 
     await listChunks('rp-1');
 
-    expect(calls[0]!.url).toBe('http://localhost:8000/api/role-projects/rp-1/corpus/chunks');
+    expect(calls[0]!.url).toBe('/api/role-projects/rp-1/corpus/chunks');
   });
 
   it('getAudioUrl appelle la bonne route', async () => {
@@ -121,7 +121,7 @@ describe('corpus API client', () => {
 
     expect(result).toEqual(payload);
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/corpus/items/i-1/audio-url',
+      '/api/role-projects/rp-1/corpus/items/i-1/audio-url',
     );
   });
 
@@ -138,7 +138,7 @@ describe('corpus API client', () => {
 
     expect(result).toEqual(payload);
     expect(calls[0]!.url).toBe(
-      'http://localhost:8000/api/role-projects/rp-1/corpus/items/i-1/transcript',
+      '/api/role-projects/rp-1/corpus/items/i-1/transcript',
     );
   });
 });

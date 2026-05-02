@@ -9,24 +9,24 @@ méthode de validation selon le claim ``iss``.
 Sécurité :
 - ``local_admin_password`` est comparé en constant-time pour éviter le timing.
 - Le secret HS256 (``local_admin_secret``) doit faire au moins 32 caractères.
-- Le user_id est dérivé de manière déterministe via ``uuid5(NAMESPACE_DNS, ...)``
-  pour que les données soient toujours rattachées au même owner DB.
 """
 
 from __future__ import annotations
 
 import hmac
 import time
-from uuid import NAMESPACE_DNS, UUID, uuid5
+from uuid import UUID
 
 import jwt
 
 from role_builder.config import settings
 
-# ID stable de l'admin local (déterministe à partir du nom). Permet aux données
-# créées par l'admin local de toujours pointer sur la même row si on coexiste
-# avec des users Keycloak.
-ADMIN_USER_ID: UUID = uuid5(NAMESPACE_DNS, "agflow.roles.local-admin")
+# ID stable de l'admin local. Identique au ``_DISABLED_USER`` de
+# ``auth.dependencies`` pour garantir la continuité avec les données créées
+# pendant la phase ``DISABLE_AUTH=true`` du MVP : les projets stockés sous
+# cet UUID restent visibles à l'admin local après le passage en vrai
+# mode auth.
+ADMIN_USER_ID: UUID = UUID("00000000-0000-0000-0000-000000000001")
 
 ISSUER = "agflow-roles-local-admin"
 
