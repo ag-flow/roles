@@ -1,4 +1,4 @@
-import { signIn } from '@/auth';
+import { isDevLoginEnabled, isKeycloakEnabled, signIn } from '@/auth';
 
 export default function LoginPage() {
   return (
@@ -11,31 +11,133 @@ export default function LoginPage() {
       }}
     >
       <h1>Connexion à Role Builder</h1>
-      <p style={{ color: '#666', marginBottom: '2rem' }}>
-        Authentification via Keycloak.
-      </p>
-      <form
-        action={async () => {
-          'use server';
-          await signIn('keycloak', { redirectTo: '/' });
-        }}
-      >
-        <button
-          type="submit"
+
+      {isKeycloakEnabled && (
+        <section style={{ marginBottom: '2rem' }}>
+          <p style={{ color: '#666', marginBottom: '0.75rem' }}>
+            Authentification Keycloak (production).
+          </p>
+          <form
+            action={async () => {
+              'use server';
+              await signIn('keycloak', { redirectTo: '/' });
+            }}
+          >
+            <button
+              type="submit"
+              style={{
+                padding: '0.75rem 1.5rem',
+                fontSize: '1rem',
+                backgroundColor: '#1f883d',
+                color: 'white',
+                border: 'none',
+                borderRadius: 6,
+                cursor: 'pointer',
+                width: '100%',
+              }}
+            >
+              Se connecter avec Keycloak
+            </button>
+          </form>
+        </section>
+      )}
+
+      {isDevLoginEnabled && (
+        <section
           style={{
-            padding: '0.75rem 1.5rem',
-            fontSize: '1rem',
-            backgroundColor: '#1f883d',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            width: '100%',
+            marginTop: isKeycloakEnabled ? '2rem' : 0,
+            paddingTop: isKeycloakEnabled ? '1rem' : 0,
+            borderTop: isKeycloakEnabled ? '1px solid #e5e7eb' : 'none',
           }}
         >
-          Se connecter avec Keycloak
-        </button>
-      </form>
+          <p style={{ color: '#666', marginBottom: '0.75rem' }}>
+            Connexion locale (mode dev / test).
+          </p>
+          <form
+            action={async (formData) => {
+              'use server';
+              await signIn('dev-login', {
+                username: String(formData.get('username') ?? ''),
+                password: String(formData.get('password') ?? ''),
+                redirectTo: '/',
+              });
+            }}
+          >
+            <label
+              style={{
+                display: 'block',
+                marginBottom: '0.75rem',
+                fontSize: '0.9rem',
+              }}
+            >
+              <span style={{ display: 'block', marginBottom: '0.25rem' }}>
+                Identifiant
+              </span>
+              <input
+                name="username"
+                type="text"
+                required
+                autoComplete="username"
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #d1d5db',
+                  borderRadius: 4,
+                  fontSize: '1rem',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </label>
+            <label
+              style={{
+                display: 'block',
+                marginBottom: '1rem',
+                fontSize: '0.9rem',
+              }}
+            >
+              <span style={{ display: 'block', marginBottom: '0.25rem' }}>
+                Mot de passe
+              </span>
+              <input
+                name="password"
+                type="password"
+                required
+                autoComplete="current-password"
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #d1d5db',
+                  borderRadius: 4,
+                  fontSize: '1rem',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </label>
+            <button
+              type="submit"
+              style={{
+                padding: '0.75rem 1.5rem',
+                fontSize: '1rem',
+                backgroundColor: '#2563eb',
+                color: 'white',
+                border: 'none',
+                borderRadius: 6,
+                cursor: 'pointer',
+                width: '100%',
+              }}
+            >
+              Se connecter
+            </button>
+          </form>
+        </section>
+      )}
+
+      {!isKeycloakEnabled && !isDevLoginEnabled && (
+        <p style={{ color: '#dc2626' }}>
+          Aucune méthode d&apos;authentification n&apos;est configurée. Définissez
+          KEYCLOAK_ISSUER_URL ou DEV_LOGIN_PASSWORD côté frontend.
+        </p>
+      )}
     </main>
   );
 }
