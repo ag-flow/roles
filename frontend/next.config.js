@@ -12,6 +12,9 @@ const nextConfig = {
   //   (helper apiFetchWithToken). Si le backend doit être joignable depuis un browser
   //   distant (production via Cloudflare Tunnel), exposer un sous-domaine dédié
   //   api-role-agflow.yoops.org → backend:8000 dans le tunnel.
+  experimental: {
+    instrumentationHook: true,
+  },
 };
 
 module.exports = nextConfig;
