@@ -1,5 +1,10 @@
 import { isDevLoginEnabled, isKeycloakEnabled, signIn } from '@/auth';
 
+// Lit les env vars (DEV_LOGIN_*, KEYCLOAK_ISSUER_URL) à chaque requête plutôt
+// qu'au build. Sinon le rendu SSG du build CI fige la page sur l'état où
+// aucune méthode d'auth n'est configurée.
+export const dynamic = 'force-dynamic';
+
 export default function LoginPage() {
   return (
     <main
