@@ -75,6 +75,12 @@ class Settings(BaseSettings):
     # ou ../migrations en dev local, cf. main._resolve_migrations_dir).
     migrations_dir: str | None = None
 
+    # Phase 2 — Menu hamburger d'apps cross-modules.
+    # Path du apps.json (bind mount /app/apps.json:ro en docker, ../apps.json
+    # en dev local). Si le fichier manque ou JSON invalide, la route retourne
+    # une liste vide et le menu reste caché.
+    apps_file: str | None = None
+
     # Sprint 5 — Cost tracking Mistral (rates par token, $2/$6 par million)
     mistral_input_token_rate_usd: float = 0.000002
     mistral_output_token_rate_usd: float = 0.000006

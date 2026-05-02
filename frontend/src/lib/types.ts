@@ -275,6 +275,19 @@ export interface GithubIntegrationItem {
   created_at: string;
 }
 
+// ─── Apps menu (cross-modules launcher) ──────────────────────────────────────
+
+export interface AppEntry {
+  key: string;
+  label: string;
+  icon: string;
+  url: string;
+}
+
+export interface AppsResponse {
+  urls: AppEntry[];
+}
+
 export interface GithubRepo {
   full_name: string;
   private: boolean;

@@ -18,6 +18,7 @@ from role_builder.logging_setup import configure_logging
 from role_builder.migrations import run_migrations
 from role_builder.routes import (
     agflow_export,
+    apps,
     corpus,
     credentials,
     github_auth,
@@ -183,4 +184,5 @@ app.include_router(role_documents_route.router, prefix="/api", tags=["role-docum
 app.include_router(github_auth.router, prefix="/api", tags=["github-auth"])
 app.include_router(github_publish.router, prefix="/api", tags=["github-publish"])
 app.include_router(version_route.router, prefix="/api", tags=["version"])
+app.include_router(apps.router, prefix="/api", tags=["apps"])
 app.include_router(websocket.router, tags=["websocket"])

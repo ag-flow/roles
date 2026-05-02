@@ -92,6 +92,9 @@ services:
       MISTRAL_EMBED_MODEL: ${MISTRAL_EMBED_MODEL:-mistral-embed}
       MISTRAL_CHAT_MODEL: ${MISTRAL_CHAT_MODEL:-mistral-large-latest}
       DISABLE_CHUNKING_WORKER: ${DISABLE_CHUNKING_WORKER:-false}
+    volumes:
+      # Cross-app launcher menu — éditable côté CT sans rebuild
+      - ./apps.json:/app/apps.json:ro
     ports:
       - "${BACKEND_PORT:-8000}:8000"
 
