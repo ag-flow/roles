@@ -1,6 +1,7 @@
 """Tests unitaires pour VaultResolver."""
 from __future__ import annotations
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,7 +19,7 @@ def _make_resolver(monkeypatch: pytest.MonkeyPatch, token: str = "hrpv_1_fake") 
 
 
 def test_no_tokens_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    for key in list(__import__("os").environ):
+    for key in list(os.environ):
         if key.startswith("HARPOCRATE_API_TOKEN_"):
             monkeypatch.delenv(key, raising=False)
     with pytest.raises(RuntimeError, match="No Harpocrate API key configured"):
@@ -110,3 +111,28 @@ def test_unknown_identifier_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     r = _make_resolver(monkeypatch)
     with pytest.raises(RuntimeError, match="Unknown Harpocrate identifier"):
         r.resolve("${vault://unknown_id:some_secret}")
+
+
+def test_auth_refused_raises_on_every_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    from harpocrate.exceptions import VaultHttpError
+    monkeypatch.setenv("HARPOCRATE_API_TOKEN_API1", "hrpv_1_fake")
+    mock_client = MagicMock()
+    mock_client.secrets.get.side_effect = VaultHttpError(401, "Unauthorized")
+    with patch("role_builder.services.vault_resolver.VaultClient", return_value=mock_client):
+        r = VaultResolver()
+        with pytest.raises(RuntimeError, match="refused.*401"):
+            r.resolve("${vault://api1:mistral_api_key}")
+        # Second call should still raise the same error, not "Unknown identifier"
+        with pytest.raises(RuntimeError, match="refused.*401"):
+            r.resolve("${vault://api1:mistral_api_key}")
+
+
+def test_other_http_error_propagates_with_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    from harpocrate.exceptions import VaultHttpError
+    monkeypatch.setenv("HARPOCRATE_API_TOKEN_API1", "hrpv_1_fake")
+    mock_client = MagicMock()
+    mock_client.secrets.get.side_effect = VaultHttpError(503, "Service Unavailable")
+    with patch("role_builder.services.vault_resolver.VaultClient", return_value=mock_client):
+        r = VaultResolver()
+        with pytest.raises(RuntimeError, match="503"):
+            r.resolve("${vault://api1:some_secret}")

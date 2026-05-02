@@ -38,6 +38,9 @@ class VaultResolver:
             if not key.startswith("HARPOCRATE_API_TOKEN_"):
                 continue
             identifier = key[len("HARPOCRATE_API_TOKEN_"):].lower()
+            if not identifier:
+                log.warning("vault.config.empty_identifier", env_key=key)
+                continue
             url_env = f"HARPOCRATE_API_URL_{identifier.upper()}"
             url = os.environ.get(url_env, "https://vault.yoops.org")
             cfg = _ApiKeyConfig(identifier=identifier, url=url, token=value)
@@ -68,19 +71,18 @@ class VaultResolver:
             value = self._client(identifier).secrets.get(secret_name)
         except VaultHttpError as exc:
             if exc.status_code in (401, 403):
-                self._clients.pop(identifier, None)
                 raise RuntimeError(
                     f"Harpocrate API key '{identifier}' refused (HTTP {exc.status_code}). "
                     "Check that the token is valid and not revoked."
-                ) from exc
+                ) from None
             raise RuntimeError(
                 f"Vault error fetching '{secret_name}' via '{identifier}': "
                 f"HTTP {exc.status_code}"
-            ) from exc
-        except SecretNotFound as exc:
+            ) from None
+        except SecretNotFound:
             raise RuntimeError(
                 f"Secret '{secret_name}' not found in vault for identifier '{identifier}'"
-            ) from exc
+            ) from None
 
         self._cache[cache_key] = value
         log.info("vault.secret.resolved", identifier=identifier, secret=secret_name)
@@ -104,5 +106,5 @@ class VaultResolver:
                 continue
             resolved = self.resolve(raw)
             if resolved != raw:
-                object.__setattr__(settings, field_name, resolved)
+                setattr(settings, field_name, resolved)
                 log.debug("vault.settings.patched", field=field_name)
