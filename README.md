@@ -44,12 +44,17 @@ Démarrer l’agent SSH et charger la clé
 ```bash
 eval "$(ssh-agent -s)"
 ssh-add ~/.ssh/id_ed25519
+
+cat ~/.ssh/id_ed25519.pub
+
 ```
+
+
 
 1 - Ajouter la clé dans GitHub
 2 - Aller sur GitHub
 3 - Settings
-4 - SSH and GPG keys
+4 - (SSH and GPG keys)[https://github.com/settings/keys]
 5 - New SSH key
 6 - Name : deploy-roles
 7 - Coller la clé publique
@@ -60,3 +65,10 @@ Tester la connexion
 ```bash
 ssh -T git@github.com
 ```
+
+Cloner le repository
+```bash
+git clone git@github.com:ag-flow/roles.git
+cd roles
+```
+
