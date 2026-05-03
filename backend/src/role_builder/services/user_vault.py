@@ -11,7 +11,6 @@ L'email/user_id sert de compartiment : les secrets de deux utilisateurs ne se m�
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 from uuid import UUID
 
@@ -52,14 +51,6 @@ def build_github_vault_name(user_id: UUID, tenant_id: UUID) -> str:
     return f"github/{tenant_id}/{user_id}"
 
 
-def _primary_vault_identifier() -> str:
-    """Retourne le suffixe lowercase du premier HARPOCRATE_API_TOKEN_* configuré."""
-    for key in os.environ:
-        if key.startswith("HARPOCRATE_API_TOKEN_"):
-            return key[len("HARPOCRATE_API_TOKEN_"):].lower()
-    return "api1"
-
-
 def build_transcription_vault_path(email: str | None, provider: str, key_name: str) -> str:
     """Path plain pour une clé de transcription avec nom personnalisé.
 
@@ -71,12 +62,8 @@ def build_transcription_vault_path(email: str | None, provider: str, key_name: s
 
 
 def build_vault_ref(path: str) -> str:
-    """Enveloppe un path dans une ref vault : ${vault://api1:path}.
-
-    L'identifiant est déduit du premier HARPOCRATE_API_TOKEN_* configuré.
-    """
-    identifier = _primary_vault_identifier()
-    return f"${{vault://{identifier}:{path}}}"
+    """Enveloppe un path dans une ref vault : ${vault://api1:path}."""
+    return f"${{vault://api1:{path}}}"
 
 
 def extract_vault_path(vault_secret_name: str) -> str:

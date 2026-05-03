@@ -10,24 +10,22 @@ from role_builder.services.vault_resolver import VaultResolver
 
 
 def _make_resolver(monkeypatch: pytest.MonkeyPatch, token: str = "hrpv_1_fake") -> VaultResolver:
-    monkeypatch.setenv("HARPOCRATE_API_TOKEN_API1", token)
-    monkeypatch.setenv("HARPOCRATE_API_URL_API1", "https://vault.yoops.org")
+    monkeypatch.setenv("HARPOCRATE_API_TOKEN", token)
+    monkeypatch.setenv("HARPOCRATE_API_URL", "https://vault.yoops.org")
     mock_client = MagicMock()
     mock_client.secrets.get.side_effect = lambda k: f"resolved_{k}"
     with patch("role_builder.services.vault_resolver.VaultClient", return_value=mock_client):
         return VaultResolver()
 
 
-def test_no_tokens_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    for key in list(os.environ):
-        if key.startswith("HARPOCRATE_API_TOKEN_"):
-            monkeypatch.delenv(key, raising=False)
+def test_no_token_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HARPOCRATE_API_TOKEN", raising=False)
     with pytest.raises(RuntimeError, match="No Harpocrate API key configured"):
         VaultResolver()
 
 
 def test_resolve_vault_ref(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HARPOCRATE_API_TOKEN_API1", "hrpv_1_fake")
+    monkeypatch.setenv("HARPOCRATE_API_TOKEN", "hrpv_1_fake")
     mock_client = MagicMock()
     mock_client.secrets.get.return_value = "sk-mistral-abc123"
     with patch("role_builder.services.vault_resolver.VaultClient", return_value=mock_client):
@@ -45,7 +43,7 @@ def test_non_vault_ref_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_cache_avoids_second_call(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HARPOCRATE_API_TOKEN_API1", "hrpv_1_fake")
+    monkeypatch.setenv("HARPOCRATE_API_TOKEN", "hrpv_1_fake")
     mock_client = MagicMock()
     mock_client.secrets.get.return_value = "cached_value"
     with patch("role_builder.services.vault_resolver.VaultClient", return_value=mock_client):
@@ -94,7 +92,7 @@ def test_resolve_settings_leaves_non_str_untouched(monkeypatch: pytest.MonkeyPat
 
 def test_secret_not_found_raises_clear_message(monkeypatch: pytest.MonkeyPatch) -> None:
     from harpocrate import SecretNotFound
-    monkeypatch.setenv("HARPOCRATE_API_TOKEN_API1", "hrpv_1_fake")
+    monkeypatch.setenv("HARPOCRATE_API_TOKEN", "hrpv_1_fake")
     mock_client = MagicMock()
     mock_client.secrets.get.side_effect = SecretNotFound("mistral_api_key not found")
     with patch("role_builder.services.vault_resolver.VaultClient", return_value=mock_client):
@@ -103,29 +101,22 @@ def test_secret_not_found_raises_clear_message(monkeypatch: pytest.MonkeyPatch) 
             r.resolve("${vault://api1:mistral_api_key}")
 
 
-def test_unknown_identifier_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    r = _make_resolver(monkeypatch)
-    with pytest.raises(RuntimeError, match="Unknown Harpocrate identifier"):
-        r.resolve("${vault://unknown_id:some_secret}")
-
-
-def test_auth_refused_raises_on_every_call(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_auth_refused_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     from harpocrate.exceptions import VaultHttpError
-    monkeypatch.setenv("HARPOCRATE_API_TOKEN_API1", "hrpv_1_fake")
+    monkeypatch.setenv("HARPOCRATE_API_TOKEN", "hrpv_1_fake")
     mock_client = MagicMock()
     mock_client.secrets.get.side_effect = VaultHttpError(401, "Unauthorized")
     with patch("role_builder.services.vault_resolver.VaultClient", return_value=mock_client):
         r = VaultResolver()
         with pytest.raises(RuntimeError, match="refused.*401"):
             r.resolve("${vault://api1:mistral_api_key}")
-        # Second call should still raise the same error, not "Unknown identifier"
         with pytest.raises(RuntimeError, match="refused.*401"):
             r.resolve("${vault://api1:mistral_api_key}")
 
 
 def test_other_http_error_propagates_with_status(monkeypatch: pytest.MonkeyPatch) -> None:
     from harpocrate.exceptions import VaultHttpError
-    monkeypatch.setenv("HARPOCRATE_API_TOKEN_API1", "hrpv_1_fake")
+    monkeypatch.setenv("HARPOCRATE_API_TOKEN", "hrpv_1_fake")
     mock_client = MagicMock()
     mock_client.secrets.get.side_effect = VaultHttpError(503, "Service Unavailable")
     with patch("role_builder.services.vault_resolver.VaultClient", return_value=mock_client):

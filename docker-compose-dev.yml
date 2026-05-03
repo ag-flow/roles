@@ -40,7 +40,7 @@ services:
       minio:
         condition: service_healthy
     environment:
-      HARPOCRATE_API_TOKEN_API1: ${HARPOCRATE_API_TOKEN_API1:-}
+      HARPOCRATE_API_TOKEN_API1: ${HARPOCRATE_API_TOKEN:-}
       HARPOCRATE_API_URL_API1: ${HARPOCRATE_API_URL_API1:-https://vault.yoops.org}
       DATABASE_URL: postgresql://${POSTGRES_USER:-rb}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-role_builder}
       MINIO_ENDPOINT: http://minio:9000

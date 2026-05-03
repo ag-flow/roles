@@ -224,17 +224,12 @@ def test_build_transcription_vault_path_none_email() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_build_vault_ref_wraps_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HARPOCRATE_API_TOKEN_API1", "hrpv_test")
+def test_build_vault_ref_wraps_path() -> None:
     ref = build_vault_ref("users/john/transcription/deepgram/ma_cle")
     assert ref == "${vault://api1:users/john/transcription/deepgram/ma_cle}"
 
 
-def test_build_vault_ref_fallback_identifier(monkeypatch: pytest.MonkeyPatch) -> None:
-    import os as _os
-    for k in list(_os.environ):
-        if k.startswith("HARPOCRATE_API_TOKEN_"):
-            monkeypatch.delenv(k, raising=False)
+def test_build_vault_ref_always_uses_api1_identifier() -> None:
     ref = build_vault_ref("some/path")
     assert ref == "${vault://api1:some/path}"
 

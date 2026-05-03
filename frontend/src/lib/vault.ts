@@ -97,27 +97,22 @@ interface VaultClientState {
   walletKey?: Buffer;
 }
 
-const _clients = new Map<string, VaultClientState>();
+let _clientState: VaultClientState | null = null;
 const _secretCache = new Map<string, string>();
 
-function _getClientState(identifier: string): VaultClientState {
-  if (_clients.has(identifier)) return _clients.get(identifier)!;
+function _getClientState(): VaultClientState {
+  if (_clientState) return _clientState;
 
-  const tokenEnv = `HARPOCRATE_API_TOKEN_${identifier.toUpperCase()}`;
-  const urlEnv = `HARPOCRATE_API_URL_${identifier.toUpperCase()}`;
-  const token = process.env[tokenEnv];
-  const baseUrl = (process.env[urlEnv] ?? 'https://vault.yoops.org').replace(/\/$/, '');
+  const token = process.env['HARPOCRATE_API_TOKEN'];
+  const baseUrl = (process.env['HARPOCRATE_API_URL'] ?? 'https://vault.yoops.org').replace(/\/$/, '');
 
   if (!token) {
-    throw new Error(
-      `No Harpocrate token for identifier '${identifier}' — set ${tokenEnv}`,
-    );
+    throw new Error('No Harpocrate token — set HARPOCRATE_API_TOKEN');
   }
 
   const parsed = parseHarpocrateToken(token);
-  const state: VaultClientState = { baseUrl, token, parsed };
-  _clients.set(identifier, state);
-  return state;
+  _clientState = { baseUrl, token, parsed };
+  return _clientState;
 }
 
 async function _vaultFetch(baseUrl: string, token: string, path: string): Promise<unknown> {
@@ -184,7 +179,7 @@ async function _fetchAndDecryptSecret(
   }
 }
 
-const REF_RE = /\$\{vault:\/\/([^:}]+):([^}]+)\}/g;
+const REF_RE = /\$\{vault:\/\/[^:}]+:([^}]+)\}/g;
 
 export async function resolveVaultRef(value: string): Promise<string> {
   if (!value.includes('${vault://')) return value;
@@ -192,19 +187,17 @@ export async function resolveVaultRef(value: string): Promise<string> {
   const matches = [...value.matchAll(REF_RE)];
   if (matches.length === 0) return value;
 
+  const state = _getClientState();
   let result = value;
   for (const m of matches) {
     const full = m[0];
-    const identifier = m[1];
-    const secretName = m[2];
-    if (!full || !identifier || !secretName) continue;
-    const cacheKey = `${identifier}:${secretName}`;
-    let secret = _secretCache.get(cacheKey);
+    const secretName = m[1];
+    if (!full || !secretName) continue;
+    let secret = _secretCache.get(secretName);
 
     if (!secret) {
-      const state = _getClientState(identifier);
       secret = await _fetchAndDecryptSecret(state, secretName);
-      _secretCache.set(cacheKey, secret);
+      _secretCache.set(secretName, secret);
     }
 
     result = result.replace(full, secret);
@@ -219,12 +212,10 @@ export async function resolveVaultEnv(): Promise<void> {
 
   if (entries.length === 0) return;
 
-  const hasToken = Object.keys(process.env).some((k) =>
-    k.startsWith('HARPOCRATE_API_TOKEN_'),
-  );
+  const hasToken = Boolean(process.env['HARPOCRATE_API_TOKEN']);
   if (!hasToken) {
     throw new Error(
-      'Vault refs found in env but no HARPOCRATE_API_TOKEN_* configured',
+      'Vault refs found in env but HARPOCRATE_API_TOKEN is not set',
     );
   }
 
