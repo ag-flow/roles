@@ -1,0 +1,201 @@
+"""Tests unitaires pour services/user_vault.py."""
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+from uuid import UUID
+
+import pytest
+
+from role_builder.services.user_vault import (
+    UserVaultService,
+    build_credentials_vault_name,
+    build_github_vault_name,
+    build_vault_secret_name,
+    get_service,
+    init_service,
+)
+
+# ---------------------------------------------------------------------------
+# build_vault_secret_name
+# ---------------------------------------------------------------------------
+
+
+def test_build_vault_secret_name_normal_email() -> None:
+    """Email standard → chemin hiérarchique correct."""
+    key_id = UUID("12345678-1234-5678-1234-567812345678")
+    name = build_vault_secret_name("john@example.com", "openai-whisper", key_id)
+    assert name == f"users/john_at_example.com/transcription/openai-whisper/{key_id}"
+
+
+def test_build_vault_secret_name_email_with_dots() -> None:
+    """Email avec points dans la partie locale → conservé (caractère autorisé)."""
+    key_id = UUID("12345678-1234-5678-1234-567812345678")
+    name = build_vault_secret_name("llm.beard.family@gmail.com", "deepgram", key_id)
+    assert name.startswith("users/llm.beard.family_at_gmail.com/transcription/deepgram/")
+
+
+def test_build_vault_secret_name_none_email() -> None:
+    """Email None (auth désactivée) → slug 'no_email'."""
+    key_id = UUID("12345678-1234-5678-1234-567812345678")
+    name = build_vault_secret_name(None, "deepgram", key_id)
+    assert name.startswith("users/no_email/transcription/deepgram/")
+
+
+def test_build_vault_secret_name_special_chars_in_email() -> None:
+    """Caractères spéciaux dans l'email → remplacés par '_'."""
+    key_id = UUID("12345678-1234-5678-1234-567812345678")
+    name = build_vault_secret_name("user+tag@example.com", "deepgram", key_id)
+    assert "@" not in name
+    assert "+" not in name
+
+
+def test_build_vault_secret_name_contains_key_id() -> None:
+    """Le key_id doit apparaître en fin de chemin."""
+    key_id = UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+    name = build_vault_secret_name("a@b.com", "assemblyai", key_id)
+    assert str(key_id) in name
+
+
+# ---------------------------------------------------------------------------
+# UserVaultService.write / read / try_delete
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_client(
+    *,
+    populate_raises: Exception | None = None,
+    get_returns: str | None = "secret_value",
+    get_raises: Exception | None = None,
+) -> MagicMock:
+    """Crée un VaultClient mock avec secrets.populate et secrets.get configurables."""
+    mock_secrets = MagicMock()
+
+    if populate_raises:
+        mock_secrets.populate.side_effect = populate_raises
+    else:
+        mock_secrets.populate.return_value = MagicMock(success=True)
+
+    if get_raises:
+        mock_secrets.get.side_effect = get_raises
+    elif get_returns is not None:
+        mock_secrets.get.return_value = get_returns
+    else:
+        from harpocrate import SecretNotFound
+        mock_secrets.get.side_effect = SecretNotFound("not found")
+
+    client = MagicMock()
+    client.secrets = mock_secrets
+    return client
+
+
+@pytest.mark.asyncio
+async def test_write_calls_populate_with_value() -> None:
+    """write() appelle populate(name, False, value) sur le client."""
+    client = _make_fake_client()
+    svc = UserVaultService(client)
+    await svc.write("users/test/transcription/openai/uuid", "sk-test")
+    client.secrets.populate.assert_called_once_with(
+        "users/test/transcription/openai/uuid", False, "sk-test"
+    )
+
+
+@pytest.mark.asyncio
+async def test_read_returns_value() -> None:
+    """read() retourne la valeur déchiffrée."""
+    client = _make_fake_client(get_returns="sk-actual")
+    svc = UserVaultService(client)
+    result = await svc.read("users/test/transcription/openai/uuid")
+    assert result == "sk-actual"
+
+
+@pytest.mark.asyncio
+async def test_read_returns_none_on_secret_not_found() -> None:
+    """read() retourne None si SecretNotFound."""
+    from harpocrate import SecretNotFound
+    client = _make_fake_client(get_returns=None, get_raises=SecretNotFound("not found"))
+    svc = UserVaultService(client)
+    result = await svc.read("users/test/transcription/openai/missing")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_try_delete_calls_populate_with_empty() -> None:
+    """try_delete() écrase le secret avec une valeur vide."""
+    client = _make_fake_client()
+    svc = UserVaultService(client)
+    await svc.try_delete("users/test/transcription/openai/uuid")
+    client.secrets.populate.assert_called_once_with(
+        "users/test/transcription/openai/uuid", False, ""
+    )
+
+
+@pytest.mark.asyncio
+async def test_try_delete_swallows_exceptions() -> None:
+    """try_delete() ne propage pas les exceptions (best-effort)."""
+    client = _make_fake_client(populate_raises=RuntimeError("vault down"))
+    svc = UserVaultService(client)
+    await svc.try_delete("users/test/transcription/openai/uuid")  # pas de raise
+
+
+# ---------------------------------------------------------------------------
+# Singleton init_service / get_service
+# ---------------------------------------------------------------------------
+
+
+def test_get_service_raises_if_not_initialized(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_service() lève RuntimeError si init_service n'a pas été appelé."""
+    import role_builder.services.user_vault as uv_mod
+    monkeypatch.setattr(uv_mod, "_service", None)
+    with pytest.raises(RuntimeError, match="non initialisé"):
+        get_service()
+
+
+def test_init_service_sets_singleton(monkeypatch: pytest.MonkeyPatch) -> None:
+    """init_service() initialise le singleton, get_service() le retourne."""
+    import role_builder.services.user_vault as uv_mod
+    monkeypatch.setattr(uv_mod, "_service", None)
+    fake_client = MagicMock()
+    init_service(fake_client)
+    svc = get_service()
+    assert isinstance(svc, UserVaultService)
+    # Nettoyage
+    monkeypatch.setattr(uv_mod, "_service", None)
+
+
+# ---------------------------------------------------------------------------
+# build_credentials_vault_name
+# ---------------------------------------------------------------------------
+
+
+def test_build_credentials_vault_name_normal_email() -> None:
+    """Email standard → chemin hiérarchique correct."""
+    cred_id = UUID("12345678-1234-5678-1234-567812345678")
+    name = build_credentials_vault_name("john@example.com", "youtube", cred_id)
+    assert name == f"users/john_at_example.com/scraping/youtube/{cred_id}"
+
+
+def test_build_credentials_vault_name_none_email() -> None:
+    """Email None → slug 'no_email'."""
+    cred_id = UUID("12345678-1234-5678-1234-567812345678")
+    name = build_credentials_vault_name(None, "instagram", cred_id)
+    assert name.startswith("users/no_email/scraping/instagram/")
+
+
+def test_build_credentials_vault_name_cred_id_in_path() -> None:
+    """Le cred_id doit apparaître en fin de chemin."""
+    cred_id = UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+    name = build_credentials_vault_name("a@b.com", "tiktok", cred_id)
+    assert str(cred_id) in name
+
+
+# ---------------------------------------------------------------------------
+# build_github_vault_name
+# ---------------------------------------------------------------------------
+
+
+def test_build_github_vault_name_normal() -> None:
+    """user_id UUID + tenant_id → chemin github correct."""
+    user_id = UUID("12345678-1234-5678-1234-567812345678")
+    tenant_id = UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+    name = build_github_vault_name(user_id, tenant_id)
+    assert name == f"github/{tenant_id}/{user_id}"
