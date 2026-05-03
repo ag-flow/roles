@@ -16,19 +16,19 @@ import asyncpg
 _UPSERT_SQL = """
     INSERT INTO github_integrations
         (tenant_id, user_id, github_login, github_user_id,
-         openbao_path, scope, last_validated_at)
+         vault_secret_name, scope, last_validated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7)
     ON CONFLICT (user_id, github_user_id) DO UPDATE SET
         tenant_id = EXCLUDED.tenant_id,
         github_login = EXCLUDED.github_login,
-        openbao_path = EXCLUDED.openbao_path,
+        vault_secret_name = EXCLUDED.vault_secret_name,
         scope = EXCLUDED.scope,
         last_validated_at = EXCLUDED.last_validated_at
 """
 
 _GET_PRIMARY_BY_USER_SQL = """
     SELECT id, tenant_id, user_id, github_login, github_user_id,
-           openbao_path, scope, last_validated_at, created_at
+           vault_secret_name, scope, last_validated_at, created_at
     FROM github_integrations
     WHERE user_id = $1
     ORDER BY last_validated_at DESC NULLS LAST, created_at DESC
@@ -37,7 +37,7 @@ _GET_PRIMARY_BY_USER_SQL = """
 
 _LIST_BY_USER_SQL = """
     SELECT id, tenant_id, user_id, github_login, github_user_id,
-           openbao_path, scope, last_validated_at, created_at
+           vault_secret_name, scope, last_validated_at, created_at
     FROM github_integrations
     WHERE user_id = $1
     ORDER BY created_at ASC
@@ -45,7 +45,7 @@ _LIST_BY_USER_SQL = """
 
 _GET_BY_ID_SQL = """
     SELECT id, tenant_id, user_id, github_login, github_user_id,
-           openbao_path, scope, last_validated_at, created_at
+           vault_secret_name, scope, last_validated_at, created_at
     FROM github_integrations
     WHERE id = $1
 """
@@ -64,14 +64,14 @@ async def upsert(
     tenant_id: UUID,
     github_login: str,
     github_user_id: int,
-    openbao_path: str,
+    vault_secret_name: str,
     scope: str,
     pool: asyncpg.Pool,
 ) -> None:
     """Insert ou refresh d'une intégration ``(user_id, github_user_id)``.
 
     Si le couple existe : update des champs (login peut changer si rename
-    GitHub, scope, openbao_path, etc.). Sinon : insert d'une nouvelle row.
+    GitHub, scope, vault_secret_name, etc.). Sinon : insert d'une nouvelle row.
     """
     async with pool.acquire() as conn:
         await conn.execute(
@@ -80,7 +80,7 @@ async def upsert(
             user_id,
             github_login,
             github_user_id,
-            openbao_path,
+            vault_secret_name,
             scope,
             datetime.now(tz=UTC),
         )

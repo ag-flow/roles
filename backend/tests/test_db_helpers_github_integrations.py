@@ -72,7 +72,7 @@ async def test_upsert_uses_on_conflict_user_id_github_user_id(
         tenant_id=tenant_id,
         github_login="alice",
         github_user_id=12345,
-        openbao_path=f"github-tokens/{tenant_id}/{user_id}",
+        vault_secret_name=f"github-tokens/{tenant_id}/{user_id}",
         scope="public_repo",
         pool=stub_pool,
     )
@@ -102,7 +102,7 @@ async def test_get_by_user_id_returns_primary_when_present(
         "tenant_id": uuid4(),
         "github_login": "alice",
         "github_user_id": 12345,
-        "openbao_path": "github-tokens/x/y",
+        "vault_secret_name": "github-tokens/x/y",
         "scope": "public_repo",
         "last_validated_at": datetime.now(tz=UTC),
         "created_at": datetime.now(tz=UTC),
@@ -156,12 +156,12 @@ async def test_list_by_user_id_returns_all_integrations(
     stub_conn.fetch_return = [
         {
             "id": uuid4(), "user_id": user_id, "tenant_id": uuid4(),
-            "github_login": "alice", "github_user_id": 1, "openbao_path": "p1",
+            "github_login": "alice", "github_user_id": 1, "vault_secret_name": "p1",
             "scope": "public_repo", "last_validated_at": now, "created_at": now,
         },
         {
             "id": uuid4(), "user_id": user_id, "tenant_id": uuid4(),
-            "github_login": "alice-org", "github_user_id": 2, "openbao_path": "p2",
+            "github_login": "alice-org", "github_user_id": 2, "vault_secret_name": "p2",
             "scope": "public_repo", "last_validated_at": now, "created_at": now,
         },
     ]
@@ -182,7 +182,7 @@ async def test_get_by_id_returns_dict(
     integration_id = uuid4()
     stub_conn.fetchrow_return = {
         "id": integration_id, "user_id": uuid4(), "tenant_id": uuid4(),
-        "github_login": "bob", "github_user_id": 99, "openbao_path": "p",
+        "github_login": "bob", "github_user_id": 99, "vault_secret_name": "p",
         "scope": "public_repo", "last_validated_at": None,
         "created_at": datetime.now(tz=UTC),
     }
