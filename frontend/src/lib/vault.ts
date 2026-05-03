@@ -5,7 +5,7 @@
  * Ne jamais importer dans le bundle client — server-side uniquement.
  */
 
-import { createDecipheriv } from 'node:crypto';
+import { createDecipheriv } from 'crypto';
 
 const HMAC_LEN = 22;
 const DKEY_LEN = 43;
