@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { createCredential } from '@/lib/api/credentials';
 import type { CredentialPlatform } from '@/lib/types';
 import { CookiesGuide } from './CookiesGuide';
@@ -34,6 +34,8 @@ export function AddAccountModal({ platform, onClose, onSaved }: Props) {
   const [fileName, setFileName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = async (file: File) => {
     setFileName(file.name);
@@ -115,27 +117,54 @@ export function AddAccountModal({ platform, onClose, onSaved }: Props) {
           />
         </label>
 
-        <label style={{ display: 'block', marginBottom: 4 }}>
+        <div style={{ marginBottom: 4 }}>
           <span
             style={{ display: 'block', marginBottom: 4, fontSize: '0.875rem', fontWeight: 500 }}
           >
             Fichier cookies.txt
           </span>
-          <input
-            type="file"
-            accept=".txt,text/plain"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              const file = e.dataTransfer.files[0];
               if (file) void handleFile(file);
             }}
-            style={{ display: 'block', width: '100%', fontSize: '0.875rem' }}
-          />
-          {fileName !== '' && (
-            <span style={{ display: 'block', marginTop: 4, fontSize: '0.75rem', color: '#6b7280' }}>
-              {fileName}
-            </span>
-          )}
-        </label>
+            style={{
+              border: `2px dashed ${dragging ? '#2563eb' : cookiesB64 ? '#16a34a' : '#d1d5db'}`,
+              borderRadius: 6,
+              padding: '1.25rem',
+              textAlign: 'center',
+              cursor: 'pointer',
+              backgroundColor: dragging ? '#eff6ff' : cookiesB64 ? '#f0fdf4' : '#fafafa',
+              transition: 'border-color 0.15s, background-color 0.15s',
+              userSelect: 'none',
+            }}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".txt,text/plain"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleFile(file);
+              }}
+              style={{ display: 'none' }}
+            />
+            {cookiesB64 ? (
+              <span style={{ fontSize: '0.875rem', color: '#16a34a', fontWeight: 500 }}>
+                ✓ {fileName}
+              </span>
+            ) : (
+              <span style={{ fontSize: '0.875rem', color: '#6b7280' }}>
+                {dragging ? 'Relâche pour charger' : 'Glisse le fichier ici ou clique pour parcourir'}
+              </span>
+            )}
+          </div>
+        </div>
 
         <CookiesGuide platform={platform} />
 
