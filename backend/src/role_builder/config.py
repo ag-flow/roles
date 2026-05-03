@@ -24,8 +24,6 @@ class Settings(BaseSettings):
     minio_endpoint: str
     minio_access_key: str
     minio_secret_key: str
-    openbao_url: str
-    openbao_token: str
 
     agflow_base_url: str = "https://docker-agflow.yoops.org"
     agflow_api_token: str = ""

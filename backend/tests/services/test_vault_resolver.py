@@ -69,8 +69,6 @@ def test_resolve_settings_patches_vault_refs(monkeypatch: pytest.MonkeyPatch) ->
         minio_endpoint="http://localhost:9000",
         minio_access_key="minioadmin",
         minio_secret_key="minioadmin",
-        openbao_url="http://localhost:8200",
-        openbao_token="dev-token",
         mistral_api_key="${vault://api1:mistral_api_key}",
         local_admin_password="${vault://api1:local_admin_password}",
     )
@@ -88,8 +86,6 @@ def test_resolve_settings_leaves_non_str_untouched(monkeypatch: pytest.MonkeyPat
         minio_endpoint="http://localhost:9000",
         minio_access_key="minioadmin",
         minio_secret_key="minioadmin",
-        openbao_url="http://localhost:8200",
-        openbao_token="dev-token",
         max_concurrent_scrapers=7,
     )
     r.resolve_settings(s)

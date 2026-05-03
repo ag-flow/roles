@@ -84,7 +84,7 @@ class RoleBuilderScheduler:
             log.exception("scheduler.reset_monthly_spend_failed")
 
     async def _cleanup_revoked_secrets(self) -> None:
-        """Best-effort : supprime de OpenBao les secrets liés à des credentials
+        """Best-effort : nettoyage des secrets vault liés à des credentials
         révoqués depuis > 7 jours. MVP : logs uniquement, le delete est déjà
         fait dans le DELETE endpoint. Reporté Phase 2 pour scan exhaustif."""
         log.info(
