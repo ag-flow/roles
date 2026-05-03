@@ -14,6 +14,7 @@ export async function createKey(body: {
   provider: TranscriptionProvider;
   label?: string | null;
   api_key: string;
+  harpocrate_key: string;
   workers_count?: number;
   is_primary?: boolean;
   is_fallback?: boolean;

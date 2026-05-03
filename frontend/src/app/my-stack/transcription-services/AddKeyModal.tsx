@@ -20,6 +20,7 @@ export function AddKeyModal({ onClose, onSaved }: Props) {
   const [provider, setProvider] = useState<TranscriptionProvider>('openai-whisper');
   const [label, setLabel] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [harpocrateKey, setHarpocrateKey] = useState('');
   const [workersCount, setWorkersCount] = useState(1);
   const [isPrimary, setIsPrimary] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
@@ -31,6 +32,10 @@ export function AddKeyModal({ onClose, onSaved }: Props) {
       setError('Renseigne la clé API');
       return;
     }
+    if (!harpocrateKey.trim()) {
+      setError('Renseigne la clé Harpocrate');
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -38,6 +43,7 @@ export function AddKeyModal({ onClose, onSaved }: Props) {
         provider,
         label: label || null,
         api_key: apiKey,
+        harpocrate_key: harpocrateKey,
         workers_count: workersCount,
         is_primary: isPrimary,
         is_fallback: isFallback,
@@ -95,6 +101,17 @@ export function AddKeyModal({ onClose, onSaved }: Props) {
         </label>
 
         <label style={{ display: 'block', marginBottom: 12 }}>
+          <span style={{ display: 'block', marginBottom: 4, fontSize: 13, fontWeight: 500 }}>Clé Harpocrate</span>
+          <input
+            type="text"
+            value={harpocrateKey}
+            onChange={(e) => setHarpocrateKey(e.target.value)}
+            placeholder="ma_cle_openai"
+            style={{ width: '100%', padding: '6px 10px', fontSize: 14, border: '1px solid #d1d5db', borderRadius: 4, boxSizing: 'border-box' }}
+          />
+        </label>
+
+        <label style={{ display: 'block', marginBottom: 12 }}>
           <span style={{ display: 'block', marginBottom: 4, fontSize: 13, fontWeight: 500 }}>
             Workers (1-5) : {workersCount}
           </span>
@@ -138,10 +155,11 @@ export function AddKeyModal({ onClose, onSaved }: Props) {
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={submitting || !apiKey.trim()}
+            disabled={submitting || !apiKey.trim() || !harpocrateKey.trim()}
             style={{
               background: '#2563eb', color: 'white', padding: '6px 14px', borderRadius: 4, border: 'none',
-              cursor: 'pointer', fontSize: 13, opacity: submitting || !apiKey.trim() ? 0.5 : 1,
+              cursor: 'pointer', fontSize: 13,
+              opacity: submitting || !apiKey.trim() || !harpocrateKey.trim() ? 0.5 : 1,
             }}
           >
             {submitting ? 'Ajout…' : 'Ajouter'}

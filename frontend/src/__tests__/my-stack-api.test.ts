@@ -158,6 +158,7 @@ describe('transcription-keys API client', () => {
       provider: 'deepgram',
       label: 'ma clé deepgram',
       api_key: 'dg-secret',
+      harpocrate_key: 'ma_cle_deepgram',
       workers_count: 2,
     });
 
@@ -168,6 +169,7 @@ describe('transcription-keys API client', () => {
       provider: 'deepgram',
       label: 'ma clé deepgram',
       api_key: 'dg-secret',
+      harpocrate_key: 'ma_cle_deepgram',
       workers_count: 2,
     });
   });
