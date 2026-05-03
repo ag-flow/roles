@@ -1,4 +1,4 @@
-"""Tests pour routes.credentials — CRUD credentials + test OpenBao integration."""
+"""Tests pour routes.credentials — CRUD credentials + intégration vault."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def _make_cred_row(
         "user_id": user_id or uuid4(),
         "platform": platform,
         "label": "Mon compte YT",
-        "openbao_path": f"scraping-credentials/tenant/youtube/{uuid4()}",
+        "vault_secret_name": f"users/tenant_at_example.com/scraping/youtube/{uuid4()}",
         "status": "active",
         "last_validated_at": now,
         "expires_at": None,
@@ -36,22 +36,19 @@ def _make_cred_row(
     }
 
 
-class _FakeOpenBao:
-    """Stub OpenBaoClient pour les tests (put/get/delete/aclose no-op)."""
+class _FakeUserVaultService:
+    """Stub UserVaultService pour les tests (write/read/try_delete no-op)."""
 
-    def __init__(self, secret_data: dict[str, Any] | None = None) -> None:
-        self._secret_data = secret_data or {}
+    def __init__(self, cookies_b64: str | None = None) -> None:
+        self._cookies_b64 = cookies_b64
 
-    async def put(self, path: str, data: dict[str, Any]) -> None:
+    async def write(self, secret_name: str, value: str) -> None:
         pass
 
-    async def get(self, path: str) -> dict[str, Any] | None:
-        return self._secret_data if self._secret_data else None
+    async def read(self, secret_name: str) -> str | None:
+        return self._cookies_b64
 
-    async def delete(self, path: str) -> None:
-        pass
-
-    async def aclose(self) -> None:
+    async def try_delete(self, secret_name: str) -> None:
         pass
 
 
@@ -131,7 +128,7 @@ def test_create_credential_returns_201_and_dto(
         user_id: UUID,
         platform: str,
         label: str | None,
-        openbao_path: str,
+        vault_secret_name: str,
         status: str,
         last_validated_at: Any,
         expires_at: Any,
@@ -145,7 +142,7 @@ def test_create_credential_returns_201_and_dto(
     monkeypatch.setattr(route.credentials_validator, "validate_cookies", fake_validate)
     monkeypatch.setattr(route.creds_helper, "insert_user_credential", fake_insert)
     monkeypatch.setattr(route.creds_helper, "get_credential", fake_get)
-    monkeypatch.setattr(route, "OpenBaoClient", lambda: _FakeOpenBao())
+    monkeypatch.setattr(route, "_get_vault_service", lambda: _FakeUserVaultService())
 
     resp = client.post(
         "/api/credentials",
@@ -218,8 +215,8 @@ def test_test_credential_returns_active(
     monkeypatch.setattr(route.creds_helper, "update_credential_status", fake_update)
     monkeypatch.setattr(
         route,
-        "OpenBaoClient",
-        lambda: _FakeOpenBao(secret_data={"cookies_b64": "dGVzdA=="}),
+        "_get_vault_service",
+        lambda: _FakeUserVaultService(cookies_b64="dGVzdA=="),
     )
 
     resp = client.post(f"/api/credentials/{cred_id}/test")
@@ -278,7 +275,7 @@ def test_delete_credential_returns_204(
 
     monkeypatch.setattr(route.creds_helper, "get_credential", fake_get)
     monkeypatch.setattr(route.creds_helper, "delete_credential", fake_delete)
-    monkeypatch.setattr(route, "OpenBaoClient", lambda: _FakeOpenBao())
+    monkeypatch.setattr(route, "_get_vault_service", lambda: _FakeUserVaultService())
 
     resp = client.delete(f"/api/credentials/{cred_id}")
     assert resp.status_code == 204, resp.text

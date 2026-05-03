@@ -7,8 +7,8 @@ Routes :
 - DELETE /api/credentials/{cred_id}
 
 Tous protégés par ``Depends(get_current_user)``.
-Les cookies sont stockés dans OpenBao sous le path :
-  scraping-credentials/{tenant_id}/{platform}/{cred_id}
+Les cookies sont stockés dans Harpocrate sous le chemin :
+  users/{email_slug}/scraping/{platform}/{cred_id}
 """
 
 from __future__ import annotations
@@ -28,14 +28,13 @@ from role_builder.schemas.credentials import (
     UserCredentialOut,
 )
 from role_builder.services import credentials_validator
-from role_builder.services.openbao_client import OpenBaoClient
+from role_builder.services.user_vault import (
+    build_credentials_vault_name,
+    get_service as _get_vault_service,
+)
 
 router = APIRouter()
 log = structlog.get_logger(__name__)
-
-
-def _openbao_path(tenant_id: UUID, platform: str, cred_id: UUID) -> str:
-    return f"scraping-credentials/{tenant_id}/{platform}/{cred_id}"
 
 
 @router.get("/credentials", response_model=list[UserCredentialOut])
@@ -61,12 +60,11 @@ async def create_credential_endpoint(
 
     Étapes :
     1. Validation des cookies (format + contenu)
-    2. Génération d'un ID + path OpenBao
-    3. Stockage des cookies dans OpenBao
+    2. Génération d'un ID + chemin vault
+    3. Stockage des cookies dans Harpocrate
     4. Insertion des métadonnées en base
     5. Retour du DTO créé
     """
-    # 1. Validation des cookies
     result = await credentials_validator.validate_cookies(
         request.platform,
         request.cookies_b64,
@@ -77,25 +75,18 @@ async def create_credential_endpoint(
             detail=result["error"] or "invalid cookies",
         )
 
-    # 2. Génération ID + path
     cred_id = uuid4()
-    path = _openbao_path(user.tenant_id, request.platform, cred_id)
+    secret_name = build_credentials_vault_name(user.email, request.platform, cred_id)
 
-    # 3. Stockage OpenBao
-    openbao = OpenBaoClient()
-    try:
-        await openbao.put(path, {"cookies_b64": request.cookies_b64})
-    finally:
-        await openbao.aclose()
+    await _get_vault_service().write(secret_name, request.cookies_b64)
 
-    # 4. Insertion métadonnées
     now = datetime.now(UTC)
     inserted_id = await creds_helper.insert_user_credential(
         tenant_id=user.tenant_id,
         user_id=user.user_id,
         platform=request.platform,
         label=request.label,
-        openbao_path=path,
+        vault_secret_name=secret_name,
         status="active",
         last_validated_at=now,
         expires_at=result.get("expires_at"),
@@ -109,7 +100,6 @@ async def create_credential_endpoint(
         user_id=str(user.user_id),
     )
 
-    # 5. Retour DTO
     row = await creds_helper.get_credential(
         inserted_id,
         user_id=user.user_id,
@@ -125,7 +115,7 @@ async def test_credential_endpoint(
     cred_id: UUID,
     user: CurrentUser = Depends(get_current_user),
 ) -> TestCredentialResponse:
-    """Revalide un credential existant en récupérant ses cookies depuis OpenBao."""
+    """Revalide un credential existant en récupérant ses cookies depuis le vault."""
     cred = await creds_helper.get_credential(
         cred_id,
         user_id=user.user_id,
@@ -134,14 +124,9 @@ async def test_credential_endpoint(
     if cred is None:
         raise HTTPException(status_code=404, detail="credential not found")
 
-    # Récupération des cookies depuis OpenBao
-    openbao = OpenBaoClient()
-    try:
-        secret = await openbao.get(cred["openbao_path"])
-    finally:
-        await openbao.aclose()
+    cookies_b64 = await _get_vault_service().read(cred["vault_secret_name"])
 
-    if secret is None:
+    if not cookies_b64:
         await creds_helper.update_credential_status(
             cred_id,
             status="invalid",
@@ -150,10 +135,9 @@ async def test_credential_endpoint(
         return TestCredentialResponse(
             status="invalid",
             last_validated_at=None,
-            error="cookies missing from OpenBao",
+            error="cookies missing from vault",
         )
 
-    cookies_b64 = str(secret.get("cookies_b64", ""))
     result = await credentials_validator.validate_cookies(cred["platform"], cookies_b64)
 
     new_status = "active" if result["valid"] else "invalid"
@@ -178,7 +162,7 @@ async def delete_credential_endpoint(
     cred_id: UUID,
     user: CurrentUser = Depends(get_current_user),
 ) -> None:
-    """Supprime un credential : efface les cookies dans OpenBao puis la ligne en base."""
+    """Supprime un credential : efface les cookies dans le vault puis la ligne en base."""
     cred = await creds_helper.get_credential(
         cred_id,
         user_id=user.user_id,
@@ -187,20 +171,7 @@ async def delete_credential_endpoint(
     if cred is None:
         raise HTTPException(status_code=404, detail="credential not found")
 
-    # Suppression OpenBao best-effort (ne bloque pas si erreur)
-    openbao = OpenBaoClient()
-    try:
-        try:
-            await openbao.delete(cred["openbao_path"])
-        except Exception:
-            log.exception(
-                "credentials.openbao_delete_failed",
-                credential_id=str(cred_id),
-                path=cred["openbao_path"],
-            )
-    finally:
-        await openbao.aclose()
+    await _get_vault_service().try_delete(cred["vault_secret_name"])
 
-    # Suppression en base
     await creds_helper.delete_credential(cred_id, pool=db_pool.pool)
     log.info("credentials.deleted", credential_id=str(cred_id))
