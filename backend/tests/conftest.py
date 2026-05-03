@@ -14,10 +14,6 @@ os.environ.setdefault("DATABASE_URL", "postgresql://stub")
 os.environ.setdefault("MINIO_ENDPOINT", "http://stub")
 os.environ.setdefault("MINIO_ACCESS_KEY", "stub")
 os.environ.setdefault("MINIO_SECRET_KEY", "stub")
-os.environ.setdefault("OPENBAO_URL", "http://stub")
-os.environ.setdefault("OPENBAO_TOKEN", "stub")
-
-
 class _StubConn:
     async def fetchval(self, query: str) -> int:
         assert query == "SELECT 1"
@@ -47,8 +43,6 @@ def stubbed_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MINIO_ENDPOINT", "http://stub")
     monkeypatch.setenv("MINIO_ACCESS_KEY", "stub")
     monkeypatch.setenv("MINIO_SECRET_KEY", "stub")
-    monkeypatch.setenv("OPENBAO_URL", "http://stub")
-    monkeypatch.setenv("OPENBAO_TOKEN", "stub")
 
 
 @pytest.fixture()

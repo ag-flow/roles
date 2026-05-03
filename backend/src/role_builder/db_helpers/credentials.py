@@ -1,12 +1,4 @@
-"""Lecture des cookies de scraping depuis la config (pas d'OpenBao en MVP).
-
-Les cookies arrivent par env vars passées au backend via docker-compose.
-Le backend les retransmet au container scraper via `docker run -e ...`.
-Rebranchage OpenBao reporté au sprint "Ma stack".
-
-Sprint 6 : CRUD complet user_credentials (insert, list, get, update_status,
-revoke, delete).
-"""
+"""Helpers DB pour user_credentials (insert, list, get, update_status, revoke, delete)."""
 
 from __future__ import annotations
 

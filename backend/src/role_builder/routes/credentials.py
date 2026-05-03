@@ -30,6 +30,8 @@ from role_builder.schemas.credentials import (
 from role_builder.services import credentials_validator
 from role_builder.services.user_vault import (
     build_credentials_vault_name,
+)
+from role_builder.services.user_vault import (
     get_service as _get_vault_service,
 )
 

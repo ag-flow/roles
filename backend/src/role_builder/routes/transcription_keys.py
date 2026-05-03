@@ -10,8 +10,8 @@ Routes :
 - DELETE /api/transcription-keys/{key_id}
 
 Tous protégés par ``Depends(get_current_user)``.
-La clé API réelle est stockée dans OpenBao sous le path :
-  transcription-keys/{tenant_id}/{provider}/{key_id}
+La clé API réelle est stockée dans Harpocrate sous le chemin :
+  users/{email_slug}/transcription/{provider}/{key_id}
 """
 
 from __future__ import annotations
@@ -34,14 +34,11 @@ from role_builder.schemas.transcription_keys import (
     UsageResponse,
 )
 from role_builder.services import transcription_validator
-from role_builder.services.openbao_client import OpenBaoClient
+from role_builder.services.user_vault import build_vault_secret_name
+from role_builder.services.user_vault import get_service as _get_vault_service
 
 router = APIRouter()
 log = structlog.get_logger(__name__)
-
-
-def _openbao_path(tenant_id: UUID, provider: str, key_id: UUID) -> str:
-    return f"transcription-keys/{tenant_id}/{provider}/{key_id}"
 
 
 async def _trigger_worker_provisioning(user_id: UUID) -> None:
@@ -95,8 +92,8 @@ async def create_key_endpoint(
 
     Étapes :
     1. Validation via l'API du provider
-    2. Génération key_id + path OpenBao
-    3. Stockage de la clé dans OpenBao
+    2. Génération key_id + nom de secret vault
+    3. Stockage de la clé dans vault
     4. Insertion des métadonnées en base
     5. Mise à jour du solde si retourné
     6. Best-effort worker provisioning
@@ -112,20 +109,16 @@ async def create_key_endpoint(
         )
 
     key_id = uuid4()
-    path = _openbao_path(user.tenant_id, request.provider, key_id)
+    secret_name = build_vault_secret_name(user.email, request.provider, key_id)
 
-    openbao = OpenBaoClient()
-    try:
-        await openbao.put(path, {"api_key": request.api_key})
-    finally:
-        await openbao.aclose()
+    await _get_vault_service().write(secret_name, request.api_key)
 
     inserted_id = await keys_helper.insert_transcription_key(
         tenant_id=user.tenant_id,
         user_id=user.user_id,
         provider=request.provider,
         label=request.label,
-        openbao_path=path,
+        vault_secret_name=secret_name,
         workers_count=request.workers_count,
         is_primary=request.is_primary,
         is_fallback=request.is_fallback,
@@ -188,22 +181,18 @@ async def test_key_endpoint(
     if key is None:
         raise HTTPException(status_code=404, detail="key not found")
 
-    openbao = OpenBaoClient()
-    try:
-        secret = await openbao.get(key["openbao_path"])
-    finally:
-        await openbao.aclose()
+    raw_key = await _get_vault_service().read(key["vault_secret_name"])
 
-    if secret is None:
+    if raw_key is None:
         await keys_helper.mark_invalid(key_id, pool=db_pool.pool)
         return TestKeyResponse(
             status="invalid",
             last_validated_at=None,
             balance_usd=None,
-            error="api_key missing from OpenBao",
+            error="api_key missing from vault",
         )
 
-    api_key = str(secret.get("api_key", ""))
+    api_key = raw_key
     result = await transcription_validator.validate_transcription_key(key["provider"], api_key)
     new_status = "active" if result["valid"] else "invalid"
     now = datetime.now(UTC)
@@ -288,25 +277,14 @@ async def delete_key_endpoint(
     key_id: UUID,
     user: CurrentUser = Depends(get_current_user),
 ) -> None:
-    """Supprime une clé : arrêt workers (best-effort), purge OpenBao, suppression BDD."""
+    """Supprime une clé : arrêt workers (best-effort), purge vault, suppression BDD."""
     key = await keys_helper.get_key(key_id, user_id=user.user_id, pool=db_pool.pool)
     if key is None:
         raise HTTPException(status_code=404, detail="key not found")
 
     await _trigger_worker_stop(key_id)
 
-    openbao = OpenBaoClient()
-    try:
-        try:
-            await openbao.delete(key["openbao_path"])
-        except Exception:
-            log.exception(
-                "transcription_keys.openbao_delete_failed",
-                key_id=str(key_id),
-                path=key["openbao_path"],
-            )
-    finally:
-        await openbao.aclose()
+    await _get_vault_service().try_delete(key["vault_secret_name"])
 
     await keys_helper.delete_key(key_id, pool=db_pool.pool)
     log.info("transcription_keys.deleted", key_id=str(key_id))

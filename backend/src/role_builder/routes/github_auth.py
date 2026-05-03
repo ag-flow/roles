@@ -29,7 +29,8 @@ from role_builder.schemas.github import (
     StartOAuthResponse,
 )
 from role_builder.services.github_publish import oauth as gh_oauth_module
-from role_builder.services.user_vault import build_github_vault_name, get_service as _get_vault_service
+from role_builder.services.user_vault import build_github_vault_name
+from role_builder.services.user_vault import get_service as _get_vault_service
 
 router = APIRouter()
 log = structlog.get_logger(__name__)

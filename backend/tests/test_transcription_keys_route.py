@@ -30,13 +30,14 @@ def _make_key_row(
 ) -> dict[str, Any]:
     """Construit un dict simulant une ligne de user_transcription_keys."""
     now = datetime.now(tz=UTC)
+    kid = key_id or uuid4()
     return {
-        "id": key_id or uuid4(),
+        "id": kid,
         "tenant_id": _FIXED_TENANT_ID,
         "user_id": _FIXED_USER_ID,
         "provider": provider,
         "label": "Ma clé Deepgram",
-        "openbao_path": f"transcription-keys/{_FIXED_TENANT_ID}/{provider}/{key_id or uuid4()}",
+        "vault_secret_name": f"users/no_email/transcription/{provider}/{kid}",
         "status": status,
         "is_primary": is_primary,
         "is_fallback": is_fallback,
@@ -51,30 +52,27 @@ def _make_key_row(
     }
 
 
-class _FakeOpenBao:
-    """Stub OpenBaoClient pour les tests."""
+class _FakeUserVaultService:
+    """Stub UserVaultService pour les tests."""
 
     def __init__(
         self,
-        secret_data: dict[str, Any] | None = None,
+        secret_value: str | None = "test_api_key",
         *,
         record_calls: dict[str, Any] | None = None,
     ) -> None:
-        self._secret_data = secret_data
+        self._secret_value = secret_value
         self._calls = record_calls if record_calls is not None else {}
 
-    async def put(self, path: str, data: dict[str, Any]) -> None:
-        self._calls["put_path"] = path
-        self._calls["put_data"] = data
+    async def write(self, secret_name: str, value: str) -> None:
+        self._calls["write_name"] = secret_name
+        self._calls["write_value"] = value
 
-    async def get(self, path: str) -> dict[str, Any] | None:
-        return self._secret_data
+    async def read(self, secret_name: str) -> str | None:
+        return self._secret_value
 
-    async def delete(self, path: str) -> None:
-        self._calls["delete_path"] = path
-
-    async def aclose(self) -> None:
-        pass
+    async def try_delete(self, secret_name: str) -> None:
+        self._calls["delete_name"] = secret_name
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +139,7 @@ def test_create_key_returns_201_and_dto(
     monkeypatch.setattr(route.keys_helper, "insert_transcription_key", fake_insert)
     monkeypatch.setattr(route.keys_helper, "get_key", fake_get)
     monkeypatch.setattr(route.keys_helper, "update_key_balance", fake_update_balance)
-    monkeypatch.setattr(route, "OpenBaoClient", lambda: _FakeOpenBao(record_calls=calls))
+    monkeypatch.setattr(route, "_get_vault_service", lambda: _FakeUserVaultService(record_calls=calls))
 
     resp = client.post(
         "/api/transcription-keys",
@@ -158,8 +156,8 @@ def test_create_key_returns_201_and_dto(
     body = resp.json()
     assert body["id"] == str(key_id)
     assert body["provider"] == "deepgram"
-    assert "put_path" in calls
-    assert "transcription-keys/" in calls["put_path"]
+    assert "write_name" in calls
+    assert "users/" in calls["write_name"]
     assert calls.get("update_balance_called") is None  # balance_usd=None → pas appelé
 
 
@@ -222,7 +220,7 @@ def test_create_key_with_balance_calls_update_balance(
     monkeypatch.setattr(route.keys_helper, "insert_transcription_key", fake_insert)
     monkeypatch.setattr(route.keys_helper, "get_key", fake_get)
     monkeypatch.setattr(route.keys_helper, "update_key_balance", fake_update_balance)
-    monkeypatch.setattr(route, "OpenBaoClient", lambda: _FakeOpenBao())
+    monkeypatch.setattr(route, "_get_vault_service", lambda: _FakeUserVaultService())
 
     resp = client.post(
         "/api/transcription-keys",
@@ -334,7 +332,7 @@ def test_test_key_valid_returns_active(
     monkeypatch.setattr(route.db_pool.pool, "acquire", lambda: mock_acquire)
 
     monkeypatch.setattr(
-        route, "OpenBaoClient", lambda: _FakeOpenBao(secret_data={"api_key": "dg_valid"})
+        route, "_get_vault_service", lambda: _FakeUserVaultService(secret_value="dg_valid")
     )
 
     resp = client.post(f"/api/transcription-keys/{key_id}/test")
@@ -374,7 +372,7 @@ def test_test_key_invalid_calls_mark_invalid(
     monkeypatch.setattr(route.transcription_validator, "validate_transcription_key", fake_validate)
     monkeypatch.setattr(route.keys_helper, "mark_invalid", fake_mark_invalid)
     monkeypatch.setattr(
-        route, "OpenBaoClient", lambda: _FakeOpenBao(secret_data={"api_key": "bad"})
+        route, "_get_vault_service", lambda: _FakeUserVaultService(secret_value="bad")
     )
 
     resp = client.post(f"/api/transcription-keys/{key_id}/test")
@@ -386,7 +384,7 @@ def test_test_key_invalid_calls_mark_invalid(
 
 
 # ---------------------------------------------------------------------------
-# T9 — POST /test secret missing from OpenBao → 200 + status=invalid + error
+# T9 — POST /test secret missing from vault → 200 + status=invalid + error
 # ---------------------------------------------------------------------------
 
 
@@ -394,7 +392,7 @@ def test_test_key_missing_secret_returns_invalid(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """POST /api/transcription-keys/{id}/test → status=invalid si secret absent d'OpenBao."""
+    """POST /api/transcription-keys/{id}/test → status=invalid si secret absent du vault."""
     from role_builder.routes import transcription_keys as route
 
     key_id = uuid4()
@@ -409,14 +407,14 @@ def test_test_key_missing_secret_returns_invalid(
 
     monkeypatch.setattr(route.keys_helper, "get_key", fake_get)
     monkeypatch.setattr(route.keys_helper, "mark_invalid", fake_mark_invalid)
-    # OpenBao retourne None (secret absent)
-    monkeypatch.setattr(route, "OpenBaoClient", lambda: _FakeOpenBao(secret_data=None))
+    # vault retourne None (secret absent)
+    monkeypatch.setattr(route, "_get_vault_service", lambda: _FakeUserVaultService(secret_value=None))
 
     resp = client.post(f"/api/transcription-keys/{key_id}/test")
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] == "invalid"
-    assert "OpenBao" in body["error"]
+    assert "vault" in body["error"]
     assert calls.get("mark_invalid_called") is True
 
 
@@ -516,7 +514,7 @@ def test_get_usage_without_cap_returns_none_pct(
 
 
 # ---------------------------------------------------------------------------
-# T13 — DELETE /transcription-keys/{id} OK → 204 + OpenBao.delete + delete_key
+# T13 — DELETE /transcription-keys/{id} OK → 204 + vault.delete + delete_key
 # ---------------------------------------------------------------------------
 
 
@@ -524,7 +522,7 @@ def test_delete_key_returns_204_and_cleans_up(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """DELETE /api/transcription-keys/{id} → 204 + OpenBao.delete + delete_key appelés."""
+    """DELETE /api/transcription-keys/{id} → 204 + vault.delete + delete_key appelés."""
     from role_builder.routes import transcription_keys as route
 
     key_id = uuid4()
@@ -539,12 +537,12 @@ def test_delete_key_returns_204_and_cleans_up(
 
     monkeypatch.setattr(route.keys_helper, "get_key", fake_get)
     monkeypatch.setattr(route.keys_helper, "delete_key", fake_delete)
-    monkeypatch.setattr(route, "OpenBaoClient", lambda: _FakeOpenBao(record_calls=calls))
+    monkeypatch.setattr(route, "_get_vault_service", lambda: _FakeUserVaultService(record_calls=calls))
 
     resp = client.delete(f"/api/transcription-keys/{key_id}")
     assert resp.status_code == 204, resp.text
     assert calls.get("deleted_id") == key_id
-    assert "delete_path" in calls
+    assert "delete_name" in calls
 
 
 # ---------------------------------------------------------------------------
