@@ -33,23 +33,19 @@ def test_list_repos_returns_subset_of_fields(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from role_builder.routes import github_publish as route
-    from role_builder.services.openbao_client import OpenBaoClient
 
     async def fake_get(user_id: UUID, *, pool: Any) -> Any:
         return {
-            "openbao_path": "github-tokens/t/u",
+            "vault_secret_name": "github/t/u",
             "github_login": "alice",
         }
 
-    async def fake_token(self: Any, path: str) -> Any:
-        return {"access_token": "ghp_x"}
-
-    async def fake_aclose(self: Any) -> None:
-        return None
+    class _FakeVaultSvc:
+        async def read(self, name: str) -> str | None:
+            return "ghp_x"
 
     monkeypatch.setattr(route.github_integrations, "get_by_user_id", fake_get)
-    monkeypatch.setattr(OpenBaoClient, "get", fake_token)
-    monkeypatch.setattr(OpenBaoClient, "aclose", fake_aclose)
+    monkeypatch.setattr(route, "_get_vault_service", lambda: _FakeVaultSvc())
 
     repos_full = [
         {

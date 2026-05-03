@@ -37,7 +37,7 @@ from role_builder.schemas.github import (
 )
 from role_builder.services.github_publish import publisher as gh_publisher
 from role_builder.services.github_publish.api_client import GitHubApiClient
-from role_builder.services.openbao_client import OpenBaoClient
+from role_builder.services.user_vault import get_service as _get_vault_service
 
 
 class PublishRequest(BaseModel):
@@ -137,7 +137,7 @@ async def set_publication_config(
 async def _api_for_user(
     user: CurrentUser, *, integration_id: UUID | None = None,
 ) -> tuple[GitHubApiClient, str]:
-    """Helper : récupère le token via OpenBao et instancie un GitHubApiClient.
+    """Helper : récupère le token via Harpocrate et instancie un GitHubApiClient.
 
     Si ``integration_id`` est fourni, on cible cette intégration précise (et
     on vérifie qu'elle appartient bien au user). Sinon on prend la primary
@@ -163,20 +163,10 @@ async def _api_for_user(
         if integration is None:
             raise HTTPException(status_code=400, detail="GitHub not connected")
 
-    openbao = OpenBaoClient()
-    try:
-        token_data = await openbao.get(str(integration["openbao_path"]))
-    finally:
-        await openbao.aclose()
-
-    access_token = (
-        str(token_data["access_token"])
-        if token_data and "access_token" in token_data
-        else ""
-    )
+    access_token = await _get_vault_service().read(str(integration["vault_secret_name"])) or ""
     if not access_token:
         raise HTTPException(
-            status_code=502, detail="GitHub token missing in OpenBao",
+            status_code=502, detail="GitHub token missing in vault",
         )
 
     return (
