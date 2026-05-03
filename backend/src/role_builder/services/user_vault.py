@@ -11,6 +11,7 @@ L'email/user_id sert de compartiment : les secrets de deux utilisateurs ne se m�
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from uuid import UUID
 
@@ -20,6 +21,7 @@ from harpocrate import SecretNotFound, VaultClient
 log = structlog.get_logger(__name__)
 
 _UNSAFE_RE = re.compile(r"[^A-Za-z0-9._-]")
+_VAULT_REF_RE = re.compile(r'^\$\{vault://[^:]+:(.+)\}$')
 
 
 def build_vault_secret_name(email: str | None, provider: str, key_id: UUID) -> str:
@@ -48,6 +50,43 @@ def build_github_vault_name(user_id: UUID, tenant_id: UUID) -> str:
     Exemple : github/00000000-0000-0000-0000-000000000001/12345678-...
     """
     return f"github/{tenant_id}/{user_id}"
+
+
+def _primary_vault_identifier() -> str:
+    """Retourne le suffixe lowercase du premier HARPOCRATE_API_TOKEN_* configuré."""
+    for key in os.environ:
+        if key.startswith("HARPOCRATE_API_TOKEN_"):
+            return key[len("HARPOCRATE_API_TOKEN_"):].lower()
+    return "api1"
+
+
+def build_transcription_vault_path(email: str | None, provider: str, key_name: str) -> str:
+    """Path plain pour une clé de transcription avec nom personnalisé.
+
+    Exemple : users/john_at_example.com/transcription/deepgram/ma_cle
+    """
+    raw = email or "no_email"
+    slug = _UNSAFE_RE.sub("_", raw.replace("@", "_at_"))
+    return f"users/{slug}/transcription/{provider}/{key_name}"
+
+
+def build_vault_ref(path: str) -> str:
+    """Enveloppe un path dans une ref vault : ${vault://api1:path}.
+
+    L'identifiant est déduit du premier HARPOCRATE_API_TOKEN_* configuré.
+    """
+    identifier = _primary_vault_identifier()
+    return f"${{vault://{identifier}:{path}}}"
+
+
+def extract_vault_path(vault_secret_name: str) -> str:
+    """Extrait le path depuis une ref vault, ou retourne le plain path (compat legacy).
+
+    "${vault://api1:users/john/transcription/deepgram/ma_cle}" → "users/john/..."
+    "users/john/transcription/deepgram/uuid"                  → "users/john/..."
+    """
+    m = _VAULT_REF_RE.match(vault_secret_name)
+    return m.group(1) if m else vault_secret_name
 
 
 class UserVaultService:

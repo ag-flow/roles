@@ -10,7 +10,10 @@ from role_builder.services.user_vault import (
     UserVaultService,
     build_credentials_vault_name,
     build_github_vault_name,
+    build_transcription_vault_path,
+    build_vault_ref,
     build_vault_secret_name,
+    extract_vault_path,
     get_service,
     init_service,
 )
@@ -199,3 +202,53 @@ def test_build_github_vault_name_normal() -> None:
     tenant_id = UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
     name = build_github_vault_name(user_id, tenant_id)
     assert name == f"github/{tenant_id}/{user_id}"
+
+
+# ---------------------------------------------------------------------------
+# build_transcription_vault_path
+# ---------------------------------------------------------------------------
+
+
+def test_build_transcription_vault_path_normal_email() -> None:
+    result = build_transcription_vault_path("john@example.com", "deepgram", "ma_cle")
+    assert result == "users/john_at_example.com/transcription/deepgram/ma_cle"
+
+
+def test_build_transcription_vault_path_none_email() -> None:
+    result = build_transcription_vault_path(None, "openai-whisper", "my_key")
+    assert result == "users/no_email/transcription/openai-whisper/my_key"
+
+
+# ---------------------------------------------------------------------------
+# build_vault_ref
+# ---------------------------------------------------------------------------
+
+
+def test_build_vault_ref_wraps_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HARPOCRATE_API_TOKEN_API1", "hrpv_test")
+    ref = build_vault_ref("users/john/transcription/deepgram/ma_cle")
+    assert ref == "${vault://api1:users/john/transcription/deepgram/ma_cle}"
+
+
+def test_build_vault_ref_fallback_identifier(monkeypatch: pytest.MonkeyPatch) -> None:
+    import os as _os
+    for k in list(_os.environ):
+        if k.startswith("HARPOCRATE_API_TOKEN_"):
+            monkeypatch.delenv(k, raising=False)
+    ref = build_vault_ref("some/path")
+    assert ref == "${vault://api1:some/path}"
+
+
+# ---------------------------------------------------------------------------
+# extract_vault_path
+# ---------------------------------------------------------------------------
+
+
+def test_extract_vault_path_from_vault_ref() -> None:
+    ref = "${vault://api1:users/john/transcription/deepgram/ma_cle}"
+    assert extract_vault_path(ref) == "users/john/transcription/deepgram/ma_cle"
+
+
+def test_extract_vault_path_plain_path_passthrough() -> None:
+    plain = "users/john/transcription/deepgram/some-uuid"
+    assert extract_vault_path(plain) == plain
