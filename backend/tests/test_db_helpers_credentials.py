@@ -120,7 +120,7 @@ async def test_insert_user_credential_sends_insert_returns_uuid(
         user_id=user_id,
         platform="youtube",
         label="Mon compte YT",
-        openbao_path="secret/scraping-credentials/t1/youtube/abc",
+        vault_secret_name="users/test_at_example.com/scraping/youtube/abc",
         pool=stub_pool,
     )
 
@@ -135,7 +135,7 @@ async def test_insert_user_credential_sends_insert_returns_uuid(
     assert args[1] == user_id
     assert args[2] == "youtube"
     assert args[3] == "Mon compte YT"
-    assert args[4] == "secret/scraping-credentials/t1/youtube/abc"
+    assert args[4] == "users/test_at_example.com/scraping/youtube/abc"
     assert args[5] == "active"
     assert args[6] is None  # last_validated_at
     assert args[7] is None  # expires_at

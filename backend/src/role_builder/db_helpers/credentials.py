@@ -41,7 +41,7 @@ async def insert_user_credential(
     user_id: UUID,
     platform: str,
     label: str | None,
-    openbao_path: str,
+    vault_secret_name: str,
     status: str = "active",
     last_validated_at: datetime | None = None,
     expires_at: datetime | None = None,
@@ -50,7 +50,7 @@ async def insert_user_credential(
     """INSERT INTO user_credentials RETURNING id."""
     query = (
         "INSERT INTO user_credentials "
-        "(tenant_id, user_id, platform, label, openbao_path, status, "
+        "(tenant_id, user_id, platform, label, vault_secret_name, status, "
         "last_validated_at, expires_at) "
         "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
         "RETURNING id"
@@ -62,7 +62,7 @@ async def insert_user_credential(
             user_id,
             platform,
             label,
-            openbao_path,
+            vault_secret_name,
             status,
             last_validated_at,
             expires_at,
