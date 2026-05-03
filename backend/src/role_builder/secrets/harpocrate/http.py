@@ -64,6 +64,8 @@ class VaultHttpClient:
         self._base_url = base_url
         self._token = token
         self._timeout = timeout
+        # HARPOCRATE_ALLOW_INSECURE=1 : autorise HTTP et désactive la vérif TLS (cert auto-signé)
+        self._verify_tls = os.environ.get("HARPOCRATE_ALLOW_INSECURE", "0") != "1"
 
     def _headers(self) -> dict[str, str]:
         """Headers HTTP communs (Authorization non loggé)."""
@@ -139,6 +141,7 @@ class VaultHttpClient:
                     params=params,
                     json=json,
                     timeout=self._timeout,
+                    verify=self._verify_tls,
                 )
                 self._raise_for_status(resp)
                 return resp.json()
