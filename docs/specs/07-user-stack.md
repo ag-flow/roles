@@ -184,7 +184,8 @@ async def create_transcription_key(body: CreateTranscriptionKeyRequest) -> Trans
     Body:
       - provider: deepgram|assemblyai|openai-whisper|speechmatics
       - label: str
-      - api_key: str
+      - api_key: str          # clé brute saisie par l'utilisateur
+      - harpocrate_key: str   # nom du secret dans le coffre Harpocrate (ex: "ma_cle_openai")
       - workers_count: int (1..5)
       - is_primary: bool
       - is_fallback: bool

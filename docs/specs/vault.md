@@ -211,6 +211,72 @@ Au démarrage du loader, lis ces variables pour peupler la table de config initi
 Si aucune variable `HARPOCRATE_API_TOKEN_*` n'est présente au démarrage, échoue clairement : `No Harpocrate API key configured, cannot resolve secrets`.
 
 
+## Intégration Next.js — pièges de compilation
+
+`instrumentation.ts` est compilé par webpack pour **trois** contextes distincts : Node.js serveur, Edge runtime, et client. Même si le code contient un guard runtime (`if (process.env.NEXT_RUNTIME !== 'nodejs') return`), webpack analyse statiquement toutes les dépendances, y compris les dynamic imports comme `await import('./lib/vault')`.
+
+### Règle 1 : ne jamais utiliser le préfixe `node:`
+
+```ts
+// ❌ webpack ne connaît pas le scheme node: par défaut
+import { createDecipheriv } from 'node:crypto';
+
+// ✓ webpack sait résoudre le built-in sans préfixe
+import { createDecipheriv } from 'crypto';
+```
+
+### Règle 2 : configurer webpack par runtime dans `next.config.js`
+
+```js
+webpack: (config, { nextRuntime }) => {
+  if (nextRuntime === 'nodejs') {
+    // Node.js serveur — crypto est disponible à l'exécution, le marquer external
+    // pour que webpack émette require('crypto') sans tenter de le bundler.
+    const existing = config.externals;
+    config.externals = [
+      { crypto: 'commonjs crypto' },
+      ...(Array.isArray(existing) ? existing : existing ? [existing] : []),
+    ];
+  } else {
+    // Edge ou client — pas de built-ins Node.js.
+    // vault.ts ne s'exécute jamais dans ces contextes grâce au guard NEXT_RUNTIME.
+    config.resolve.fallback = { ...config.resolve.fallback, crypto: false };
+  }
+  return config;
+},
+```
+
+Pourquoi `nextRuntime` et pas `isServer` : `isServer` est `true` pour Node.js **et** Edge. Le guard `nextRuntime === 'nodejs'` cible uniquement le bundle Node.js où `require('crypto')` est disponible à l'exécution.
+
+`resolve.fallback: { crypto: false }` pour Edge/client indique à webpack de ne fournir aucun polyfill — il génère un module vide. Aucune erreur de build, aucune exécution réelle (guard runtime).
+
+
+## Intégration backend Dockerfile — dépendance locale uv
+
+Quand `pyproject.toml` déclare une dépendance locale via `[tool.uv.sources]` (ex: `harpocrate = { path = "src/role_builder/secrets", editable = true }`), le répertoire du package doit être présent **avant** de lancer `uv pip install`.
+
+Le pattern habituel "copier le manifest → installer → copier le source" casse silencieusement :
+
+```dockerfile
+# ❌ src/role_builder/secrets/ absent au moment de l'install
+COPY backend/pyproject.toml backend/uv.lock /app/
+RUN uv pip install --system --no-cache .   # error: Distribution not found at: file:///app/src/role_builder/secrets
+
+COPY backend/src/ /app/src/
+```
+
+```dockerfile
+# ✓ copier le package local avant l'install
+COPY backend/pyproject.toml backend/uv.lock /app/
+COPY backend/src/role_builder/secrets/ /app/src/role_builder/secrets/
+RUN uv pip install --system --no-cache .
+
+COPY backend/src/ /app/src/   # écrase proprement, même contenu
+```
+
+Le `COPY backend/src/` final réécrit le répertoire `secrets/` avec le même contenu — c'est intentionnel et sans effet de bord.
+
+
 ## Critères de réussite
 
 Avant de considérer la migration terminée :
