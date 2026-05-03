@@ -11,20 +11,52 @@ chunking + embeddings → synthèse Mistral en 4 étages → export vers ag.flow
 - **Plans d'implémentation** : `docs/superpowers/plans/`
 - **Instructions Claude Code** : `CLAUDE.md`
 
-## Démarrage rapide
+# 🚀 Installation & Déploiement (Repository privé via SSH)
+
+Ce guide explique comment :
+- configurer l’accès SSH à GitHub
+- cloner le repository privé
+- initialiser l’environnement
+- builder et lancer l’application
+
+---
+
+## 🔐 1. Configurer l’accès SSH à GitHub
+
+### 1.1 Générer une clé SSH
+
+Sur la machine cible :
 
 ```bash
-cp .env.example .env                              # Adapter les valeurs si nécessaire
-docker compose up -d                              # Lance toute la stack
-./scripts/apply_migrations.sh                     # Applique les migrations SQL
-./scripts/init_minio.sh                           # Crée les buckets
-./scripts/init_openbao.sh                         # Active KV v2
-
-curl http://localhost:8000/health/                # Health-check backend
-open http://localhost:3000                        # Interface
+ssh-keygen -t ed25519 -C "deploy-roles"
 ```
 
-## Stack
+Appuyer sur Entrée pour accepter le chemin par défaut :
+```bash
+~/.ssh/id_ed25519
+```
 
-Backend FastAPI + asyncpg | Frontend Next.js 14 | PostgreSQL 16 + pgvector |
-MinIO | OpenBao | Mistral via ag.flow.
+Passphrase :
+- laisser vide pour un serveur (déploiement automatique)
+- ou en définir une pour plus de sécurité
+
+Démarrer l’agent SSH et charger la clé
+```bash
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519
+```
+
+1 - Ajouter la clé dans GitHub
+2 - Aller sur GitHub
+3 - Settings
+4 - SSH and GPG keys
+5 - New SSH key
+6 - Name : deploy-roles
+7 - Coller la clé publique
+8 - Cliquer sur Add SSH key
+
+
+Tester la connexion
+```bash
+ssh -T git@github.com
+```
