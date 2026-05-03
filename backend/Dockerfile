@@ -16,6 +16,8 @@ RUN pip install --no-cache-dir uv
 # Le contexte de build est la RACINE du repo (cf. .github/workflows/build-app.yml)
 # pour pouvoir embarquer migrations/ qui vit hors de backend/.
 COPY backend/pyproject.toml backend/uv.lock /app/
+# Le package local harpocrate doit être présent avant l'install (path dependency dans pyproject.toml).
+COPY backend/src/role_builder/secrets/ /app/src/role_builder/secrets/
 RUN uv pip install --system --no-cache .
 
 COPY backend/src/ /app/src/
