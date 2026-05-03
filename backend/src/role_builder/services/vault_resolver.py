@@ -62,6 +62,11 @@ class VaultResolver:
             )
         return self._clients[identifier]
 
+    def get_client(self, identifier: str | None = None) -> VaultClient:
+        """Retourne le VaultClient pour l'identifier donné (ou le premier si None)."""
+        resolved = identifier or next(iter(self._configs))
+        return self._client(resolved)
+
     def _resolve_one(self, identifier: str, secret_name: str) -> str:
         cache_key = f"{identifier}:{secret_name}"
         if cache_key in self._cache:

@@ -83,7 +83,7 @@ async def insert_transcription_key(
     user_id: UUID,
     provider: str,
     label: str | None,
-    openbao_path: str,
+    vault_secret_name: str,
     workers_count: int = 1,
     is_primary: bool = False,
     is_fallback: bool = False,
@@ -97,7 +97,7 @@ async def insert_transcription_key(
     """
     insert_query = (
         "INSERT INTO user_transcription_keys "
-        "(tenant_id, user_id, provider, label, openbao_path, workers_count, "
+        "(tenant_id, user_id, provider, label, vault_secret_name, workers_count, "
         "is_primary, is_fallback, monthly_cap_usd, status, last_validated_at) "
         "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', now()) "
         "RETURNING id"
@@ -117,7 +117,7 @@ async def insert_transcription_key(
                     user_id,
                     provider,
                     label,
-                    openbao_path,
+                    vault_secret_name,
                     workers_count,
                     is_primary,
                     is_fallback,
@@ -130,7 +130,7 @@ async def insert_transcription_key(
                 user_id,
                 provider,
                 label,
-                openbao_path,
+                vault_secret_name,
                 workers_count,
                 is_primary,
                 is_fallback,

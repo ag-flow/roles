@@ -43,6 +43,7 @@ from role_builder.routes import (
 from role_builder.routes import (
     version as version_route,
 )
+from role_builder.services import user_vault as user_vault_mod
 from role_builder.services.chunking_worker import ChunkingWorker
 from role_builder.services.scheduler import RoleBuilderScheduler
 from role_builder.services.scraper_orchestrator import ScraperOrchestrator
@@ -78,6 +79,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             resolver = VaultResolver()
             await asyncio.to_thread(resolver.resolve_settings, settings)
+            user_vault_mod.init_service(resolver.get_client())
             log.info("vault.resolver.done")
         except RuntimeError as exc:
             log.critical("vault.resolver.failed", error=str(exc))

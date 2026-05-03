@@ -206,7 +206,7 @@ async def test_insert_transcription_key_simple_no_transaction(
         user_id=user_id,
         provider="deepgram",
         label="Clé Deepgram",
-        openbao_path="secret/transcription-keys/t1/deepgram/k1",
+        vault_secret_name="users/test_at_example.com/transcription/deepgram/k1",
         pool=stub_pool,
     )
 
@@ -238,7 +238,7 @@ async def test_insert_transcription_key_with_is_primary_uses_transaction(
         user_id=user_id,
         provider="openai-whisper",
         label=None,
-        openbao_path="secret/transcription-keys/t1/openai-whisper/k2",
+        vault_secret_name="users/test_at_example.com/transcription/openai-whisper/k2",
         is_primary=True,
         pool=stub_pool,
     )
