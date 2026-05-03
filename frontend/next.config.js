@@ -15,8 +15,18 @@ const nextConfig = {
   experimental: {
     instrumentationHook: true,
   },
-  webpack: (config, { isServer }) => {
-    if (!isServer) {
+  webpack: (config, { nextRuntime }) => {
+    if (nextRuntime === 'nodejs') {
+      // Bundle Node.js serveur : crypto est un built-in, le marquer external
+      // pour que webpack émette require('crypto') plutôt que de tenter de le bundler.
+      const existing = config.externals;
+      config.externals = [
+        { crypto: 'commonjs crypto' },
+        ...(Array.isArray(existing) ? existing : existing ? [existing] : []),
+      ];
+    } else {
+      // Bundle Edge ou client : pas de built-ins Node.js.
+      // vault.ts ne s'exécute jamais dans ces contextes (guard NEXT_RUNTIME).
       config.resolve.fallback = { ...config.resolve.fallback, crypto: false };
     }
     return config;
