@@ -29,7 +29,7 @@ from role_builder.schemas.github import (
     StartOAuthResponse,
 )
 from role_builder.services.github_publish import oauth as gh_oauth_module
-from role_builder.services.openbao_client import OpenBaoClient
+from role_builder.services.user_vault import build_github_vault_name, get_service as _get_vault_service
 
 router = APIRouter()
 log = structlog.get_logger(__name__)
@@ -68,19 +68,15 @@ async def oauth_callback(code: str, state: str) -> CallbackResponse:
         log.exception("github.oauth.upstream_error")
         raise HTTPException(status_code=502, detail=f"GitHub: {exc}") from exc
 
-    openbao_path = f"github-tokens/{tenant_id}/{user_id}"
-    openbao = OpenBaoClient()
-    try:
-        await openbao.put(openbao_path, {"access_token": access_token})
-    finally:
-        await openbao.aclose()
+    vault_secret_name = build_github_vault_name(user_id, tenant_id)
+    await _get_vault_service().write(vault_secret_name, access_token)
 
     await github_integrations.upsert(
         user_id=user_id,
         tenant_id=tenant_id,
         github_login=str(gh_user["login"]),
         github_user_id=int(gh_user["id"]),
-        openbao_path=openbao_path,
+        vault_secret_name=vault_secret_name,
         scope=settings.github_oauth_scope,
         pool=db_pool.pool,
     )
@@ -113,19 +109,16 @@ async def status_endpoint(
 async def disconnect(
     user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> dict[str, str]:
-    """Déconnecte TOUTES les intégrations GitHub du user (legacy)."""
+    """Déconnecte TOUTES les intégrations GitHub du user."""
     integrations = await github_integrations.list_by_user_id(
         user.user_id, pool=db_pool.pool,
     )
     if not integrations:
         return {"status": "not-connected"}
 
-    openbao = OpenBaoClient()
-    try:
-        for integration in integrations:
-            await openbao.delete(str(integration["openbao_path"]))
-    finally:
-        await openbao.aclose()
+    vault_svc = _get_vault_service()
+    for integration in integrations:
+        await vault_svc.try_delete(str(integration["vault_secret_name"]))
 
     await github_integrations.delete_by_user_id(user.user_id, pool=db_pool.pool)
     log.info(
@@ -169,11 +162,7 @@ async def delete_integration(
     if integration["user_id"] != user.user_id:
         raise HTTPException(status_code=403, detail="not the integration owner")
 
-    openbao = OpenBaoClient()
-    try:
-        await openbao.delete(str(integration["openbao_path"]))
-    finally:
-        await openbao.aclose()
+    await _get_vault_service().try_delete(str(integration["vault_secret_name"]))
 
     await github_integrations.delete_by_id(integration_id, pool=db_pool.pool)
     log.info(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -62,7 +63,6 @@ def test_callback_full_flow_stores_token_and_returns_login(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from role_builder.routes import github_auth as route
-    from role_builder.services.openbao_client import OpenBaoClient
 
     user_id = uuid4()
     tenant_id = uuid4()
@@ -78,13 +78,11 @@ def test_callback_full_flow_stores_token_and_returns_login(
         assert token == "ghp_secret"
         return {"login": "alice", "id": 42}
 
-    openbao_calls: list[tuple[str, dict[str, str]]] = []
+    write_calls: list[tuple[str, str]] = []
 
-    async def fake_put(self: Any, path: str, data: dict[str, str]) -> None:
-        openbao_calls.append((path, data))
-
-    async def fake_aclose(self: Any) -> None:
-        return None
+    class _FakeVaultSvc:
+        async def write(self, name: str, value: str) -> None:
+            write_calls.append((name, value))
 
     upsert_calls: list[dict[str, Any]] = []
 
@@ -98,8 +96,7 @@ def test_callback_full_flow_stores_token_and_returns_login(
     monkeypatch.setattr(
         route.gh_oauth_module.gh_oauth.__class__, "get_user_info", fake_user_info,
     )
-    monkeypatch.setattr(OpenBaoClient, "put", fake_put)
-    monkeypatch.setattr(OpenBaoClient, "aclose", fake_aclose)
+    monkeypatch.setattr(route, "_get_vault_service", lambda: _FakeVaultSvc())
     monkeypatch.setattr(route.github_integrations, "upsert", fake_upsert)
 
     resp = client.get(
@@ -110,10 +107,10 @@ def test_callback_full_flow_stores_token_and_returns_login(
     body = resp.json()
     assert body == {"status": "connected", "github_login": "alice"}
 
-    # Token stocké en OpenBao
-    assert len(openbao_calls) == 1
-    assert "github-tokens" in openbao_calls[0][0]
-    assert openbao_calls[0][1] == {"access_token": "ghp_secret"}
+    # Token stocké dans Harpocrate
+    assert len(write_calls) == 1
+    assert "github" in write_calls[0][0]
+    assert write_calls[0][1] == "ghp_secret"
 
     # Integration upsertée
     assert len(upsert_calls) == 1
@@ -184,21 +181,18 @@ def test_disconnect_removes_token_and_integration(
 ) -> None:
     """Phase 2 D : disconnect supprime TOUTES les intégrations du user."""
     from role_builder.routes import github_auth as route
-    from role_builder.services.openbao_client import OpenBaoClient
 
     async def fake_list(user_id: UUID, *, pool: Any) -> list[dict[str, Any]]:
         return [
-            {"openbao_path": "github-tokens/t/u-perso"},
-            {"openbao_path": "github-tokens/t/u-org"},
+            {"vault_secret_name": "github/t/u-perso"},
+            {"vault_secret_name": "github/t/u-org"},
         ]
 
-    deleted_paths: list[str] = []
+    deleted_names: list[str] = []
 
-    async def fake_delete_token(self: Any, path: str) -> None:
-        deleted_paths.append(path)
-
-    async def fake_aclose(self: Any) -> None:
-        return None
+    class _FakeVaultSvc:
+        async def try_delete(self, name: str) -> None:
+            deleted_names.append(name)
 
     deleted_users: list[UUID] = []
 
@@ -207,8 +201,7 @@ def test_disconnect_removes_token_and_integration(
         return 2
 
     monkeypatch.setattr(route.github_integrations, "list_by_user_id", fake_list)
-    monkeypatch.setattr(OpenBaoClient, "delete", fake_delete_token)
-    monkeypatch.setattr(OpenBaoClient, "aclose", fake_aclose)
+    monkeypatch.setattr(route, "_get_vault_service", lambda: _FakeVaultSvc())
     monkeypatch.setattr(
         route.github_integrations, "delete_by_user_id", fake_delete_integration,
     )
@@ -216,9 +209,7 @@ def test_disconnect_removes_token_and_integration(
     resp = client.delete("/api/auth/github")
     assert resp.status_code == 200
     assert resp.json() == {"status": "disconnected"}
-    assert deleted_paths == [
-        "github-tokens/t/u-perso", "github-tokens/t/u-org",
-    ]
+    assert deleted_names == ["github/t/u-perso", "github/t/u-org"]
     assert len(deleted_users) == 1
 
 
@@ -231,8 +222,6 @@ def test_list_integrations_returns_all(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from datetime import UTC, datetime
-
     from role_builder.routes import github_auth as route
 
     now = datetime.now(tz=UTC)
@@ -240,13 +229,13 @@ def test_list_integrations_returns_all(
         {
             "id": uuid4(), "user_id": uuid4(), "tenant_id": uuid4(),
             "github_login": "alice", "github_user_id": 1,
-            "openbao_path": "p1", "scope": "public_repo",
+            "vault_secret_name": "p1", "scope": "public_repo",
             "last_validated_at": now, "created_at": now,
         },
         {
             "id": uuid4(), "user_id": uuid4(), "tenant_id": uuid4(),
             "github_login": "alice-org", "github_user_id": 2,
-            "openbao_path": "p2", "scope": "public_repo",
+            "vault_secret_name": "p2", "scope": "public_repo",
             "last_validated_at": now, "created_at": now,
         },
     ]
@@ -285,7 +274,6 @@ def test_delete_integration_removes_token_and_row(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from role_builder.routes import github_auth as route
-    from role_builder.services.openbao_client import OpenBaoClient
 
     fixed_user_id = UUID("00000000-0000-0000-0000-000000000001")
     integration_id = uuid4()
@@ -293,17 +281,15 @@ def test_delete_integration_removes_token_and_row(
     async def fake_get(iid: UUID, *, pool: Any) -> dict[str, Any]:
         return {
             "id": iid, "user_id": fixed_user_id,
-            "openbao_path": "github-tokens/t/spec",
+            "vault_secret_name": "github/t/spec",
             "github_login": "alice",
         }
 
-    deleted_paths: list[str] = []
+    deleted_names: list[str] = []
 
-    async def fake_delete_token(self: Any, path: str) -> None:
-        deleted_paths.append(path)
-
-    async def fake_aclose(self: Any) -> None:
-        return None
+    class _FakeVaultSvc:
+        async def try_delete(self, name: str) -> None:
+            deleted_names.append(name)
 
     delete_calls: list[UUID] = []
 
@@ -313,12 +299,11 @@ def test_delete_integration_removes_token_and_row(
 
     monkeypatch.setattr(route.github_integrations, "get_by_id", fake_get)
     monkeypatch.setattr(route.github_integrations, "delete_by_id", fake_delete_by_id)
-    monkeypatch.setattr(OpenBaoClient, "delete", fake_delete_token)
-    monkeypatch.setattr(OpenBaoClient, "aclose", fake_aclose)
+    monkeypatch.setattr(route, "_get_vault_service", lambda: _FakeVaultSvc())
 
     resp = client.delete(f"/api/auth/github/integrations/{integration_id}")
     assert resp.status_code == 204, resp.text
-    assert deleted_paths == ["github-tokens/t/spec"]
+    assert deleted_names == ["github/t/spec"]
     assert delete_calls == [integration_id]
 
 
@@ -346,7 +331,7 @@ def test_delete_integration_returns_403_when_not_owner(
 
     async def fake_get(iid: UUID, *, pool: Any) -> dict[str, Any]:
         return {
-            "id": iid, "user_id": other_user, "openbao_path": "p",
+            "id": iid, "user_id": other_user, "vault_secret_name": "p",
             "github_login": "x",
         }
 
