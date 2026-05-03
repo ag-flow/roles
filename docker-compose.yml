@@ -32,31 +32,12 @@ services:
       timeout: 5s
       retries: 5
 
-  openbao:
-    image: openbao/openbao:latest
-    cap_add:
-      - IPC_LOCK
-    environment:
-      BAO_DEV_ROOT_TOKEN_ID: ${OPENBAO_DEV_TOKEN}
-      BAO_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
-    ports:
-      - "${OPENBAO_PORT:-8200}:8200"
-    healthcheck:
-      # 127.0.0.1 explicite — `localhost` peut résoudre en IPv6 (::1) alors
-      # qu'OpenBao écoute uniquement en IPv4 (0.0.0.0:8200) → connection refused.
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8200/v1/sys/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   backend:
     image: ghcr.io/${GHCR_OWNER:-yoops}/backend-roles:${IMAGE_TAG:-latest}
     depends_on:
       postgres:
         condition: service_healthy
       minio:
-        condition: service_healthy
-      openbao:
         condition: service_healthy
     environment:
       HARPOCRATE_API_TOKEN_API1: ${HARPOCRATE_API_TOKEN_API1:-}
@@ -65,8 +46,6 @@ services:
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      OPENBAO_URL: http://openbao:8200
-      OPENBAO_TOKEN: ${OPENBAO_DEV_TOKEN}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       # Cookies scraping (vides = contenus publics seulement)
       YOUTUBE_COOKIES_B64: ${YOUTUBE_COOKIES_B64:-}

@@ -2,7 +2,7 @@
 
 ## Projet
 
-**Role Builder** est une webapp qui construit des **rôles ag.flow** à partir de corpus audio scrapés sur YouTube, Instagram et TikTok. Pipeline complet : scraping → transcription (faster-whisper local ou SaaS) → chunking + embeddings (pgvector) → synthèse en 4 étages (extractor → clusterer → decomposer → document_writer) → export ZIP vers ag.flow. Mistral via ag.flow pour la synthèse, OpenBao pour les secrets, MinIO pour les corpus.
+**Role Builder** est une webapp qui construit des **rôles ag.flow** à partir de corpus audio scrapés sur YouTube, Instagram et TikTok. Pipeline complet : scraping → transcription (faster-whisper local ou SaaS) → chunking + embeddings (pgvector) → synthèse en 4 étages (extractor → clusterer → decomposer → document_writer) → export ZIP vers ag.flow. Mistral via ag.flow pour la synthèse, Harpocrate pour les secrets, MinIO pour les corpus.
 
 **Spec complète** : `docs/specs/00-overview.md` (point d'entrée). Lire d'abord ce fichier, puis le fichier du sprint courant + `01-data-model.md` (référence SQL transverse). 13 fichiers de spec figés (00 → 12), 8 sprints planifiés.
 
@@ -17,7 +17,7 @@
 - **BDD** : PostgreSQL 16 + **pgvector** (embeddings) + extensions `uuid-ossp` et `pgcrypto`
 - **Temps réel** : WebSocket alimenté par `LISTEN/NOTIFY` PostgreSQL — pas de Redis, pas de message broker externe
 - **Stockage objets** : MinIO — 3 buckets : `corpus-audio`, `corpus-transcripts`, `corpus-thumbnails`
-- **Secrets applicatifs** : OpenBao (KV v2 au path `secret/`) — cookies de scraping, clés API SaaS, tokens GitHub
+- **Secrets** : **Harpocrate** (coffre end-to-end encrypted) — tous les secrets via `${vault://api1:SECRET_NAME}`
 - **LLM synthèse** : Mistral via les ressources LLM d'**ag.flow** (la clé Mistral est dans le coffre ag.flow, jamais côté Role Builder)
 - **Transcription** : faster-whisper en local (GPU) ou providers SaaS (OpenAI Whisper, Deepgram, AssemblyAI, Speechmatics) avec clés fournies par l'utilisateur
 - **Scraping** : containers Docker one-shot (yt-dlp + ffmpeg) avec contrat stdin JSON / stdout NDJSON
@@ -25,7 +25,7 @@
 
 ## Dev & cible
 
-- **Développement** : local Windows (uv + node), `docker-compose up` lance Postgres + MinIO + OpenBao + backend + frontend
+- **Développement** : local Windows (uv + node), `docker-compose up` lance Postgres + MinIO + backend + frontend
 - **Cible homelab** :
   - **pve1** : backend FastAPI, scrapers (containers one-shot), workers de transcription SaaS (légers, sans GPU)
   - **pve2** : worker faster-whisper du pool shared (accès GPU RTX 4090)
@@ -35,15 +35,13 @@
 ## Commandes essentielles
 
 ```bash
-# Stack complète (Postgres + MinIO + OpenBao + backend + frontend)
+# Stack complète (Postgres + MinIO + backend + frontend)
 docker compose up -d
 docker compose logs -f backend                            # Suivi des logs backend
 
 # Init des dépendances (à lancer une fois après docker compose up)
 ./scripts/apply_migrations.sh                             # Applique les migrations SQL
 ./scripts/init_minio.sh                                   # Crée les 3 buckets
-./scripts/init_openbao.sh                                 # Active KV v2 au path secret/
-
 # Backend local (Windows, hot-reload)
 cd backend && uv sync
 cd backend && uv run uvicorn role_builder.main:app --reload    # :8000
@@ -78,7 +76,6 @@ agflow.roles/
 │   │   ├── schemas/             # DTOs Pydantic
 │   │   └── services/
 │   │       ├── minio_client.py
-│   │       ├── openbao_client.py
 │   │       ├── ws_relay.py              # Pont LISTEN/NOTIFY → WebSocket
 │   │       ├── chunking_worker.py       # Sprint 4
 │   │       ├── synthesis/               # Sprint 5 (extractor, clusterer, decomposer, document_writer, identity_synthesizer)
@@ -108,9 +105,8 @@ agflow.roles/
 ├── scripts/
 │   ├── apply_migrations.sh
 │   ├── reset_db.sh
-│   ├── init_minio.sh
-│   └── init_openbao.sh
-├── docker-compose.yml           # Dev : postgres + minio + openbao + backend + frontend
+│   └── init_minio.sh
+├── docker-compose.yml           # Dev : postgres + minio + backend + frontend
 └── docker-compose.prod.yml      # Prod : à finaliser quand MVP validé
 ```
 
@@ -147,10 +143,10 @@ agflow.roles/
 - Toute nouvelle table → migration SQL + test de migration
 
 ### Stockage objets et secrets
-- **Secrets app** : OpenBao KV v2 au path `secret/`. Sous-paths attendus :
-  - `secret/scraping-credentials/{tenant_id}/{platform}/{credential_id}`
-  - `secret/transcription-keys/{tenant_id}/{provider}/{key_id}`
-  - `secret/github-tokens/{tenant_id}/{user_id}`
+- **Secrets app** : Harpocrate vault. Chemins vault :
+  - `users/{email_slug}/scraping/{platform}/{cred_id}` — cookies de scraping
+  - `users/{email_slug}/transcription/{provider}/{key_id}` — clés SaaS transcription
+  - `github/{tenant_id}/{user_id}` — tokens GitHub OAuth
 - **Secret Mistral** : pas géré par Role Builder — référence stockée dans `role_projects.mistral_secret_ref`, le secret réel vit dans le coffre ag.flow
 - **Buckets MinIO** : `corpus-audio/{tenant_id}/{role_id}/{source_id}/{item_id}.mp3`, `corpus-transcripts/.../{item_id}.json`, `corpus-thumbnails/...`
 - **Format pivot transcript** : JSON normalisé indépendant du provider de transcription (cf. `docs/specs/04-transcription.md` § Format pivot). Tout provider est adapté vers ce format à la sortie.
@@ -197,7 +193,7 @@ Avant de déclarer une tâche terminée, **toutes** ces étapes sont obligatoire
 ## Outils Claude Code
 
 ### Context7 — documentation live
-**Quand** : avant d'écrire du code qui utilise FastAPI, Pydantic v2, asyncpg, pgvector, MinIO Python, httpx (clients OpenBao + ag.flow + GitHub), faster-whisper, yt-dlp, Next.js 14 App Router, SWR, etc. Les API évoluent, ne te fie pas à ta mémoire.
+**Quand** : avant d'écrire du code qui utilise FastAPI, Pydantic v2, asyncpg, pgvector, MinIO Python, httpx (ag.flow + GitHub), faster-whisper, yt-dlp, Next.js 14 App Router, SWR, etc. Les API évoluent, ne te fie pas à ta mémoire.
 
 ### Serena — navigation sémantique
 **Quand** : avant un refactor, pour comprendre les dépendances entre modules, ou pour trouver tous les usages d'une fonction/classe.
