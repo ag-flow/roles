@@ -40,8 +40,8 @@ services:
       minio:
         condition: service_healthy
     environment:
-      HARPOCRATE_API_TOKEN_API1: ${HARPOCRATE_API_TOKEN:-}
-      HARPOCRATE_API_URL_API1: ${HARPOCRATE_API_URL_API1:-https://vault.yoops.org}
+      HARPOCRATE_API_TOKEN: ${HARPOCRATE_API_TOKEN:-}
+      HARPOCRATE_API_URL: ${HARPOCRATE_API_URL:-https://vault.yoops.org}
       DATABASE_URL: postgresql://${POSTGRES_USER:-rb}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-role_builder}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
@@ -106,8 +106,8 @@ services:
       # le backend /api/auth/local-login qui valide contre LOCAL_ADMIN_*
       # (côté backend) et retourne un JWT propagé en Bearer.
       LOCAL_ADMIN_ENABLED: ${LOCAL_ADMIN_ENABLED:-false}
-      HARPOCRATE_API_TOKEN_API1: ${HARPOCRATE_API_TOKEN_API1:-}
-      HARPOCRATE_API_URL_API1: ${HARPOCRATE_API_URL_API1:-https://vault.yoops.org}
+      HARPOCRATE_API_TOKEN: ${HARPOCRATE_API_TOKEN:-}
+      HARPOCRATE_API_URL: ${HARPOCRATE_API_URL:-https://vault.yoops.org}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
 
