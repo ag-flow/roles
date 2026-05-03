@@ -1,116 +1,116 @@
-services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-rb}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-role_builder}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rb} -d ${POSTGRES_DB:-role_builder}"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+# services:
+#   postgres:
+#     image: pgvector/pgvector:pg16
+#     environment:
+#       POSTGRES_USER: ${POSTGRES_USER:-rb}
+#       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+#       POSTGRES_DB: ${POSTGRES_DB:-role_builder}
+#     volumes:
+#       - postgres_data:/var/lib/postgresql/data
+#     ports:
+#       - "${POSTGRES_PORT:-5432}:5432"
+#     healthcheck:
+#       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rb} -d ${POSTGRES_DB:-role_builder}"]
+#       interval: 5s
+#       timeout: 3s
+#       retries: 10
 
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    ports:
-      - "${MINIO_API_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
-    volumes:
-      - minio_data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+#   minio:
+#     image: minio/minio:latest
+#     command: server /data --console-address ":9001"
+#     environment:
+#       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+#       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+#     ports:
+#       - "${MINIO_API_PORT:-9000}:9000"
+#       - "${MINIO_CONSOLE_PORT:-9001}:9001"
+#     volumes:
+#       - minio_data:/data
+#     healthcheck:
+#       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
 
-  backend:
-    image: ghcr.io/${GHCR_OWNER:-yoops}/backend-roles:${IMAGE_TAG:-latest}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    environment:
-      HARPOCRATE_API_TOKEN: ${HARPOCRATE_API_TOKEN:-}
-      HARPOCRATE_API_URL: ${HARPOCRATE_API_URL:-https://vault.yoops.org}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-rb}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-role_builder}
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      # Cookies scraping (vides = contenus publics seulement)
-      YOUTUBE_COOKIES_B64: ${YOUTUBE_COOKIES_B64:-}
-      INSTAGRAM_COOKIES_B64: ${INSTAGRAM_COOKIES_B64:-}
-      TIKTOK_COOKIES_B64: ${TIKTOK_COOKIES_B64:-}
-      MAX_CONCURRENT_SCRAPERS: ${MAX_CONCURRENT_SCRAPERS:-5}
-      SCRAPER_IMAGE_TAG: ${IMAGE_TAG:-latest}
-      # Clés SaaS de transcription
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
-      ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY:-}
-      SPEECHMATICS_API_KEY: ${SPEECHMATICS_API_KEY:-}
-      WORKER_AUTO_STOP_THRESHOLD_S: ${WORKER_AUTO_STOP_THRESHOLD_S:-300}
-      WORKER_AUTO_STOP_PERIOD_S: ${WORKER_AUTO_STOP_PERIOD_S:-60}
-      WORKER_IMAGE_TAG: ${IMAGE_TAG:-latest}
-      GHCR_OWNER: ${GHCR_OWNER:-}
-      # Auth Keycloak — vide en mode tests/dev (DISABLE_AUTH=true)
-      KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-}
-      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
-      KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-}
-      DISABLE_AUTH: ${DISABLE_AUTH:-false}
-      # Sprint 4 — Mistral (LLM + embeddings) + chunking_worker
-      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
-      MISTRAL_BASE_URL: ${MISTRAL_BASE_URL:-https://api.mistral.ai}
-      MISTRAL_EMBED_MODEL: ${MISTRAL_EMBED_MODEL:-mistral-embed}
-      MISTRAL_CHAT_MODEL: ${MISTRAL_CHAT_MODEL:-mistral-large-latest}
-      DISABLE_CHUNKING_WORKER: ${DISABLE_CHUNKING_WORKER:-false}
-      # Auth admin local (sans OIDC). Activé via LOCAL_ADMIN_ENABLED=true
-      # avec LOCAL_ADMIN_PASSWORD non vide ET LOCAL_ADMIN_SECRET (>=32 chars).
-      # Le frontend appelle /api/auth/local-login avec ces creds.
-      LOCAL_ADMIN_ENABLED: ${LOCAL_ADMIN_ENABLED:-false}
-      LOCAL_ADMIN_USER: ${LOCAL_ADMIN_USER:-admin}
-      LOCAL_ADMIN_PASSWORD: ${LOCAL_ADMIN_PASSWORD:-}
-      LOCAL_ADMIN_SECRET: ${LOCAL_ADMIN_SECRET:-}
-      LOCAL_ADMIN_TOKEN_TTL_S: ${LOCAL_ADMIN_TOKEN_TTL_S:-43200}
-    volumes:
-      # Cross-app launcher menu — éditable côté CT sans rebuild
-      - ./apps.json:/app/apps.json:ro
-    ports:
-      - "${BACKEND_PORT:-8000}:8000"
+#   backend:
+#     image: ghcr.io/${GHCR_OWNER:-yoops}/backend-roles:${IMAGE_TAG:-latest}
+#     depends_on:
+#       postgres:
+#         condition: service_healthy
+#       minio:
+#         condition: service_healthy
+#     environment:
+#       HARPOCRATE_API_TOKEN: ${HARPOCRATE_API_TOKEN:-}
+#       HARPOCRATE_API_URL: ${HARPOCRATE_API_URL:-https://vault.yoops.org}
+#       DATABASE_URL: postgresql://${POSTGRES_USER:-rb}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-role_builder}
+#       MINIO_ENDPOINT: http://minio:9000
+#       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+#       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+#       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+#       # Cookies scraping (vides = contenus publics seulement)
+#       YOUTUBE_COOKIES_B64: ${YOUTUBE_COOKIES_B64:-}
+#       INSTAGRAM_COOKIES_B64: ${INSTAGRAM_COOKIES_B64:-}
+#       TIKTOK_COOKIES_B64: ${TIKTOK_COOKIES_B64:-}
+#       MAX_CONCURRENT_SCRAPERS: ${MAX_CONCURRENT_SCRAPERS:-5}
+#       SCRAPER_IMAGE_TAG: ${IMAGE_TAG:-latest}
+#       # Clés SaaS de transcription
+#       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+#       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+#       ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY:-}
+#       SPEECHMATICS_API_KEY: ${SPEECHMATICS_API_KEY:-}
+#       WORKER_AUTO_STOP_THRESHOLD_S: ${WORKER_AUTO_STOP_THRESHOLD_S:-300}
+#       WORKER_AUTO_STOP_PERIOD_S: ${WORKER_AUTO_STOP_PERIOD_S:-60}
+#       WORKER_IMAGE_TAG: ${IMAGE_TAG:-latest}
+#       GHCR_OWNER: ${GHCR_OWNER:-}
+#       # Auth Keycloak — vide en mode tests/dev (DISABLE_AUTH=true)
+#       KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-}
+#       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
+#       KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-}
+#       DISABLE_AUTH: ${DISABLE_AUTH:-false}
+#       # Sprint 4 — Mistral (LLM + embeddings) + chunking_worker
+#       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+#       MISTRAL_BASE_URL: ${MISTRAL_BASE_URL:-https://api.mistral.ai}
+#       MISTRAL_EMBED_MODEL: ${MISTRAL_EMBED_MODEL:-mistral-embed}
+#       MISTRAL_CHAT_MODEL: ${MISTRAL_CHAT_MODEL:-mistral-large-latest}
+#       DISABLE_CHUNKING_WORKER: ${DISABLE_CHUNKING_WORKER:-false}
+#       # Auth admin local (sans OIDC). Activé via LOCAL_ADMIN_ENABLED=true
+#       # avec LOCAL_ADMIN_PASSWORD non vide ET LOCAL_ADMIN_SECRET (>=32 chars).
+#       # Le frontend appelle /api/auth/local-login avec ces creds.
+#       LOCAL_ADMIN_ENABLED: ${LOCAL_ADMIN_ENABLED:-false}
+#       LOCAL_ADMIN_USER: ${LOCAL_ADMIN_USER:-admin}
+#       LOCAL_ADMIN_PASSWORD: ${LOCAL_ADMIN_PASSWORD:-}
+#       LOCAL_ADMIN_SECRET: ${LOCAL_ADMIN_SECRET:-}
+#       LOCAL_ADMIN_TOKEN_TTL_S: ${LOCAL_ADMIN_TOKEN_TTL_S:-43200}
+#     volumes:
+#       # Cross-app launcher menu — éditable côté CT sans rebuild
+#       - ./apps.json:/app/apps.json:ro
+#     ports:
+#       - "${BACKEND_PORT:-8000}:8000"
 
-  frontend:
-    image: ghcr.io/${GHCR_OWNER:-yoops}/frontend-roles:${IMAGE_TAG:-latest}
-    depends_on:
-      - backend
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8000}
-      BACKEND_INTERNAL_URL: http://backend:8000
-      # Auth.js + provider Keycloak (côté frontend Next.js)
-      KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-}
-      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
-      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
-      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-}
-      NEXTAUTH_URL: ${NEXTAUTH_URL:-}
-      AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
-      # Auth admin local (sans OIDC). Le frontend lit LOCAL_ADMIN_ENABLED
-      # pour afficher le form login local sur /login. L'authorize() appelle
-      # le backend /api/auth/local-login qui valide contre LOCAL_ADMIN_*
-      # (côté backend) et retourne un JWT propagé en Bearer.
-      LOCAL_ADMIN_ENABLED: ${LOCAL_ADMIN_ENABLED:-false}
-      HARPOCRATE_API_TOKEN: ${HARPOCRATE_API_TOKEN:-}
-      HARPOCRATE_API_URL: ${HARPOCRATE_API_URL:-https://vault.yoops.org}
-    ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+#   frontend:
+#     image: ghcr.io/${GHCR_OWNER:-yoops}/frontend-roles:${IMAGE_TAG:-latest}
+#     depends_on:
+#       - backend
+#     environment:
+#       NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8000}
+#       BACKEND_INTERNAL_URL: http://backend:8000
+#       # Auth.js + provider Keycloak (côté frontend Next.js)
+#       KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-}
+#       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
+#       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
+#       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-}
+#       NEXTAUTH_URL: ${NEXTAUTH_URL:-}
+#       AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
+#       # Auth admin local (sans OIDC). Le frontend lit LOCAL_ADMIN_ENABLED
+#       # pour afficher le form login local sur /login. L'authorize() appelle
+#       # le backend /api/auth/local-login qui valide contre LOCAL_ADMIN_*
+#       # (côté backend) et retourne un JWT propagé en Bearer.
+#       LOCAL_ADMIN_ENABLED: ${LOCAL_ADMIN_ENABLED:-false}
+#       HARPOCRATE_API_TOKEN: ${HARPOCRATE_API_TOKEN:-}
+#       HARPOCRATE_API_URL: ${HARPOCRATE_API_URL:-https://vault.yoops.org}
+#     ports:
+#       - "${FRONTEND_PORT:-3000}:3000"
 
-volumes:
-  postgres_data:
-  minio_data:
+# volumes:
+#   postgres_data:
+#   minio_data:

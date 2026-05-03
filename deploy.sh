@@ -31,27 +31,16 @@ fi
 chmod +x build.sh
 ./build.sh
 
-# --- 4) Re-tag des images locales avec les noms attendus par docker-compose ---
-# build.sh crée backend-roles:latest / frontend-roles:latest (sans préfixe registre).
-# docker-compose.yml référence ghcr.io/${GHCR_OWNER}/...:latest.
-# On lit GHCR_OWNER depuis .env (set -a exporte toutes les vars, set +a stoppe).
-set -a; source .env; set +a
-_OWNER="${GHCR_OWNER:-yoops}"
-_TAG="${IMAGE_TAG:-latest}"
-echo "Re-tag des images locales → ghcr.io/${_OWNER}/*:${_TAG}"
-docker tag "backend-roles:${_TAG}"  "ghcr.io/${_OWNER}/backend-roles:${_TAG}"
-docker tag "frontend-roles:${_TAG}" "ghcr.io/${_OWNER}/frontend-roles:${_TAG}"
-
-# --- 5) Nettoyage containers orphelins / anciennes runs du projet ---
+# --- 4) Nettoyage containers orphelins / anciennes runs du projet ---
 # down supprime les containers du projet + réseaux, et --remove-orphans enlève ceux qui traînent
 echo "Arrêt/cleanup du projet docker compose (incl. orphelins)..."
-docker compose down --remove-orphans || true
+docker compose -f docker-compose-dev.yml down --remove-orphans || true
 
-# --- 6) Relance ---
+# --- 5) Relance ---
 # --remove-orphans : supprime les orphelins détectés
-# --pull never : n'essaie pas de pull des images distantes (on vient de re-tag localement)
+# --pull never : utilise les images locales buildées à l'étape 3
 echo "Démarrage docker compose..."
-docker compose up -d --remove-orphans --pull never
+docker compose -f docker-compose-dev.yml up -d --remove-orphans --pull never
 
 echo "OK. Services actifs:"
-docker compose ps
+docker compose -f docker-compose-dev.yml ps
