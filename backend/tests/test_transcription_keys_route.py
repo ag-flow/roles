@@ -37,7 +37,7 @@ def _make_key_row(
         "user_id": _FIXED_USER_ID,
         "provider": provider,
         "label": "Ma clé Deepgram",
-        "vault_secret_name": f"users/no_email/transcription/{provider}/{kid}",
+        "vault_secret_name": f"${{vault://api1:users/no_email/transcription/{provider}/test_key}}",
         "status": status,
         "is_primary": is_primary,
         "is_fallback": is_fallback,
@@ -125,6 +125,7 @@ def test_create_key_returns_201_and_dto(
         return {"valid": True, "error": None, "balance_usd": None}
 
     async def fake_insert(**kwargs: Any) -> UUID:
+        calls["insert_vault_secret_name"] = kwargs.get("vault_secret_name", "")
         return key_id
 
     async def fake_get(k_id: UUID, *, user_id: UUID, pool: Any) -> dict[str, Any]:
@@ -147,6 +148,7 @@ def test_create_key_returns_201_and_dto(
             "provider": "deepgram",
             "label": "Ma clé Deepgram",
             "api_key": "dg_test_key_123",
+            "harpocrate_key": "ma_cle_deepgram",
             "workers_count": 1,
             "is_primary": False,
             "is_fallback": False,
@@ -157,8 +159,11 @@ def test_create_key_returns_201_and_dto(
     assert body["id"] == str(key_id)
     assert body["provider"] == "deepgram"
     assert "write_name" in calls
-    assert "users/" in calls["write_name"]
-    assert calls.get("update_balance_called") is None  # balance_usd=None → pas appelé
+    assert calls["write_name"].startswith("users/")
+    assert "ma_cle_deepgram" in calls["write_name"]
+    assert calls.get("insert_vault_secret_name", "").startswith("${vault://")
+    assert "ma_cle_deepgram" in calls.get("insert_vault_secret_name", "")
+    assert calls.get("update_balance_called") is None
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +185,7 @@ def test_create_key_invalid_returns_400(
 
     resp = client.post(
         "/api/transcription-keys",
-        json={"provider": "deepgram", "api_key": "bad_key"},
+        json={"provider": "deepgram", "api_key": "bad_key", "harpocrate_key": "any_key"},
     )
     assert resp.status_code == 400, resp.text
     assert "unauthorized" in resp.json()["detail"]
@@ -224,7 +229,7 @@ def test_create_key_with_balance_calls_update_balance(
 
     resp = client.post(
         "/api/transcription-keys",
-        json={"provider": "deepgram", "api_key": "dg_valid"},
+        json={"provider": "deepgram", "api_key": "dg_valid", "harpocrate_key": "ma_cle"},
     )
     assert resp.status_code == 201, resp.text
     assert calls.get("balance_usd") == 42.5

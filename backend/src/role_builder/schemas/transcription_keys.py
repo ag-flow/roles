@@ -29,6 +29,7 @@ class CreateTranscriptionKeyRequest(BaseModel):
     provider: Literal["openai-whisper", "deepgram", "assemblyai", "speechmatics"]
     label: str | None = None
     api_key: str
+    harpocrate_key: str = Field(min_length=1)
     workers_count: int = Field(default=1, ge=1, le=5)
     is_primary: bool = False
     is_fallback: bool = False

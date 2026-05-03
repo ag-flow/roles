@@ -11,13 +11,14 @@ Routes :
 
 Tous protégés par ``Depends(get_current_user)``.
 La clé API réelle est stockée dans Harpocrate sous le chemin :
-  users/{email_slug}/transcription/{provider}/{key_id}
+  users/{email_slug}/transcription/{provider}/{harpocrate_key}
+La DB enregistre la référence vault : ${vault://api1:<chemin>}
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -34,8 +35,14 @@ from role_builder.schemas.transcription_keys import (
     UsageResponse,
 )
 from role_builder.services import transcription_validator
-from role_builder.services.user_vault import build_vault_secret_name
-from role_builder.services.user_vault import get_service as _get_vault_service
+from role_builder.services.user_vault import (
+    build_transcription_vault_path,
+    build_vault_ref,
+    extract_vault_path,
+)
+from role_builder.services.user_vault import (
+    get_service as _get_vault_service,
+)
 
 router = APIRouter()
 log = structlog.get_logger(__name__)
@@ -108,17 +115,17 @@ async def create_key_endpoint(
             detail=result.get("error") or "invalid api key",
         )
 
-    key_id = uuid4()
-    secret_name = build_vault_secret_name(user.email, request.provider, key_id)
+    path = build_transcription_vault_path(user.email, request.provider, request.harpocrate_key)
+    vault_ref = build_vault_ref(path)
 
-    await _get_vault_service().write(secret_name, request.api_key)
+    await _get_vault_service().write(path, request.api_key)
 
     inserted_id = await keys_helper.insert_transcription_key(
         tenant_id=user.tenant_id,
         user_id=user.user_id,
         provider=request.provider,
         label=request.label,
-        vault_secret_name=secret_name,
+        vault_secret_name=vault_ref,
         workers_count=request.workers_count,
         is_primary=request.is_primary,
         is_fallback=request.is_fallback,
@@ -181,7 +188,8 @@ async def test_key_endpoint(
     if key is None:
         raise HTTPException(status_code=404, detail="key not found")
 
-    raw_key = await _get_vault_service().read(key["vault_secret_name"])
+    path = extract_vault_path(key["vault_secret_name"])
+    raw_key = await _get_vault_service().read(path)
 
     if raw_key is None:
         await keys_helper.mark_invalid(key_id, pool=db_pool.pool)
@@ -284,7 +292,8 @@ async def delete_key_endpoint(
 
     await _trigger_worker_stop(key_id)
 
-    await _get_vault_service().try_delete(key["vault_secret_name"])
+    path = extract_vault_path(key["vault_secret_name"])
+    await _get_vault_service().try_delete(path)
 
     await keys_helper.delete_key(key_id, pool=db_pool.pool)
     log.info("transcription_keys.deleted", key_id=str(key_id))
