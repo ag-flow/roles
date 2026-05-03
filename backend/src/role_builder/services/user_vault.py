@@ -83,10 +83,11 @@ class UserVaultService:
         self._client = client
 
     async def write(self, secret_name: str, value: str) -> None:
-        """Crée ou met à jour un secret dans le coffre."""
-        await asyncio.to_thread(
-            self._client.secrets.populate, secret_name, False, value
-        )
+        """Crée ou met à jour un secret dans le coffre (upsert)."""
+        try:
+            await asyncio.to_thread(self._client.secrets.put, secret_name, value)
+        except SecretNotFound:
+            await asyncio.to_thread(self._client.secrets.create, secret_name, value)
         log.info("user_vault.written", name=secret_name)
 
     async def read(self, secret_name: str) -> str | None:
@@ -97,11 +98,9 @@ class UserVaultService:
             return None
 
     async def try_delete(self, secret_name: str) -> None:
-        """Best-effort : écrase le secret avec une valeur vide pour l'invalider."""
+        """Best-effort : supprime le secret du coffre."""
         try:
-            await asyncio.to_thread(
-                self._client.secrets.populate, secret_name, False, ""
-            )
+            await asyncio.to_thread(self._client.secrets.delete, secret_name)
         except Exception:
             log.exception("user_vault.delete_failed", name=secret_name)
 

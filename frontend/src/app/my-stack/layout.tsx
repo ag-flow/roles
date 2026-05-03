@@ -7,7 +7,6 @@ import type { ReactNode } from 'react';
 const TABS = [
   { href: '/my-stack/social-accounts', label: 'Comptes réseaux sociaux' },
   { href: '/my-stack/transcription-services', label: 'Services de transcription' },
-  { href: '/my-stack/mistral-config', label: 'Mistral pour la synthèse' },
   { href: '/my-stack/publication', label: 'Publication GitHub' },
   { href: '/my-stack/quotas', label: 'Quotas et garde-fous' },
 ];
@@ -17,9 +16,22 @@ export default function MyStackLayout({ children }: { children: ReactNode }) {
 
   return (
     <div style={{ maxWidth: 960, margin: '0 auto', padding: '1.5rem 1rem' }}>
-      <h1 style={{ marginBottom: '1.5rem', fontSize: '1.5rem', fontWeight: 700 }}>
-        Ma stack
-      </h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
+        <Link
+          href="/"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.25rem',
+            fontSize: '0.875rem',
+            color: '#6b7280',
+            textDecoration: 'none',
+          }}
+        >
+          ← Retour
+        </Link>
+        <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700 }}>Ma stack</h1>
+      </div>
 
       <nav
         style={{

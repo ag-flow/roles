@@ -66,17 +66,18 @@ def test_build_vault_secret_name_contains_key_id() -> None:
 
 def _make_fake_client(
     *,
-    populate_raises: Exception | None = None,
+    put_raises: Exception | None = None,
+    create_raises: Exception | None = None,
+    delete_raises: Exception | None = None,
     get_returns: str | None = "secret_value",
     get_raises: Exception | None = None,
 ) -> MagicMock:
-    """Crée un VaultClient mock avec secrets.populate et secrets.get configurables."""
+    """Crée un VaultClient mock avec secrets.put/create/delete/get configurables."""
     mock_secrets = MagicMock()
 
-    if populate_raises:
-        mock_secrets.populate.side_effect = populate_raises
-    else:
-        mock_secrets.populate.return_value = MagicMock(success=True)
+    mock_secrets.put.side_effect = put_raises
+    mock_secrets.create.side_effect = create_raises
+    mock_secrets.delete.side_effect = delete_raises
 
     if get_raises:
         mock_secrets.get.side_effect = get_raises
@@ -92,13 +93,27 @@ def _make_fake_client(
 
 
 @pytest.mark.asyncio
-async def test_write_calls_populate_with_value() -> None:
-    """write() appelle populate(name, False, value) sur le client."""
+async def test_write_calls_put_when_secret_exists() -> None:
+    """write() appelle put() si le secret existe déjà."""
     client = _make_fake_client()
     svc = UserVaultService(client)
     await svc.write("users/test/transcription/openai/uuid", "sk-test")
-    client.secrets.populate.assert_called_once_with(
-        "users/test/transcription/openai/uuid", False, "sk-test"
+    client.secrets.put.assert_called_once_with(
+        "users/test/transcription/openai/uuid", "sk-test"
+    )
+    client.secrets.create.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_write_calls_create_when_secret_not_found() -> None:
+    """write() bascule sur create() si put() lève SecretNotFound."""
+    from harpocrate import SecretNotFound
+    client = _make_fake_client(put_raises=SecretNotFound("not found"))
+    svc = UserVaultService(client)
+    await svc.write("users/test/transcription/openai/uuid", "sk-new")
+    client.secrets.put.assert_called_once()
+    client.secrets.create.assert_called_once_with(
+        "users/test/transcription/openai/uuid", "sk-new"
     )
 
 
@@ -122,20 +137,20 @@ async def test_read_returns_none_on_secret_not_found() -> None:
 
 
 @pytest.mark.asyncio
-async def test_try_delete_calls_populate_with_empty() -> None:
-    """try_delete() écrase le secret avec une valeur vide."""
+async def test_try_delete_calls_delete() -> None:
+    """try_delete() appelle delete() sur le client."""
     client = _make_fake_client()
     svc = UserVaultService(client)
     await svc.try_delete("users/test/transcription/openai/uuid")
-    client.secrets.populate.assert_called_once_with(
-        "users/test/transcription/openai/uuid", False, ""
+    client.secrets.delete.assert_called_once_with(
+        "users/test/transcription/openai/uuid"
     )
 
 
 @pytest.mark.asyncio
 async def test_try_delete_swallows_exceptions() -> None:
     """try_delete() ne propage pas les exceptions (best-effort)."""
-    client = _make_fake_client(populate_raises=RuntimeError("vault down"))
+    client = _make_fake_client(delete_raises=RuntimeError("vault down"))
     svc = UserVaultService(client)
     await svc.try_delete("users/test/transcription/openai/uuid")  # pas de raise
 
