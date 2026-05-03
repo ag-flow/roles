@@ -15,30 +15,26 @@ class _StubPool:
         raise AssertionError("Pool.acquire ne doit pas être appelé")
 
 
-class _StubOpenBao:
-    """OpenBaoClient stub configurable."""
+class _StubUserVaultSvc:
+    """UserVaultService stub configurable."""
 
-    def __init__(self, secrets: dict[str, dict | None]) -> None:
+    def __init__(self, secrets: dict[str, str | None]) -> None:
         self._secrets = secrets
-        self.closed = False
 
-    async def get(self, path: str) -> dict[str, Any] | None:
-        return self._secrets.get(path)
-
-    async def aclose(self) -> None:
-        self.closed = True
+    async def read(self, name: str) -> str | None:
+        return self._secrets.get(name)
 
 
 def _make_key(
     *,
-    openbao_path: str = "secret/key/x",
+    vault_secret_name: str = "users/test/transcription/deepgram/x",
     provider: str = "deepgram",
     monthly_cap_usd: float | None = None,
 ) -> dict[str, Any]:
     return {
         "id": uuid4(),
         "provider": provider,
-        "openbao_path": openbao_path,
+        "vault_secret_name": vault_secret_name,
         "monthly_cap_usd": monthly_cap_usd,
     }
 
@@ -56,8 +52,8 @@ async def test_poll_all_balances_happy_path_two_keys(
     from role_builder.db_helpers import transcription_keys as keys_helper
     from role_builder.services import credit_monitor, transcription_validator
 
-    key1 = _make_key(openbao_path="path/1")
-    key2 = _make_key(openbao_path="path/2")
+    key1 = _make_key(vault_secret_name="users/path/1")
+    key2 = _make_key(vault_secret_name="users/path/2")
 
     update_calls: list[dict] = []
     mark_exhausted_calls: list[Any] = []
@@ -81,14 +77,12 @@ async def test_poll_all_balances_happy_path_two_keys(
     monkeypatch.setattr(keys_helper, "mark_exhausted", fake_mark_exhausted)
     monkeypatch.setattr(transcription_validator, "fetch_balance", fake_fetch_balance)
 
-    bao = _StubOpenBao(
-        {
-            "path/1": {"api_key": "key1"},
-            "path/2": {"api_key": "key2"},
-        }
-    )
+    svc = _StubUserVaultSvc({
+        "users/path/1": "key1",
+        "users/path/2": "key2",
+    })
 
-    counters = await credit_monitor.poll_all_balances(pool=_StubPool(), openbao=bao)
+    counters = await credit_monitor.poll_all_balances(pool=_StubPool(), user_vault_svc=svc)
 
     assert counters == {"polled": 2, "updated": 2, "exhausted": 0, "errors": 0}
     assert len(update_calls) == 2
@@ -110,7 +104,7 @@ async def test_poll_balance_zero_marks_exhausted(
     from role_builder.db_helpers import transcription_keys as keys_helper
     from role_builder.services import credit_monitor, transcription_validator
 
-    key = _make_key(openbao_path="path/zero")
+    key = _make_key(vault_secret_name="users/path/zero")
     update_calls: list[dict] = []
     mark_exhausted_calls: list[Any] = []
 
@@ -133,8 +127,8 @@ async def test_poll_balance_zero_marks_exhausted(
     monkeypatch.setattr(keys_helper, "mark_exhausted", fake_mark_exhausted)
     monkeypatch.setattr(transcription_validator, "fetch_balance", fake_fetch_balance)
 
-    bao = _StubOpenBao({"path/zero": {"api_key": "mykey"}})
-    counters = await credit_monitor.poll_all_balances(pool=_StubPool(), openbao=bao)
+    svc = _StubUserVaultSvc({"users/path/zero": "mykey"})
+    counters = await credit_monitor.poll_all_balances(pool=_StubPool(), user_vault_svc=svc)
 
     assert counters["exhausted"] == 1
     assert counters["updated"] == 1
@@ -144,7 +138,7 @@ async def test_poll_balance_zero_marks_exhausted(
 
 
 # ---------------------------------------------------------------------------
-# Test 3 — Secret manquant dans OpenBao
+# Test 3 — Secret manquant dans le vault
 # ---------------------------------------------------------------------------
 
 
@@ -152,11 +146,11 @@ async def test_poll_secret_missing_counts_as_error(
     monkeypatch: pytest.MonkeyPatch,
     stubbed_env: None,
 ) -> None:
-    """OpenBao.get retourne None → counters.errors=1, fetch_balance non appelé."""
+    """vault.read retourne None → counters.errors=1, fetch_balance non appelé."""
     from role_builder.db_helpers import transcription_keys as keys_helper
     from role_builder.services import credit_monitor, transcription_validator
 
-    key = _make_key(openbao_path="path/missing")
+    key = _make_key(vault_secret_name="users/path/missing")
     fetch_calls: list[Any] = []
 
     async def fake_list_active(*, pool: Any) -> list[dict]:
@@ -169,8 +163,8 @@ async def test_poll_secret_missing_counts_as_error(
     monkeypatch.setattr(keys_helper, "list_active_keys_for_balance_polling", fake_list_active)
     monkeypatch.setattr(transcription_validator, "fetch_balance", fake_fetch_balance)
 
-    bao = _StubOpenBao({"path/missing": None})
-    counters = await credit_monitor.poll_all_balances(pool=_StubPool(), openbao=bao)
+    svc = _StubUserVaultSvc({"users/path/missing": None})
+    counters = await credit_monitor.poll_all_balances(pool=_StubPool(), user_vault_svc=svc)
 
     assert counters["errors"] == 1
     assert counters["polled"] == 1
@@ -209,8 +203,8 @@ async def test_poll_fetch_balance_none_skips_update(
     monkeypatch.setattr(keys_helper, "update_key_balance", fake_update_balance)
     monkeypatch.setattr(transcription_validator, "fetch_balance", fake_fetch_balance)
 
-    bao = _StubOpenBao({"secret/key/x": {"api_key": "whisperkey"}})
-    counters = await credit_monitor.poll_all_balances(pool=_StubPool(), openbao=bao)
+    svc = _StubUserVaultSvc({"users/test/transcription/deepgram/x": "whisperkey"})
+    counters = await credit_monitor.poll_all_balances(pool=_StubPool(), user_vault_svc=svc)
 
     assert counters["polled"] == 1
     assert counters["updated"] == 0
@@ -231,8 +225,8 @@ async def test_poll_exception_on_first_key_continues_second(
     from role_builder.db_helpers import transcription_keys as keys_helper
     from role_builder.services import credit_monitor, transcription_validator
 
-    key1 = _make_key(openbao_path="path/boom")
-    key2 = _make_key(openbao_path="path/ok")
+    key1 = _make_key(vault_secret_name="users/path/boom")
+    key2 = _make_key(vault_secret_name="users/path/ok")
     update_calls: list[Any] = []
 
     async def fake_list_active(*, pool: Any) -> list[dict]:
@@ -256,13 +250,11 @@ async def test_poll_exception_on_first_key_continues_second(
     monkeypatch.setattr(keys_helper, "update_key_balance", fake_update_balance)
     monkeypatch.setattr(transcription_validator, "fetch_balance", fake_fetch_balance)
 
-    bao = _StubOpenBao(
-        {
-            "path/boom": {"api_key": "boom"},
-            "path/ok": {"api_key": "fine"},
-        }
-    )
-    counters = await credit_monitor.poll_all_balances(pool=_StubPool(), openbao=bao)
+    svc = _StubUserVaultSvc({
+        "users/path/boom": "boom",
+        "users/path/ok": "fine",
+    })
+    counters = await credit_monitor.poll_all_balances(pool=_StubPool(), user_vault_svc=svc)
 
     assert counters["errors"] == 1
     assert counters["updated"] == 1
@@ -282,7 +274,7 @@ async def test_poll_low_balance_updates_without_exhausting(
     from role_builder.db_helpers import transcription_keys as keys_helper
     from role_builder.services import credit_monitor, transcription_validator
 
-    key = _make_key(openbao_path="path/low", monthly_cap_usd=100.0)
+    key = _make_key(vault_secret_name="users/path/low", monthly_cap_usd=100.0)
     update_calls: list[Any] = []
     mark_exhausted_calls: list[Any] = []
 
@@ -305,8 +297,8 @@ async def test_poll_low_balance_updates_without_exhausting(
     monkeypatch.setattr(keys_helper, "mark_exhausted", fake_mark_exhausted)
     monkeypatch.setattr(transcription_validator, "fetch_balance", fake_fetch_balance)
 
-    bao = _StubOpenBao({"path/low": {"api_key": "lowkey"}})
-    counters = await credit_monitor.poll_all_balances(pool=_StubPool(), openbao=bao)
+    svc = _StubUserVaultSvc({"users/path/low": "lowkey"})
+    counters = await credit_monitor.poll_all_balances(pool=_StubPool(), user_vault_svc=svc)
 
     assert counters["updated"] == 1
     assert counters["exhausted"] == 0

@@ -11,7 +11,7 @@ import structlog
 
 from role_builder.db_helpers import transcription_keys as keys_helper
 from role_builder.services import transcription_validator
-from role_builder.services.openbao_client import OpenBaoClient
+from role_builder.services.user_vault import UserVaultService, get_service
 
 log = structlog.get_logger(__name__)
 
@@ -32,13 +32,13 @@ def _is_low_balance(balance: float, monthly_cap_usd: float | None) -> bool:
 async def poll_all_balances(
     *,
     pool: asyncpg.Pool,
-    openbao: OpenBaoClient | None = None,
+    user_vault_svc: UserVaultService | None = None,
 ) -> dict[str, int]:
     """Poll les balances des clés actives.
     Retourne {polled, updated, exhausted, errors}.
 
     Pour chaque clé :
-    - Get api_key from OpenBao
+    - Lit l'api_key depuis Harpocrate via vault_secret_name
     - fetch_balance(provider, api_key)
     - Si balance is None → skip (provider sans support)
     - Sinon update_key_balance + check thresholds :
@@ -48,60 +48,49 @@ async def poll_all_balances(
     keys: list[dict[str, Any]] = await keys_helper.list_active_keys_for_balance_polling(pool=pool)
     counters = {"polled": 0, "updated": 0, "exhausted": 0, "errors": 0}
 
-    own_openbao = openbao is None
-    if openbao is None:
-        openbao = OpenBaoClient()
+    svc = user_vault_svc if user_vault_svc is not None else get_service()
 
-    try:
-        for key in keys:
-            counters["polled"] += 1
-            try:
-                secret = await openbao.get(key["openbao_path"])
-                if secret is None:
-                    log.warning("credit_monitor.secret_missing", key_id=str(key["id"]))
-                    counters["errors"] += 1
-                    continue
-                api_key = str(secret.get("api_key", ""))
-                if not api_key:
-                    log.warning("credit_monitor.empty_api_key", key_id=str(key["id"]))
-                    counters["errors"] += 1
-                    continue
-
-                balance = await transcription_validator.fetch_balance(key["provider"], api_key)
-                if balance is None:
-                    continue
-
-                now = dt.datetime.now(dt.UTC)
-                await keys_helper.update_key_balance(
-                    key["id"],
-                    balance_usd=balance,
-                    checked_at=now,
-                    pool=pool,
-                )
-                counters["updated"] += 1
-
-                if balance <= 0:
-                    await keys_helper.mark_exhausted(key["id"], pool=pool)
-                    counters["exhausted"] += 1
-                    log.warning(
-                        "credit_monitor.balance_exhausted",
-                        key_id=str(key["id"]),
-                        provider=key["provider"],
-                    )
-                elif _is_low_balance(balance, key.get("monthly_cap_usd")):
-                    log.warning(
-                        "credit_monitor.balance_low",
-                        key_id=str(key["id"]),
-                        provider=key["provider"],
-                        balance_usd=balance,
-                        monthly_cap_usd=key.get("monthly_cap_usd"),
-                    )
-            except Exception:
+    for key in keys:
+        counters["polled"] += 1
+        try:
+            api_key = await svc.read(key["vault_secret_name"])
+            if not api_key:
+                log.warning("credit_monitor.secret_missing", key_id=str(key["id"]))
                 counters["errors"] += 1
-                log.exception("credit_monitor.poll_failed", key_id=str(key["id"]))
-    finally:
-        if own_openbao:
-            await openbao.aclose()
+                continue
+
+            balance = await transcription_validator.fetch_balance(key["provider"], api_key)
+            if balance is None:
+                continue
+
+            now = dt.datetime.now(dt.UTC)
+            await keys_helper.update_key_balance(
+                key["id"],
+                balance_usd=balance,
+                checked_at=now,
+                pool=pool,
+            )
+            counters["updated"] += 1
+
+            if balance <= 0:
+                await keys_helper.mark_exhausted(key["id"], pool=pool)
+                counters["exhausted"] += 1
+                log.warning(
+                    "credit_monitor.balance_exhausted",
+                    key_id=str(key["id"]),
+                    provider=key["provider"],
+                )
+            elif _is_low_balance(balance, key.get("monthly_cap_usd")):
+                log.warning(
+                    "credit_monitor.balance_low",
+                    key_id=str(key["id"]),
+                    provider=key["provider"],
+                    balance_usd=balance,
+                    monthly_cap_usd=key.get("monthly_cap_usd"),
+                )
+        except Exception:
+            counters["errors"] += 1
+            log.exception("credit_monitor.poll_failed", key_id=str(key["id"]))
 
     log.info("credit_monitor.poll_completed", **counters)
     return counters
