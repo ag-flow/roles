@@ -9,23 +9,45 @@ interface Props {
   onSaved: () => void | Promise<void>;
 }
 
-const PROVIDER_OPTIONS: { value: TranscriptionProvider; label: string }[] = [
-  { value: 'openai-whisper', label: 'OpenAI Whisper' },
-  { value: 'deepgram', label: 'Deepgram' },
-  { value: 'assemblyai', label: 'AssemblyAI' },
-  { value: 'speechmatics', label: 'Speechmatics' },
+const PROVIDER_OPTIONS: { value: TranscriptionProvider; label: string; url: string }[] = [
+  { value: 'openai-whisper', label: 'OpenAI Whisper', url: 'https://platform.openai.com/api-keys' },
+  { value: 'deepgram', label: 'Deepgram', url: 'https://console.deepgram.com' },
+  { value: 'assemblyai', label: 'AssemblyAI', url: 'https://www.assemblyai.com/app/account' },
+  { value: 'speechmatics', label: 'Speechmatics', url: 'https://app.speechmatics.com' },
 ];
+
+function toHarpocrateKey(label: string): string {
+  return label
+    .replace(/\s+/g, '_')
+    .replace(/[^A-Za-z0-9._-]/g, '')
+    .replace(/^[._-]+/, '');
+}
 
 export function AddKeyModal({ onClose, onSaved }: Props) {
   const [provider, setProvider] = useState<TranscriptionProvider>('openai-whisper');
   const [label, setLabel] = useState('');
-  const [apiKey, setApiKey] = useState('');
   const [harpocrateKey, setHarpocrateKey] = useState('');
+  const [harpocrateKeyManual, setHarpocrateKeyManual] = useState(false);
+  const [apiKey, setApiKey] = useState('');
   const [workersCount, setWorkersCount] = useState(1);
   const [isPrimary, setIsPrimary] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const selectedProvider = PROVIDER_OPTIONS.find((p) => p.value === provider)!;
+
+  const handleLabelChange = (value: string) => {
+    setLabel(value);
+    if (!harpocrateKeyManual) {
+      setHarpocrateKey(toHarpocrateKey(value));
+    }
+  };
+
+  const handleHarpocrateKeyChange = (value: string) => {
+    setHarpocrateKey(value);
+    setHarpocrateKeyManual(value !== toHarpocrateKey(label));
+  };
 
   const handleSubmit = async () => {
     if (!apiKey.trim()) {
@@ -65,7 +87,7 @@ export function AddKeyModal({ onClose, onSaved }: Props) {
       <div style={{ width: '100%', maxWidth: 500, background: 'white', padding: 24, borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ marginBottom: 16, fontSize: '1.125rem', fontWeight: 600 }}>Ajouter une clé de transcription</h2>
 
-        <label style={{ display: 'block', marginBottom: 12 }}>
+        <label style={{ display: 'block', marginBottom: 4 }}>
           <span style={{ display: 'block', marginBottom: 4, fontSize: 13, fontWeight: 500 }}>Provider</span>
           <select
             value={provider}
@@ -78,12 +100,23 @@ export function AddKeyModal({ onClose, onSaved }: Props) {
           </select>
         </label>
 
+        <div style={{ marginBottom: 12 }}>
+          <a
+            href={selectedProvider.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: 12, color: '#2563eb', textDecoration: 'none' }}
+          >
+            ↗ Obtenir une clé API sur {selectedProvider.label}
+          </a>
+        </div>
+
         <label style={{ display: 'block', marginBottom: 12 }}>
           <span style={{ display: 'block', marginBottom: 4, fontSize: 13, fontWeight: 500 }}>Libellé (optionnel)</span>
           <input
             type="text"
             value={label}
-            onChange={(e) => setLabel(e.target.value)}
+            onChange={(e) => handleLabelChange(e.target.value)}
             placeholder="Ex: Compte perso"
             style={{ width: '100%', padding: '6px 10px', fontSize: 14, border: '1px solid #d1d5db', borderRadius: 4, boxSizing: 'border-box' }}
           />
@@ -101,14 +134,22 @@ export function AddKeyModal({ onClose, onSaved }: Props) {
         </label>
 
         <label style={{ display: 'block', marginBottom: 12 }}>
-          <span style={{ display: 'block', marginBottom: 4, fontSize: 13, fontWeight: 500 }}>Clé Harpocrate</span>
+          <span style={{ display: 'block', marginBottom: 4, fontSize: 13, fontWeight: 500 }}>
+            Clé Harpocrate
+            {!harpocrateKeyManual && label && (
+              <span style={{ fontWeight: 400, color: '#6b7280', marginLeft: 6 }}>— déduite du libellé</span>
+            )}
+          </span>
           <input
             type="text"
             value={harpocrateKey}
-            onChange={(e) => setHarpocrateKey(e.target.value)}
+            onChange={(e) => handleHarpocrateKeyChange(e.target.value)}
             placeholder="ma_cle_openai"
-            style={{ width: '100%', padding: '6px 10px', fontSize: 14, border: '1px solid #d1d5db', borderRadius: 4, boxSizing: 'border-box' }}
+            style={{ width: '100%', padding: '6px 10px', fontSize: 14, border: '1px solid #d1d5db', borderRadius: 4, boxSizing: 'border-box', fontFamily: 'monospace' }}
           />
+          <span style={{ fontSize: 11, color: '#9ca3af', marginTop: 2, display: 'block' }}>
+            Caractères autorisés : A-Z a-z 0-9 . _ -
+          </span>
         </label>
 
         <label style={{ display: 'block', marginBottom: 12 }}>
@@ -125,20 +166,12 @@ export function AddKeyModal({ onClose, onSaved }: Props) {
         </label>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <input
-            type="checkbox"
-            checked={isPrimary}
-            onChange={(e) => setIsPrimary(e.target.checked)}
-          />
+          <input type="checkbox" checked={isPrimary} onChange={(e) => setIsPrimary(e.target.checked)} />
           <span>Provider primaire</span>
         </label>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <input
-            type="checkbox"
-            checked={isFallback}
-            onChange={(e) => setIsFallback(e.target.checked)}
-          />
+          <input type="checkbox" checked={isFallback} onChange={(e) => setIsFallback(e.target.checked)} />
           <span>Activer en fallback</span>
         </label>
 
