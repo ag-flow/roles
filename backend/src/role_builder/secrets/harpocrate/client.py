@@ -68,8 +68,8 @@ class SecretsClient:
 
     @staticmethod
     def _normalize_name(name: str) -> str:
-        """Normalise un nom de secret avec path : ajoute '/' initial si absent."""
-        if "/" in name and not name.startswith("/"):
+        """Normalise un nom de secret : préfixe '/' pour construire le path URL."""
+        if not name.startswith("/"):
             return "/" + name
         return name
 
@@ -77,9 +77,9 @@ class SecretsClient:
         base = f"/v1/wallets/{self._wallet_id}/secrets"
         if name:
             normalized = self._normalize_name(name)
-            # URL-encode les '/' du nom pour qu'ils ne soient pas interprétés comme séparateurs
-            encoded = quote(normalized, safe="")
-            return f"{base}/{encoded}"
+            # Garde les '/' comme séparateurs de path, encode seulement les autres caractères spéciaux
+            encoded = quote(normalized, safe="/")
+            return f"{base}{encoded}"
         return base
 
     def list_secrets(
