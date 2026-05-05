@@ -53,7 +53,7 @@ def _get_validator() -> KeycloakValidator:
 _DISABLED_USER = CurrentUser(
     user_id=UUID("00000000-0000-0000-0000-000000000001"),
     username="dev-disabled-auth",
-    email=None,
+    email=settings.local_admin_email or None,
     tenant_id=TENANT_ID_DEFAULT,
     raw_token={},
 )

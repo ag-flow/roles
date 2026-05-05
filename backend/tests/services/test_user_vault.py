@@ -1,6 +1,7 @@
 """Tests unitaires pour services/user_vault.py."""
 from __future__ import annotations
 
+import hashlib
 from unittest.mock import MagicMock
 from uuid import UUID
 
@@ -8,6 +9,7 @@ import pytest
 
 from role_builder.services.user_vault import (
     UserVaultService,
+    _email_hash,
     build_credentials_vault_name,
     build_github_vault_name,
     build_transcription_vault_path,
@@ -18,38 +20,79 @@ from role_builder.services.user_vault import (
     init_service,
 )
 
+
+def _sha256(email: str) -> str:
+    return hashlib.sha256(email.strip().lower().encode()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# _email_hash
+# ---------------------------------------------------------------------------
+
+
+def test_email_hash_returns_sha256_hex() -> None:
+    """Hash SHA-256 hex de l'email normalisé en minuscules."""
+    result = _email_hash("John@Example.COM")
+    assert result == _sha256("john@example.com")
+    assert len(result) == 64
+
+
+def test_email_hash_none_returns_no_email() -> None:
+    """Email None → 'no_email'."""
+    assert _email_hash(None) == "no_email"
+
+
+def test_email_hash_empty_returns_no_email() -> None:
+    """Email vide → 'no_email'."""
+    assert _email_hash("") == "no_email"
+
+
+def test_email_hash_is_deterministic() -> None:
+    """Même email → même hash."""
+    assert _email_hash("a@b.com") == _email_hash("a@b.com")
+
+
+def test_email_hash_case_insensitive() -> None:
+    """L'email est normalisé en minuscules avant le hash."""
+    assert _email_hash("User@Example.com") == _email_hash("user@example.com")
+
+
+def test_email_hash_no_pii_in_output() -> None:
+    """Le hash ne contient pas l'email en clair."""
+    h = _email_hash("secret@example.com")
+    assert "secret" not in h
+    assert "@" not in h
+    assert "example" not in h
+
+
 # ---------------------------------------------------------------------------
 # build_vault_secret_name
 # ---------------------------------------------------------------------------
 
 
 def test_build_vault_secret_name_normal_email() -> None:
-    """Email standard → chemin hiérarchique correct."""
+    """Email standard → chemin avec hash SHA-256."""
     key_id = UUID("12345678-1234-5678-1234-567812345678")
     name = build_vault_secret_name("john@example.com", "openai-whisper", key_id)
-    assert name == f"users/john_at_example.com/transcription/openai-whisper/{key_id}"
+    expected_hash = _sha256("john@example.com")
+    assert name == f"users/{expected_hash}/transcription/openai-whisper/{key_id}"
 
 
-def test_build_vault_secret_name_email_with_dots() -> None:
-    """Email avec points dans la partie locale → conservé (caractère autorisé)."""
+def test_build_vault_secret_name_no_pii_in_path() -> None:
+    """L'email ne doit pas apparaître en clair dans le path."""
     key_id = UUID("12345678-1234-5678-1234-567812345678")
     name = build_vault_secret_name("llm.beard.family@gmail.com", "deepgram", key_id)
-    assert name.startswith("users/llm.beard.family_at_gmail.com/transcription/deepgram/")
+    assert "llm" not in name
+    assert "beard" not in name
+    assert "gmail" not in name
+    assert "@" not in name
 
 
 def test_build_vault_secret_name_none_email() -> None:
-    """Email None (auth désactivée) → slug 'no_email'."""
+    """Email None → slug 'no_email'."""
     key_id = UUID("12345678-1234-5678-1234-567812345678")
     name = build_vault_secret_name(None, "deepgram", key_id)
     assert name.startswith("users/no_email/transcription/deepgram/")
-
-
-def test_build_vault_secret_name_special_chars_in_email() -> None:
-    """Caractères spéciaux dans l'email → remplacés par '_'."""
-    key_id = UUID("12345678-1234-5678-1234-567812345678")
-    name = build_vault_secret_name("user+tag@example.com", "deepgram", key_id)
-    assert "@" not in name
-    assert "+" not in name
 
 
 def test_build_vault_secret_name_contains_key_id() -> None:
@@ -186,10 +229,18 @@ def test_init_service_sets_singleton(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_build_credentials_vault_name_normal_email() -> None:
-    """Email standard → chemin hiérarchique correct."""
+    """Email standard → chemin avec hash SHA-256."""
     cred_id = UUID("12345678-1234-5678-1234-567812345678")
     name = build_credentials_vault_name("john@example.com", "youtube", cred_id)
-    assert name == f"users/john_at_example.com/scraping/youtube/{cred_id}"
+    assert name == f"users/{_sha256('john@example.com')}/scraping/youtube/{cred_id}"
+
+
+def test_build_credentials_vault_name_no_pii_in_path() -> None:
+    """L'email ne doit pas apparaître en clair dans le path."""
+    cred_id = UUID("12345678-1234-5678-1234-567812345678")
+    name = build_credentials_vault_name("john@example.com", "instagram", cred_id)
+    assert "john" not in name
+    assert "@" not in name
 
 
 def test_build_credentials_vault_name_none_email() -> None:
@@ -226,7 +277,13 @@ def test_build_github_vault_name_normal() -> None:
 
 def test_build_transcription_vault_path_normal_email() -> None:
     result = build_transcription_vault_path("john@example.com", "deepgram", "ma_cle")
-    assert result == "users/john_at_example.com/transcription/deepgram/ma_cle"
+    assert result == f"users/{_sha256('john@example.com')}/transcription/deepgram/ma_cle"
+
+
+def test_build_transcription_vault_path_no_pii_in_path() -> None:
+    result = build_transcription_vault_path("john@example.com", "deepgram", "ma_cle")
+    assert "john" not in result
+    assert "@" not in result
 
 
 def test_build_transcription_vault_path_none_email() -> None:

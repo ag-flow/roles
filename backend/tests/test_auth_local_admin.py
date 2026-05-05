@@ -87,6 +87,42 @@ def test_issue_and_verify_token_roundtrip(monkeypatch: pytest.MonkeyPatch) -> No
     assert claims["iss"] == local_admin.ISSUER
 
 
+def test_issue_token_includes_email_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le JWT doit contenir le claim 'email' si local_admin_email est défini."""
+    from role_builder.auth import local_admin
+    from role_builder.config import settings as _settings
+
+    _setup_admin_settings(monkeypatch)
+    monkeypatch.setattr(_settings, "local_admin_email", "llm.beard.family@gmail.com", raising=False)
+    token, _ = local_admin.issue_token()
+    claims = local_admin.verify_token(token)
+    assert claims.get("email") == "llm.beard.family@gmail.com"
+
+
+def test_issue_token_omits_email_when_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sans local_admin_email, le claim 'email' ne doit pas apparaître dans le JWT."""
+    from role_builder.auth import local_admin
+    from role_builder.config import settings as _settings
+
+    _setup_admin_settings(monkeypatch)
+    monkeypatch.setattr(_settings, "local_admin_email", "", raising=False)
+    token, _ = local_admin.issue_token()
+    claims = local_admin.verify_token(token)
+    assert "email" not in claims
+
+
+def test_disabled_user_has_email_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """En mode disable_auth, _DISABLED_USER.email doit refléter local_admin_email."""
+    from role_builder.config import settings as _settings
+    from role_builder.auth import dependencies as deps
+
+    monkeypatch.setattr(_settings, "local_admin_email", "llm.beard.family@gmail.com", raising=False)
+    # Reconstruit _DISABLED_USER en rechargeant la valeur
+    import importlib
+    importlib.reload(deps)
+    assert deps._DISABLED_USER.email == "llm.beard.family@gmail.com"
+
+
 def test_verify_token_rejects_wrong_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     """Un JWT signé avec un secret X ne doit pas valider avec un secret Y."""
     from role_builder.auth import local_admin

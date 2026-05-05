@@ -61,13 +61,15 @@ def issue_token() -> tuple[str, int]:
     _ensure_configured()
     now = int(time.time())
     exp = now + settings.local_admin_token_ttl_s
-    payload = {
+    payload: dict = {
         "iss": ISSUER,
         "sub": str(ADMIN_USER_ID),
         "preferred_username": settings.local_admin_user,
         "iat": now,
         "exp": exp,
     }
+    if settings.local_admin_email:
+        payload["email"] = settings.local_admin_email
     token = jwt.encode(payload, settings.local_admin_secret, algorithm="HS256")
     return token, settings.local_admin_token_ttl_s
 

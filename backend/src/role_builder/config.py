@@ -93,6 +93,7 @@ class Settings(BaseSettings):
     local_admin_user: str = "admin"
     local_admin_password: str = ""
     local_admin_secret: str = ""
+    local_admin_email: str = ""
     # Durée de vie du JWT local en secondes (défaut 12h).
     local_admin_token_ttl_s: int = 43200
 

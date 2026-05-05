@@ -2,15 +2,17 @@
 
 Les clés utilisateur sont stockées avec un chemin hiérarchique :
 
-    users/{email_slug}/transcription/{provider}/{key_id}  — clés de transcription
-    users/{email_slug}/scraping/{platform}/{cred_id}      — cookies de scraping
+    users/{email_hash}/transcription/{provider}/{key_id}  — clés de transcription
+    users/{email_hash}/scraping/{platform}/{cred_id}      — cookies de scraping
     github/{tenant_id}/{user_id}                           — tokens GitHub OAuth
 
-L'email/user_id sert de compartiment : les secrets de deux utilisateurs ne se mélangent pas.
+{email_hash} est un SHA-256 hex de l'email en minuscules (RGPD : pas de donnée
+personnelle en clair dans les paths vault).
 """
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 from uuid import UUID
 
@@ -19,28 +21,24 @@ from harpocrate import SecretNotFound, VaultClient
 
 log = structlog.get_logger(__name__)
 
-_UNSAFE_RE = re.compile(r"[^A-Za-z0-9._-]")
 _VAULT_REF_RE = re.compile(r'^\$\{vault://[^:]+:(.+)\}$')
 
 
-def build_vault_secret_name(email: str | None, provider: str, key_id: UUID) -> str:
-    """Retourne le nom de secret Harpocrate pour une clé de transcription.
+def _email_hash(email: str | None) -> str:
+    """SHA-256 hex de l'email normalisé, ou 'no_email' si absent."""
+    if not email:
+        return "no_email"
+    return hashlib.sha256(email.strip().lower().encode()).hexdigest()
 
-    Exemple : users/john_at_example.com/transcription/openai/550e8400-e29b-...
-    """
-    raw = email or "no_email"
-    slug = _UNSAFE_RE.sub("_", raw.replace("@", "_at_"))
-    return f"users/{slug}/transcription/{provider}/{key_id}"
+
+def build_vault_secret_name(email: str | None, provider: str, key_id: UUID) -> str:
+    """Retourne le nom de secret Harpocrate pour une clé de transcription."""
+    return f"users/{_email_hash(email)}/transcription/{provider}/{key_id}"
 
 
 def build_credentials_vault_name(email: str | None, platform: str, cred_id: UUID) -> str:
-    """Retourne le nom de secret Harpocrate pour les cookies de scraping.
-
-    Exemple : users/john_at_example.com/scraping/youtube/550e8400-...
-    """
-    raw = email or "no_email"
-    slug = _UNSAFE_RE.sub("_", raw.replace("@", "_at_"))
-    return f"users/{slug}/scraping/{platform}/{cred_id}"
+    """Retourne le nom de secret Harpocrate pour les cookies de scraping."""
+    return f"users/{_email_hash(email)}/scraping/{platform}/{cred_id}"
 
 
 def build_github_vault_name(user_id: UUID, tenant_id: UUID) -> str:
@@ -52,13 +50,8 @@ def build_github_vault_name(user_id: UUID, tenant_id: UUID) -> str:
 
 
 def build_transcription_vault_path(email: str | None, provider: str, key_name: str) -> str:
-    """Path plain pour une clé de transcription avec nom personnalisé.
-
-    Exemple : users/john_at_example.com/transcription/deepgram/ma_cle
-    """
-    raw = email or "no_email"
-    slug = _UNSAFE_RE.sub("_", raw.replace("@", "_at_"))
-    return f"users/{slug}/transcription/{provider}/{key_name}"
+    """Path plain pour une clé de transcription avec nom personnalisé."""
+    return f"users/{_email_hash(email)}/transcription/{provider}/{key_name}"
 
 
 def build_vault_ref(path: str) -> str:
