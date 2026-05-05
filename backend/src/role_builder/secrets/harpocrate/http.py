@@ -117,35 +117,35 @@ class VaultHttpClient:
 
         raise VaultHttpError(resp.status_code, detail)
 
-    def get(self, path: str, **params: Any) -> Any:
+    def get(self, url_path: str, **params: Any) -> Any:
         """GET synchrone avec retry."""
-        return self._request("GET", path, params=params or None)
+        return self._request("GET", url_path, params=params or None)
 
-    def post(self, path: str, json: Any = None) -> Any:
+    def post(self, url_path: str, json: Any = None) -> Any:
         """POST synchrone avec retry."""
-        return self._request("POST", path, json=json)
+        return self._request("POST", url_path, json=json)
 
-    def put(self, path: str, json: Any = None) -> Any:
+    def put(self, url_path: str, json: Any = None) -> Any:
         """PUT synchrone avec retry."""
-        return self._request("PUT", path, json=json)
+        return self._request("PUT", url_path, json=json)
 
-    def patch(self, path: str, json: Any = None) -> Any:
+    def patch(self, url_path: str, json: Any = None) -> Any:
         """PATCH synchrone avec retry."""
-        return self._request("PATCH", path, json=json)
+        return self._request("PATCH", url_path, json=json)
 
-    def delete(self, path: str) -> None:
+    def delete(self, url_path: str) -> None:
         """DELETE synchrone avec retry."""
-        self._request("DELETE", path)
+        self._request("DELETE", url_path)
 
     def _request(
         self,
         method: str,
-        path: str,
+        url_path: str,
         params: dict[str, Any] | None = None,
         json: Any = None,
     ) -> Any:
         """Requête HTTP avec retry sur erreurs réseau."""
-        url = self._url(path)
+        url = self._url(url_path)
         last_exc: Exception = RuntimeError("No attempts made")
 
         for attempt in range(_MAX_RETRIES):
