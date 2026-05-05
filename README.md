@@ -72,3 +72,8 @@ git clone git@github.com:ag-flow/roles.git
 cd roles
 ```
 
+Affiche les logs
+```bash
+docker compose -f docker-compose-dev.yml logs --tail=50 backend
+docker compose -f docker-compose-dev.yml logs --tail=50 frontend
+```
