@@ -1,3 +1,6 @@
+> ℹ️ **Conservée avec adaptations V2 (2026-07-04).** Infra conservée ; cible = host usage=ressources du portail devpod ; extension pgvector plus requise.
+> Voir `docs/specs/v2/00-fondations-v2.md` et `docs/specs/v2/01-protocole-mcp.md`.
+
 # 02 — Foundations : infrastructure de base
 
 > Sprint 1 : poser l'infrastructure. À l'issue de ce sprint, tous les services

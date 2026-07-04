@@ -1,3 +1,6 @@
+> ℹ️ **Conservée avec adaptations V2 (2026-07-04).** Diagrammes acquisition valides ; diagrammes synthèse/export obsolètes.
+> Voir `docs/specs/v2/00-fondations-v2.md` et `docs/specs/v2/01-protocole-mcp.md`.
+
 # 11 — Diagrammes de séquence
 
 > Référence visuelle pour comprendre les flux principaux de l'application.

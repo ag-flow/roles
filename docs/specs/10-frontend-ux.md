@@ -1,3 +1,6 @@
+> ⚠️ **OBSOLÈTE — Refonte V2 (2026-07-04).** Interface primaire = conversationnelle (pilote + MCP roles__*). Vue admin minimale à cadrer.
+> Voir `docs/specs/OBSOLETE.md` et `docs/specs/v2/00-fondations-v2.md`. Conservé pour référence historique uniquement — ne plus implémenter.
+
 # 10 — Frontend UX : onglets, navigation, composants
 
 > Document transversal frontend. À utiliser comme référence structurelle

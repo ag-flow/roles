@@ -1,3 +1,6 @@
+> ℹ️ **Conservée avec adaptations V2 (2026-07-04).** Vision et intégration ag.flow remplacées par v2/00-fondations-v2.md — la stack devient acquisition pure : scraping → transcription → dépôt docflow, consommée en MCP.
+> Voir `docs/specs/v2/00-fondations-v2.md` et `docs/specs/v2/01-protocole-mcp.md`.
+
 # 00 — Vue d'ensemble du projet
 
 > Ce document est le point d'entrée de la spécification. Lis-le en premier

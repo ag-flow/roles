@@ -1,3 +1,6 @@
+> ⚠️ **OBSOLÈTE — Refonte V2 (2026-07-04).** Publication retirée du périmètre — le contenu vit dans docflow.
+> Voir `docs/specs/OBSOLETE.md` et `docs/specs/v2/00-fondations-v2.md`. Conservé pour référence historique uniquement — ne plus implémenter.
+
 # 09 — Publication GitHub via OAuth
 
 > Sprint 8 : publication publique. À l'issue de ce sprint, l'utilisateur

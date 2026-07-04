@@ -1,3 +1,6 @@
+> ⚠️ **OBSOLÈTE — Refonte V2 (2026-07-04).** Le pipeline 5 étages est remplacé par la synthèse du pilote (Claude web). Dépendance Mistral supprimée.
+> Voir `docs/specs/OBSOLETE.md` et `docs/specs/v2/00-fondations-v2.md`. Conservé pour référence historique uniquement — ne plus implémenter.
+
 # 06 — Pipeline de synthèse : du corpus aux documents structurés
 
 > Sprint 5 : synthèse. À l'issue de ce sprint, à partir d'un corpus indexé,

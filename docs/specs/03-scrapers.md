@@ -1,3 +1,6 @@
+> ℹ️ **Conservée avec adaptations V2 (2026-07-04).** Conservée intégralement — les contrats stdin/NDJSON figés remplissent leur office.
+> Voir `docs/specs/v2/00-fondations-v2.md` et `docs/specs/v2/01-protocole-mcp.md`.
+
 # 03 — Scrapers : containers + contrat d'invocation
 
 > Sprint 2 : pipeline d'acquisition. À l'issue de ce sprint, l'application

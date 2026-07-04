@@ -1,3 +1,6 @@
+> ⚠️ **OBSOLÈTE — Refonte V2 (2026-07-04).** Chunking/embeddings/pgvector supprimés — la recherche corpus est le métier d'agflow-rag sur docflow.
+> Voir `docs/specs/OBSOLETE.md` et `docs/specs/v2/00-fondations-v2.md`. Conservé pour référence historique uniquement — ne plus implémenter.
+
 # 05 — Corpus indexing : chunking, embeddings, pgvector
 
 > Sprint 4 : indexation. À l'issue de ce sprint, les transcripts sont

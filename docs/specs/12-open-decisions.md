@@ -1,3 +1,6 @@
+> ℹ️ **Conservée avec adaptations V2 (2026-07-04).** Journal historique des sprints 1-8 ; n'y ajouter désormais que des décisions V2.
+> Voir `docs/specs/v2/00-fondations-v2.md` et `docs/specs/v2/01-protocole-mcp.md`.
+
 # 12 — Décisions ouvertes (TODO consolidé)
 
 > Ce document agrège tous les TODO disséminés dans les autres blocs. Il

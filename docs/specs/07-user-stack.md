@@ -1,3 +1,6 @@
+> ℹ️ **Conservée avec adaptations V2 (2026-07-04).** Conservée moins la configuration Mistral (supprimée avec la synthèse).
+> Voir `docs/specs/v2/00-fondations-v2.md` et `docs/specs/v2/01-protocole-mcp.md`.
+
 # 07 — Onglet "Ma stack" : configuration utilisateur
 
 > Sprint 6 : config user. À l'issue de ce sprint, l'utilisateur peut

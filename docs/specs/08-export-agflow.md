@@ -1,3 +1,6 @@
+> ⚠️ **OBSOLÈTE — Refonte V2 (2026-07-04).** L'API admin du Docker service ag.flow n'existe plus. Destination du corpus et des rôles = docflow.
+> Voir `docs/specs/OBSOLETE.md` et `docs/specs/v2/00-fondations-v2.md`. Conservé pour référence historique uniquement — ne plus implémenter.
+
 # 08 — Export vers ag.flow
 
 > Sprint 7 : livraison du rôle vers ag.flow. À l'issue de ce sprint,

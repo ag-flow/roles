@@ -1,3 +1,6 @@
+> ℹ️ **Conservée avec adaptations V2 (2026-07-04).** Cœur conservé (sources, items, queues, credentials, workers). Supprimées : tables synthèse/publication/pgvector. role_projects → acquisition_requests (v2/01 §4).
+> Voir `docs/specs/v2/00-fondations-v2.md` et `docs/specs/v2/01-protocole-mcp.md`.
+
 # 01 — Modèle de données (référence SQL transverse)
 
 > Ce document est la **référence canonique** du schéma de données. Tous les

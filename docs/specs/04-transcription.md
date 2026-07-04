@@ -1,3 +1,6 @@
+> ℹ️ **Conservée avec adaptations V2 (2026-07-04).** Conservée ; l'étape post-transcription devient le dépôt docflow (statuts depositing/deposited), plus de chunking.
+> Voir `docs/specs/v2/00-fondations-v2.md` et `docs/specs/v2/01-protocole-mcp.md`.
+
 # 04 — Transcription : workers, pools et providers
 
 > Sprint 3 : pipeline de transcription. À l'issue de ce sprint, les audios
