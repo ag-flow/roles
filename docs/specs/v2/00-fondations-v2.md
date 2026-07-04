@@ -111,12 +111,18 @@ Principes :
   métadonnées : plateforme, source, titre, durée, date de publication,
   request_key). Corpus structuré pour consommation incrémentale par le
   pilote — jamais de pavé agrégé.
-- **Sélection en deux temps avec raccourci** (décision V2) :
-  - mode complet : `submit` en `discover_only` → le pilote examine la
-    liste découverte → `select_items` → download. Maîtrise des coûts de
-    transcription (200 vidéos découvertes, 30 retenues).
-  - raccourci : filtres déclaratifs (`max_items`, `since`, `min/max_duration`)
-    avec `auto_select` — un seul aller-retour pour les cas simples.
+- **Sélection en deux temps, mode par défaut** (décision V2.1) :
+  - mode nominal : `submit` en `discover_only` découvre **toute la chaîne** →
+    `list_discovered` retourne les métadonnées riches (titre, extrait de
+    description, tags, durée, date) → le pilote thématise et présente la
+    liste à l'humain → `select_items` sur la liste retenue → download.
+    La **thématisation est le travail du pilote** — aucun LLM dans la stack.
+  - raccourci : `mode=auto` avec filtres déclaratifs (`max_items`, `since`,
+    `min/max_duration`) — un seul aller-retour pour les cas simples.
+- **Intake par upload** (V2.1) : médias hors plateformes (enregistrements,
+  conférences, podcasts en fichier) via **URL présignée MinIO** — le binaire
+  ne transite jamais par MCP. L'item rejoint ensuite le pipeline standard,
+  indiscernable d'un item scrapé côté corpus (`platform=upload`).
 - **Équité multi-acteurs : FIFO en V1.** `priority` et `tenant_id`
   existent déjà comme hooks ; quotas/round-robin = question ouverte,
   à traiter quand plusieurs acteurs réels se disputeront la ressource.

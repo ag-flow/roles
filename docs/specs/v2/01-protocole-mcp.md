@@ -4,7 +4,8 @@
 > Complète `00-fondations-v2.md`. Modèle : **ticket asynchrone** — soumettre,
 > puller le statut, récupérer le corpus incrémentalement.
 >
-> **Statut :** v2.0 — 2026-07-04
+> **Statut :** v2.1 — 2026-07-04 (ajouts : `list_discovered` enrichi, intake
+> par upload via URL présignée)
 
 ---
 
@@ -16,24 +17,30 @@
 2. **Livraison incrémentale.** Le corpus est consultable au fil de l'eau,
    item par item, sans attendre la complétion.
 3. **Références, jamais de contenu.** Les tools retournent des refs
-   docflow ; la lecture passe par `docflow__*`.
+   docflow ; la lecture passe par `docflow__*`. Symétriquement, aucun
+   contenu binaire ne transite par un tool : l'upload passe par une URL
+   présignée MinIO.
 4. **Lecture n'engage pas, acte engage** (aligné workflow v2).
-5. **Le pilote maîtrise les coûts** : la sélection des items à transcrire
-   lui appartient (mode deux temps), les filtres sont un raccourci.
+5. **Le pilote maîtrise les coûts et la sélection.** La découverte retourne
+   des métadonnées brutes riches (titre, description, tags, durée) ; la
+   **thématisation est le travail du pilote** (aucun LLM dans la stack).
+   Il présente la liste à l'humain, qui choisit ; la demande porte ensuite
+   sur la liste retenue.
 
 ## 2. Tools
 
-### 2.1 Soumission
+### 2.1 Soumission — sources en ligne
 
 #### `roles__submit_acquisition(url, platform?, mode?, filters?, docflow_target?, note?)`
 Soumet une acquisition (chaîne, playlist, compte ou vidéo unique).
 
 - `platform` : `youtube|instagram|tiktok` (déduit de l'URL si omis).
 - `mode` :
-  - `"auto"` (défaut si `filters` fourni) : discover puis sélection
-    automatique par filtres puis download+transcription.
-  - `"discover_only"` : s'arrête après la découverte — le pilote examine
-    puis appelle `select_items`.
+  - `"discover_only"` (**défaut**) : découvre **toute la source** (chaîne
+    complète) et s'arrête — le pilote consulte `list_discovered`, présente
+    les items à l'humain, puis appelle `select_items` sur la liste retenue.
+  - `"auto"` : discover puis sélection automatique par `filters` puis
+    download+transcription. Raccourci pour les cas simples.
 - `filters` : `{max_items?, since?, until?, min_duration_s?, max_duration_s?,
   title_contains?}` — appliqués à la sélection auto.
 - `docflow_target` : workspace/bloc docflow de dépôt (défaut : convention
@@ -48,29 +55,87 @@ Erreurs : `UNSUPPORTED_PLATFORM`, `INVALID_URL`, `NO_CREDENTIALS`
 clé de reprise conversationnelle, au même titre que les noms d'instances
 workflow.
 
+#### `roles__list_discovered(request_key, cursor?, limit?)`
+Liste **enrichie** des items découverts — la matière du choix humain.
+Disponible dès `discovered` (et pendant `discovering`, partielle).
+
+→
+```jsonc
+{
+  "request_key": "...",
+  "discovery_complete": true,
+  "items": [
+    {
+      "item_id": "...",
+      "title": "Interview UX : observer avant de questionner",
+      "description_excerpt": "Dans cette vidéo je partage ma méthode…",  // ~300 chars
+      "tags": ["ux", "user research", "interview"],
+      "duration_s": 913,
+      "published_at": "2025-11-02T…",
+      "thumbnail_url": "https://…",
+      "already_selected": false
+    }
+  ],
+  "next_cursor": "…"
+}
+```
+
+La stack ne calcule **pas** de thème : titre + extrait + tags suffisent au
+pilote pour thématiser et présenter la liste à l'utilisateur.
+
 #### `roles__select_items(request_key, item_ids | filters)`
-Pour une requête en `discovered` (mode `discover_only`) : sélectionne les
-items à télécharger/transcrire. Accepte une liste explicite d'`item_ids`
-ou des `filters` (même schéma que le submit). Idempotent, cumulable
-(sélections successives possibles tant que la requête n'est pas close).
+Sélectionne les items à télécharger/transcrire. Accepte une liste explicite
+d'`item_ids` (chemin nominal : la liste retenue par l'humain) ou des
+`filters`. Idempotent, cumulable (sélections successives possibles tant que
+la requête n'est pas close).
 → `{selected_count, queued_count}`
 
-### 2.2 Suivi
+### 2.2 Soumission — upload direct
+
+Pour les médias hors plateformes (enregistrements perso, conférences,
+podcasts fournis en fichier). Le fichier ne transite jamais par MCP :
+**URL présignée MinIO**, PUT direct par le client.
+
+#### `roles__create_upload_request(title, docflow_target?, note?)`
+Ouvre une requête d'acquisition de type upload.
+→ `{request_key, status: "open_for_upload"}`
+
+#### `roles__request_upload_slot(request_key, filename, media_type, title?, published_at?, duration_s?)`
+Crée un item et un slot d'upload.
+- `media_type` : `audio/mpeg | audio/wav | audio/mp4 | video/mp4 | …`
+  (liste blanche ; vidéo → extraction audio ffmpeg côté stack, comme les
+  items scrapés).
+→ `{item_id, upload_url, expires_at}` — `upload_url` = PUT présigné MinIO
+(bucket `corpus-audio`), TTL 1 h.
+Erreurs : `UNSUPPORTED_MEDIA`, `UNKNOWN_REQUEST`, `REQUEST_CLOSED`.
+
+#### `roles__finalize_upload(request_key, item_id)`
+Après le PUT réussi : vérifie la présence de l'objet MinIO, passe l'item en
+`audio_ready` → pipeline standard (transcription → dépôt docflow),
+strictement identique aux items scrapés.
+Erreurs : `UPLOAD_NOT_FOUND` (PUT absent ou expiré), `UPLOAD_EXPIRED`.
+
+#### `roles__close_upload_request(request_key)`
+Ferme l'intake (plus de nouveaux slots) ; la complétion suit les items en
+cours. Une requête upload sans close reste ouverte (corpus au fil de l'eau).
+
+### 2.3 Suivi
 
 #### `roles__request_status(request_key)`
 →
 ```jsonc
 {
   "request_key": "yt-clea-ux-2026-07-04-a3f2",
-  "status": "discovering | discovered | acquiring | completed |
-             partially_failed | failed | cancelled",
+  "kind": "scrape | upload",
+  "status": "discovering | discovered | open_for_upload | acquiring |
+             completed | partially_failed | failed | cancelled",
   "submitted_by": "...", "submitted_at": "...",
   "counts": {
     "discovered": 200, "selected": 30,
     "downloaded": 22, "transcribed": 18, "deposited": 18,
     "failed": 2, "pending": 10
   },
-  "items": [                        // paginé ; filtre ?status=
+  "items": [                        // résumé paginé ; détail riche → list_discovered
     {"item_id": "...", "title": "...", "duration_s": 913,
      "status": "pending_download | ... | deposited | failed",
      "error": null}
@@ -79,14 +144,14 @@ ou des `filters` (même schéma que le submit). Idempotent, cumulable
   "queue_position": 3               // si des jobs attendent (ressource partagée)
 }
 ```
-`status=completed` quand tous les items sélectionnés sont `deposited` ou
-`failed` (avec ≥1 failed → `partially_failed`).
+`status=completed` quand tous les items sélectionnés/uploadés sont
+`deposited` ou `failed` (avec ≥1 failed → `partially_failed`).
 
 #### `roles__list_requests(status?, submitted_by?)`
 Reprise conversationnelle et vue multi-acteurs.
-→ `[{request_key, status, url, counts_summary, submitted_by, submitted_at}]`
+→ `[{request_key, kind, status, url?, counts_summary, submitted_by, submitted_at}]`
 
-### 2.3 Récupération du corpus
+### 2.4 Récupération du corpus
 
 #### `roles__get_corpus(request_key, only_new?, cursor?)`
 Retourne les références docflow des transcripts **déjà déposés** — à tout
@@ -105,7 +170,8 @@ moment, sans attendre la complétion.
     {
       "item_id": "...",
       "docflow": {"doc_id": "...", "slug": "transcript-...", "title": "..."},
-      "metadata": {"platform": "youtube", "source_url": "...",
+      "metadata": {"platform": "youtube|instagram|tiktok|upload",
+                    "source_url": "...",           // null si upload
                     "duration_s": 913, "published_at": "...",
                     "provider": "faster-whisper"}
     }
@@ -117,7 +183,7 @@ moment, sans attendre la complétion.
 La lecture du texte : `docflow__get_document(doc_id)`. La stack ne proxifie
 jamais le contenu.
 
-### 2.4 Administration
+### 2.5 Administration
 
 #### `roles__cancel_request(request_key, note?)`
 Annule les jobs pending/claimed de la requête ; les items déjà déposés
@@ -130,9 +196,17 @@ Re-queue les items `failed` (tous, ou une sélection). Réutilise
 ## 3. Cycle de vie d'une requête
 
 ```
-submit(auto) ──► discovering ──► acquiring ──► completed
-                                      │              └─ partially_failed
-submit(discover_only) ─► discovering ─► discovered ─(select_items)─► acquiring
+Scrape :
+  submit(discover_only) ─► discovering ─► discovered
+        └─ le pilote : list_discovered → choix humain → select_items
+                                          └──────────────► acquiring ─► completed
+  submit(auto) ─────────► discovering ─► acquiring ─► completed
+                                                          └─ partially_failed
+Upload :
+  create_upload_request ─► open_for_upload
+        └─ N × (request_upload_slot → PUT client → finalize_upload)
+        └─ close_upload_request ─► acquiring ─► completed
+
 (à tout moment) cancel ─► cancelled
 ```
 
@@ -141,7 +215,7 @@ Pipeline interne par item (inchangé vs V1 jusqu'à `transcribed`, puis) :
 `chunking/indexed` : dépôt du texte + métadonnées dans docflow via la
 passerelle (retry avec backoff ; échec de dépôt = item `failed` avec
 `error.code=DOCFLOW_DEPOSIT_FAILED`, transcript conservé dans MinIO pour
-retry).
+retry). Les items upload entrent au stade `audio_ready`.
 
 ## 4. Modèle de données — deltas vs V1
 
@@ -152,8 +226,9 @@ CREATE TABLE acquisition_requests (
     request_key     text NOT NULL UNIQUE,      -- slug lisible
     tenant_id       uuid NOT NULL,
     submitted_by    text NOT NULL,             -- identité passerelle déclarée
-    source_id       uuid NOT NULL REFERENCES sources(id),
-    mode            text NOT NULL CHECK (mode IN ('auto','discover_only')),
+    kind            text NOT NULL CHECK (kind IN ('scrape','upload')),
+    source_id       uuid REFERENCES sources(id),  -- null si kind=upload pur
+    mode            text CHECK (mode IN ('auto','discover_only')),
     filters         jsonb,
     docflow_target  jsonb,                     -- {workspace, block} ou null=convention
     note            text,
@@ -165,11 +240,14 @@ CREATE TABLE acquisition_requests (
 `role_projects` disparaît comme concept central : la **requête** remplace le
 « projet de rôle » (le rôle, lui, vit chez le pilote/docflow). Migration :
 `sources.role_project_id` → rattachement à la requête ; tables de synthèse
-droppées (voir §5).
+droppées (voir §5). Pour `kind=upload`, les items sont rattachés à une
+source technique `platform='upload'` (déjà prévue au schéma V1).
 
-### `source_items` — statuts révisés
-`chunking|indexed` → `depositing|deposited` ; nouvelle colonne
+### `source_items` — statuts et colonnes révisés
+`chunking|indexed` → `depositing|deposited` ; nouvelles colonnes
 `docflow_doc_id text`, `docflow_slug text`, `deposited_at timestamptz`.
+Pour l'upload : `upload_expires_at timestamptz` (TTL du slot présigné),
+statut initial `awaiting_upload` avant `audio_ready`.
 
 ### Nouvelle table `corpus_pull_cursors`
 ```sql
@@ -203,20 +281,32 @@ CREATE TABLE corpus_pull_cursors (
 3. **Identité déclarée** : `submitted_by` est requis à la soumission
    (déclaratif, comme `validated_by` côté workflow) — croisable plus tard
    avec l'identité de session passerelle.
-4. **Aucune synthèse, aucun rôle** : la stack refuse tout scope creep vers
-   l'analyse du contenu. Elle livre du corpus référencé.
-5. **Erreurs** : format uniforme `{code, message, details}`. Codes :
+4. **Aucune synthèse, aucun rôle, aucun thème** : la stack livre des
+   métadonnées brutes et du corpus référencé. Toute analyse de contenu
+   (thématisation incluse) appartient au pilote.
+5. **Upload** : liste blanche de `media_type`, TTL des slots présignés,
+   nettoyage périodique des items `awaiting_upload` expirés (job léger).
+   Taille max par objet : politique MinIO (défaut 2 GB), pas de streaming
+   par MCP.
+6. **Erreurs** : format uniforme `{code, message, details}`. Codes :
    `UNKNOWN_REQUEST`, `UNSUPPORTED_PLATFORM`, `INVALID_URL`,
    `NO_CREDENTIALS`, `NOT_IN_DISCOVERED_STATE`, `DOCFLOW_DEPOSIT_FAILED`,
-   `ALREADY_CANCELLED`.
+   `ALREADY_CANCELLED`, `UNSUPPORTED_MEDIA`, `REQUEST_CLOSED`,
+   `UPLOAD_NOT_FOUND`, `UPLOAD_EXPIRED`.
 
 ## 6. Critères d'acceptation
 
-- [ ] Cycle nominal auto : `submit(url, filters)` → pulls `request_status`
-      → `get_corpus` incrémental (docs partiels avant complétion) →
-      `complete=true` ; transcripts lisibles via `docflow__get_document`.
-- [ ] Cycle deux temps : `submit(discover_only)` → 200 items `discovered`
-      → `select_items(30)` → seuls les 30 passent en transcription.
+- [ ] Cycle nominal deux temps : `submit(discover_only)` sur une chaîne
+      complète → `list_discovered` retourne titres/extraits/tags/durées
+      paginés → `select_items(liste retenue)` → seuls ces items passent
+      en transcription.
+- [ ] Cycle raccourci : `submit(url, mode=auto, filters)` → pulls
+      `request_status` → `get_corpus` incrémental → `complete=true`.
+- [ ] Cycle upload : `create_upload_request` → `request_upload_slot` →
+      PUT présigné → `finalize_upload` → item transcrit et déposé dans
+      docflow, indiscernable d'un item scrapé côté corpus
+      (`platform=upload`, `source_url=null`).
+- [ ] Slot expiré : `finalize_upload` → `UPLOAD_EXPIRED` ; item nettoyé.
 - [ ] `only_new` : deux pulls successifs, le second ne retourne que les
       items déposés entre-temps ; deux appelants ont des curseurs
       indépendants.
@@ -227,8 +317,8 @@ CREATE TABLE corpus_pull_cursors (
       conservé, `retry_failed` le récupère.
 - [ ] `cancel_request` : jobs pending annulés, items déposés préservés.
 - [ ] Traçabilité : depuis un document docflow, remonter request_key →
-      source → URL d'origine (métadonnées présentes).
-- [ ] Aucun contenu de transcript ne transite par un tool `roles__*`.
+      source → URL d'origine (ou origine upload).
+- [ ] Aucun contenu (texte ou binaire) ne transite par un tool `roles__*`.
 
 ## 7. Questions ouvertes
 
@@ -237,6 +327,9 @@ CREATE TABLE corpus_pull_cursors (
 - Notification push vers le pilote à la complétion (webhook/catch-up
   docflow ?) — V2 = pull uniquement.
 - Quotas/équité multi-acteurs (V2 = FIFO).
-- Faut-il exposer un `roles__estimate_cost(request_key)` avant
-  sélection (durées découvertes × tarif provider) ? Probablement oui,
-  peu coûteux et aligné « le pilote maîtrise les coûts » — à confirmer.
+- `roles__estimate_cost(request_key)` avant sélection (durées découvertes
+  × tarif provider) — probablement oui, aligné « le pilote maîtrise les
+  coûts » ; à confirmer.
+- URL présignée MinIO : exposition réseau (MinIO doit être joignable par
+  le client qui uploade — via Cloudflare Tunnel/ingress ?) — à trancher
+  au déploiement sur le host ressources.
