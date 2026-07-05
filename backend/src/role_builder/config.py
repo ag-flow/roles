@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     # Harpocrate vault — désactiver pour les tests qui ne fournissent pas de token
     disable_vault: bool = False
 
+    # Clé Fernet (base64 url-safe, 32 octets) chiffrant les secrets stockés
+    # en base : tokens de wallets Harpocrate + secrets storage='local'.
+    # Générée par dev-deploy.sh ; vide = les routes wallets/secrets refusent
+    # de fonctionner (RuntimeError explicite à la première utilisation).
+    secret_encryption_key: str = ""
+
     # Façade MCP roles__* — session_manager.run() est mono-usage par instance
     # (cf. mcp.server.streamable_http_manager) : désactivé dans les tests, qui
     # recréent un TestClient(app) par test contre le même process (donc le

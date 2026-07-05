@@ -26,6 +26,8 @@ from role_builder.routes import (
     scraping_jobs,
     sources,
     transcription_keys,
+    user_secrets,
+    wallets,
     websocket,
 )
 from role_builder.routes import (
@@ -208,6 +210,8 @@ app.include_router(sources.router, prefix="/api", tags=["sources"])
 app.include_router(scraping_jobs.router, prefix="/api", tags=["scraping-jobs"])
 app.include_router(credentials.router, prefix="/api", tags=["credentials"])
 app.include_router(transcription_keys.router, prefix="/api", tags=["transcription-keys"])
+app.include_router(wallets.router, prefix="/api", tags=["wallets"])
+app.include_router(user_secrets.router, prefix="/api", tags=["secrets"])
 app.include_router(role_projects_route.router, prefix="/api", tags=["role-projects"])
 app.include_router(version_route.router, prefix="/api", tags=["version"])
 app.include_router(apps.router, prefix="/api", tags=["apps"])
