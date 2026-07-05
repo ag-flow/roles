@@ -37,6 +37,9 @@ openbao_data/
 # Plans temporaires
 .tmp/
 
+# Dumps d'archivage V1 (scripts/archive_v1_tables.sh) — locaux, pas de repo
+archive/
+
 # Tooling local (claude code, IDE)
 .claude/
 

@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 from uuid import UUID
 
 import pytest
-
 from harpocrate.exceptions import SecretNotFound
+
 from role_builder.secrets.harpocrate.client import SecretsClient
 
 _WALLET_ID = UUID("12345678-1234-5678-1234-567812345678")

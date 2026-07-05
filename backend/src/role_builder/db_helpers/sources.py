@@ -10,7 +10,7 @@ import asyncpg
 
 async def insert_source(
     *,
-    role_project_id: UUID,
+    role_project_id: UUID | None,
     tenant_id: UUID,
     platform: str,
     source_type: str,
@@ -18,7 +18,11 @@ async def insert_source(
     credentials_id: UUID | None = None,
     pool: asyncpg.Pool,
 ) -> UUID:
-    """Insert a new row into `sources`. Status defaults to 'pending_discovery'."""
+    """Insert a new row into `sources`. Status defaults to 'pending_discovery'.
+
+    `role_project_id=None` pour les sources V2 (façade MCP) — rattachées à
+    une acquisition_request plutôt qu'à un role_project (cf. migration 0007).
+    """
     query = """
         INSERT INTO sources
             (role_project_id, tenant_id, platform, source_type, url, credentials_id)

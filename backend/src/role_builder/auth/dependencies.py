@@ -50,13 +50,20 @@ def _get_validator() -> KeycloakValidator:
     return _validator
 
 
-_DISABLED_USER = CurrentUser(
-    user_id=UUID("00000000-0000-0000-0000-000000000001"),
-    username="dev-disabled-auth",
-    email=settings.local_admin_email or None,
-    tenant_id=TENANT_ID_DEFAULT,
-    raw_token={},
-)
+def _disabled_user() -> CurrentUser:
+    """User stub du mode ``disable_auth``, construit à l'appel.
+
+    Pas une constante de module : ``local_admin_email`` doit être lu au
+    moment de la requête, sinon la valeur vue à l'import est figée (et les
+    tests qui patchent les settings polluent les suivants).
+    """
+    return CurrentUser(
+        user_id=UUID("00000000-0000-0000-0000-000000000001"),
+        username="dev-disabled-auth",
+        email=settings.local_admin_email or None,
+        tenant_id=TENANT_ID_DEFAULT,
+        raw_token={},
+    )
 
 
 def _claims_to_user(claims: dict[str, Any]) -> CurrentUser:
@@ -84,7 +91,7 @@ async def get_current_user(
 ) -> CurrentUser:
     """FastAPI dep : valide le Bearer token et retourne le `CurrentUser`."""
     if settings.disable_auth:
-        return _DISABLED_USER
+        return _disabled_user()
 
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
@@ -112,7 +119,7 @@ async def authenticate_websocket(token: str | None) -> CurrentUser:
     Les WebSockets ne supportent pas les headers custom au handshake côté
     navigateur — on passe donc le bearer dans l'URL (chiffré en TLS prod).
 
-    - Si ``settings.disable_auth=True`` → renvoie ``_DISABLED_USER``.
+    - Si ``settings.disable_auth=True`` → renvoie le user stub.
     - Token absent ou invalide → lève ``InvalidTokenError``.
 
     L'appelant (``routes.websocket``) doit appeler cette fonction AVANT
@@ -120,7 +127,7 @@ async def authenticate_websocket(token: str | None) -> CurrentUser:
     en cas d'échec.
     """
     if settings.disable_auth:
-        return _DISABLED_USER
+        return _disabled_user()
 
     if not token:
         raise InvalidTokenError("missing token")

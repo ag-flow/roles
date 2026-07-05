@@ -122,7 +122,10 @@ class ScraperOrchestrator:
         return env
 
     def _build_payload(self, job: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
-        prefix = f"{job['tenant_id']}/{source['role_project_id']}/{source['id']}/"
+        # role_project_id est NULL pour les sources V2 (façade MCP, migration
+        # 0007) : "v2" évite le littéral "None" dans la clé MinIO.
+        scope = source["role_project_id"] or "v2"
+        prefix = f"{job['tenant_id']}/{scope}/{source['id']}/"
         return {
             "task_id": str(job["id"]),
             "command": job["command"],

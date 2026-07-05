@@ -133,3 +133,23 @@ async def delete_credential(cred_id: UUID, *, pool: asyncpg.Pool) -> None:
     query = "DELETE FROM user_credentials WHERE id = $1"
     async with pool.acquire() as conn:
         await conn.execute(query, cred_id)
+
+
+async def get_active_credential_for_platform(
+    platform: str, *, pool: asyncpg.Pool
+) -> dict[str, Any] | None:
+    """Première credential active pour une plateforme, tous users confondus.
+
+    Utilisé par la façade MCP (roles__submit_acquisition, erreur
+    NO_CREDENTIALS) : MVP mono-tenant/mono-user, pas de filtre user_id ici.
+    """
+    query = (
+        "SELECT * FROM user_credentials "
+        "WHERE platform = $1 AND status = 'active' "
+        "ORDER BY created_at DESC LIMIT 1"
+    )
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(query, platform)
+    if row is None:
+        return None
+    return dict(row) if not isinstance(row, dict) else row

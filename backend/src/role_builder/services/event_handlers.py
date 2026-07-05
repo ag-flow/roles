@@ -14,11 +14,13 @@ from typing import Any
 import asyncpg
 import structlog
 
+from role_builder.db_helpers import acquisition_requests as ar
 from role_builder.db_helpers import role_projects as rp
 from role_builder.db_helpers import source_items as si
 from role_builder.db_helpers import sources as sm
 from role_builder.db_helpers import transcription_jobs as tj
 from role_builder.db_helpers import transcription_keys as tk
+from role_builder.services.acquisition import auto_select
 
 log = structlog.get_logger(__name__)
 
@@ -71,6 +73,19 @@ async def handle_scraper_event(
             discovered_count=total,
             pool=pool,
         )
+
+        # Branche la couche requête (façade MCP roles__*) sur le pipeline
+        # existant : si cette source a une acquisition_request (V2), on
+        # applique sa sélection auto ou on la marque 'discovered'. Sources
+        # V1 (pas de requête) : comportement inchangé, rien de plus.
+        request = await ar.get_by_source_id(job["source_id"], pool=pool)
+        if request is not None:
+            await auto_select.on_discovery_complete(
+                request,
+                source_id=job["source_id"],
+                tenant_id=job["tenant_id"],
+                pool=pool,
+            )
         return
 
     if etype == "item_done":

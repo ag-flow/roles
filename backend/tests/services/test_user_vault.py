@@ -11,7 +11,6 @@ from role_builder.services.user_vault import (
     UserVaultService,
     _email_hash,
     build_credentials_vault_name,
-    build_github_vault_name,
     build_transcription_vault_path,
     build_vault_ref,
     build_vault_secret_name,
@@ -255,19 +254,6 @@ def test_build_credentials_vault_name_cred_id_in_path() -> None:
     cred_id = UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
     name = build_credentials_vault_name("a@b.com", "tiktok", cred_id)
     assert str(cred_id) in name
-
-
-# ---------------------------------------------------------------------------
-# build_github_vault_name
-# ---------------------------------------------------------------------------
-
-
-def test_build_github_vault_name_normal() -> None:
-    """user_id UUID + tenant_id → chemin github correct."""
-    user_id = UUID("12345678-1234-5678-1234-567812345678")
-    tenant_id = UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
-    name = build_github_vault_name(user_id, tenant_id)
-    assert name == f"github/{tenant_id}/{user_id}"
 
 
 # ---------------------------------------------------------------------------

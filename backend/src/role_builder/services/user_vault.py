@@ -4,7 +4,6 @@ Les clés utilisateur sont stockées avec un chemin hiérarchique :
 
     users/{email_hash}/transcription/{provider}/{key_id}  — clés de transcription
     users/{email_hash}/scraping/{platform}/{cred_id}      — cookies de scraping
-    github/{tenant_id}/{user_id}                           — tokens GitHub OAuth
 
 {email_hash} est un SHA-256 hex de l'email en minuscules (RGPD : pas de donnée
 personnelle en clair dans les paths vault).
@@ -39,14 +38,6 @@ def build_vault_secret_name(email: str | None, provider: str, key_id: UUID) -> s
 def build_credentials_vault_name(email: str | None, platform: str, cred_id: UUID) -> str:
     """Retourne le nom de secret Harpocrate pour les cookies de scraping."""
     return f"users/{_email_hash(email)}/scraping/{platform}/{cred_id}"
-
-
-def build_github_vault_name(user_id: UUID, tenant_id: UUID) -> str:
-    """Retourne le nom de secret Harpocrate pour un token GitHub OAuth.
-
-    Exemple : github/00000000-0000-0000-0000-000000000001/12345678-...
-    """
-    return f"github/{tenant_id}/{user_id}"
 
 
 def build_transcription_vault_path(email: str | None, provider: str, key_name: str) -> str:

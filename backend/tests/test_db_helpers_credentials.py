@@ -259,3 +259,39 @@ async def test_delete_credential_sends_delete(stub_conn: _StubConn, stub_pool: A
     assert method == "execute"
     assert "DELETE FROM user_credentials" in query
     assert cred_id in args
+
+
+async def test_get_active_credential_for_platform_returns_row(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """Façade MCP : NO_CREDENTIALS repose sur l'existence d'une credential active.
+
+    MVP mono-tenant/mono-user (cf. TENANT_ID_DEFAULT) : pas de filtre user_id,
+    seule la plateforme + le statut 'active' comptent.
+    """
+    from role_builder.db_helpers import credentials
+
+    cred_id = uuid4()
+    stub_conn.fetchrow_return = {"id": cred_id, "platform": "youtube", "status": "active"}
+
+    row = await credentials.get_active_credential_for_platform("youtube", pool=stub_pool)
+
+    assert row is not None
+    assert row["id"] == cred_id
+    method, query, args = stub_conn.calls[0]
+    assert method == "fetchrow"
+    assert "FROM user_credentials" in query
+    assert "active" in query
+    assert "youtube" in args
+
+
+async def test_get_active_credential_for_platform_returns_none_when_missing(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    from role_builder.db_helpers import credentials
+
+    stub_conn.fetchrow_return = None
+
+    row = await credentials.get_active_credential_for_platform("tiktok", pool=stub_pool)
+
+    assert row is None

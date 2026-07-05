@@ -77,14 +77,14 @@ describe('WSManager', () => {
     manager.connect('ws://test');
 
     const handler = vi.fn();
-    const off = manager.on('runs_changes', handler);
+    const off = manager.on('workers_changes', handler);
     off();
 
     const sock = instances[0]!;
     sock.onmessage!({
       data: JSON.stringify({
-        channel: 'runs_changes',
-        payload: { table: 'runs', op: 'INSERT', tenant_id: 't1', id: 'r1', status: 'queued' },
+        channel: 'workers_changes',
+        payload: { table: 'transcription_workers', op: 'INSERT', tenant_id: 't1', id: 'r1', status: 'queued' },
       }),
     });
 

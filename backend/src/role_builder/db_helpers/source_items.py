@@ -15,8 +15,8 @@ import asyncpg
 _INSERT_SQL = """
     INSERT INTO source_items
         (source_id, tenant_id, platform_item_id, title, duration_s,
-         published_at, thumbnail_url, status)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         published_at, thumbnail_url, status, description_excerpt, tags)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     ON CONFLICT (source_id, platform_item_id) DO NOTHING
 """
 
@@ -31,7 +31,8 @@ async def insert_source_items_bulk(
     """Bulk-insert items. Returns the count we attempted to insert.
 
     Items keys: id (=> platform_item_id), title, duration_s,
-    published_at, thumbnail_url. Status forced to 'pending_download'.
+    published_at, thumbnail_url, description_excerpt (optionnel),
+    tags (optionnel, list[str]). Status forced to 'pending_download'.
     Idempotent via ON CONFLICT DO NOTHING.
     """
     if not items:
@@ -47,6 +48,8 @@ async def insert_source_items_bulk(
             item.get("published_at"),
             item.get("thumbnail_url"),
             "pending_download",
+            item.get("description_excerpt"),
+            item.get("tags"),
         )
         for item in items
     ]
@@ -126,23 +129,14 @@ async def update_source_item_status(
         )
 
 
-async def update_source_item_status_by_id(
-    item_id: UUID,
-    status: str,
-    *,
-    pool: asyncpg.Pool,
-) -> None:
-    """Update status d'un source_item par son id (helper Sprint 4 chunking)."""
-    query = "UPDATE source_items SET status = $1, updated_at = now() WHERE id = $2"
-    async with pool.acquire() as conn:
-        await conn.execute(query, status, item_id)
-
-
 async def list_items_by_source(
     source_id: UUID,
     *,
     min_duration_s: int | None = None,
+    max_duration_s: int | None = None,
     since_date: datetime | None = None,
+    until_date: datetime | None = None,
+    title_contains: str | None = None,
     status: str | None = None,
     selected: bool | None = None,
     limit: int = 50,
@@ -156,9 +150,18 @@ async def list_items_by_source(
     if min_duration_s is not None:
         params.append(min_duration_s)
         clauses.append(f"duration_s >= ${len(params)}")
+    if max_duration_s is not None:
+        params.append(max_duration_s)
+        clauses.append(f"duration_s <= ${len(params)}")
     if since_date is not None:
         params.append(since_date)
         clauses.append(f"published_at >= ${len(params)}")
+    if until_date is not None:
+        params.append(until_date)
+        clauses.append(f"published_at <= ${len(params)}")
+    if title_contains is not None:
+        params.append(f"%{title_contains}%")
+        clauses.append(f"title ILIKE ${len(params)}")
     if status is not None:
         params.append(status)
         clauses.append(f"status = ${len(params)}")
@@ -181,6 +184,36 @@ async def list_items_by_source(
     async with pool.acquire() as conn:
         rows = await conn.fetch(query, *params)
     return [dict(r) if not isinstance(r, dict) else r for r in rows]
+
+
+async def count_by_status(source_id: UUID, *, pool: asyncpg.Pool) -> list[dict[str, Any]]:
+    """Compte les items d'une source groupés par (status, selected).
+
+    Base des `counts` de roles__request_status (§2.3) — repliés côté
+    service (pas de mapping vers le vocabulaire de statuts exposé ici).
+    """
+    query = """
+        SELECT status, selected, count(*) AS n
+        FROM source_items
+        WHERE source_id = $1
+        GROUP BY status, selected
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query, source_id)
+    return [dict(r) if not isinstance(r, dict) else r for r in rows]
+
+
+async def reset_for_retry(
+    source_id: UUID, platform_item_id: str, *, pool: asyncpg.Pool
+) -> None:
+    """Remet un item `failed` à `pending_download`, efface l'erreur (roles__retry_failed)."""
+    query = """
+        UPDATE source_items
+        SET status = 'pending_download', error = NULL, updated_at = now()
+        WHERE source_id = $1 AND platform_item_id = $2
+    """
+    async with pool.acquire() as conn:
+        await conn.execute(query, source_id, platform_item_id)
 
 
 async def select_items(

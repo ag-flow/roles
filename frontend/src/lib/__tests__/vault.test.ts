@@ -21,11 +21,11 @@ describe('resolveVaultRef (unit — no network)', () => {
     const { resolveVaultRef } = await import('../vault');
     expect(await resolveVaultRef('plain_value')).toBe('plain_value');
     expect(await resolveVaultRef('')).toBe('');
-    expect(await resolveVaultRef('https://api.mistral.ai')).toBe('https://api.mistral.ai');
+    expect(await resolveVaultRef('https://api.openai.com')).toBe('https://api.openai.com');
   });
 
   it('détecte correctement le pattern vault ref', () => {
-    const REF = '${vault://api1:mistral_api_key}';
+    const REF = '${vault://api1:openai_api_key}';
     expect(REF).toMatch(/^\$\{vault:\/\/[^:]+:[^}]+\}$/);
   });
 

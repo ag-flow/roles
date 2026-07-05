@@ -68,12 +68,6 @@ services:
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
       KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-}
       DISABLE_AUTH: ${DISABLE_AUTH:-false}
-      # Sprint 4 — Mistral (LLM + embeddings) + chunking_worker
-      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
-      MISTRAL_BASE_URL: ${MISTRAL_BASE_URL:-https://api.mistral.ai}
-      MISTRAL_EMBED_MODEL: ${MISTRAL_EMBED_MODEL:-mistral-embed}
-      MISTRAL_CHAT_MODEL: ${MISTRAL_CHAT_MODEL:-mistral-large-latest}
-      DISABLE_CHUNKING_WORKER: ${DISABLE_CHUNKING_WORKER:-false}
       # Auth admin local (sans OIDC). Activé via LOCAL_ADMIN_ENABLED=true
       # avec LOCAL_ADMIN_PASSWORD non vide ET LOCAL_ADMIN_SECRET (>=32 chars).
       # Le frontend appelle /api/auth/local-login avec ces creds.

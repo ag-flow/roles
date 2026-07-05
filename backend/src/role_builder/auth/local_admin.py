@@ -21,7 +21,7 @@ import jwt
 
 from role_builder.config import settings
 
-# ID stable de l'admin local. Identique au ``_DISABLED_USER`` de
+# ID stable de l'admin local. Identique au user stub ``_disabled_user()`` de
 # ``auth.dependencies`` pour garantir la continuité avec les données créées
 # pendant la phase ``DISABLE_AUTH=true`` du MVP : les projets stockés sous
 # cet UUID restent visibles à l'admin local après le passage en vrai

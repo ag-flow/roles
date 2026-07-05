@@ -116,6 +116,61 @@ async def test_reassign_pending_to_shared_updates_pending_only(
     assert "user_xyz" in args
 
 
+async def test_cancel_pending_claimed_updates_by_source_id(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """cancel_pending_claimed annule les jobs pending/claimed rattachés à une source
+    (via ses source_items), retourne le nombre de lignes modifiées."""
+    from role_builder.db_helpers import transcription_jobs
+
+    stub_conn.execute_return = "UPDATE 2"
+
+    source_id = uuid4()
+    n = await transcription_jobs.cancel_pending_claimed(source_id, pool=stub_pool)
+
+    assert n == 2
+    method, query, args = stub_conn.calls[0]
+    assert method == "execute"
+    assert "UPDATE transcription_jobs" in query
+    assert "cancelled" in query
+    assert "pending" in query
+    assert "claimed" in query
+    assert "source_items" in query
+    assert source_id in args
+
+
+async def test_sum_cost_for_source_returns_zero_when_no_rows(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """sum_cost_for_source — support de roles__request_status.cost.transcription_usd."""
+    from role_builder.db_helpers import transcription_jobs
+
+    stub_conn.fetchval_return = None
+
+    total = await transcription_jobs.sum_cost_for_source(uuid4(), pool=stub_pool)
+
+    assert total == 0.0
+
+
+async def test_sum_cost_for_source_sums_actual_or_estimate(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    from role_builder.db_helpers import transcription_jobs
+
+    stub_conn.fetchval_return = 1.84
+    source_id = uuid4()
+
+    total = await transcription_jobs.sum_cost_for_source(source_id, pool=stub_pool)
+
+    assert total == 1.84
+    method, query, args = stub_conn.calls[0]
+    assert method == "fetchval"
+    assert "cost_actual_usd" in query
+    assert "cost_estimate_usd" in query
+    assert "source_items" in query
+    assert source_id in args
+
+
 async def test_list_jobs_optional_filters(stub_conn: _StubConn, stub_pool: Any) -> None:
     """list_jobs accepte status et worker_pool_id optionnels + LIMIT."""
     from role_builder.db_helpers import transcription_jobs

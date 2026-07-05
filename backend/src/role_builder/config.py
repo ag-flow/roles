@@ -25,8 +25,6 @@ class Settings(BaseSettings):
     minio_access_key: str
     minio_secret_key: str
 
-    agflow_base_url: str = "https://docker-agflow.yoops.org"
-    agflow_api_token: str = ""
     log_level: str = "INFO"
 
     # Sprint 2 — Scrapers
@@ -50,24 +48,35 @@ class Settings(BaseSettings):
     ghcr_owner: str = ""
     disable_worker_manager: bool = False
 
+    # V2 lot 4 — Dépôt docflow (transcribed → depositing → deposited).
+    # deposit_backend=stub (défaut) : fichiers JSON locaux + refs factices,
+    # tant que la convention docflow_target et l'identité machine ne sont
+    # pas tranchées (cf. services/deposit/gateway.py).
+    deposit_backend: str = "stub"
+    stub_deposit_dir: str = "./stub-deposits"
+    deposit_max_attempts: int = 3
+    deposit_backoff_base_s: float = 1.0
+    deposit_poll_interval_s: float = 2.0
+    disable_deposit_worker: bool = False
+
     # Phase A — Auth Keycloak
     keycloak_issuer_url: str = ""
     keycloak_client_id: str = ""
     keycloak_audience: str = ""
     disable_auth: bool = False
 
-    # Sprint 4 — Mistral (LLM + embeddings) + chunking_worker
-    mistral_api_key: str = ""
-    mistral_base_url: str = "https://api.mistral.ai"
-    mistral_embed_model: str = "mistral-embed"
-    mistral_chat_model: str = "mistral-large-latest"
-    disable_chunking_worker: bool = False
-
     # Sprint 6 — Scheduler périodique (poll balance, reset mensuel)
     disable_scheduler: bool = False
 
     # Harpocrate vault — désactiver pour les tests qui ne fournissent pas de token
     disable_vault: bool = False
+
+    # Façade MCP roles__* — session_manager.run() est mono-usage par instance
+    # (cf. mcp.server.streamable_http_manager) : désactivé dans les tests, qui
+    # recréent un TestClient(app) par test contre le même process (donc le
+    # même singleton `mcp`), ce qui violerait ce mono-usage hors production
+    # (un seul cycle de lifespan par process réel).
+    disable_mcp_server: bool = False
 
     # Phase 2 — Migrations DB embarquées dans l'image, exécutées au startup.
     # disable_migrations=True dans les tests pour éviter le run au boot.
@@ -96,16 +105,6 @@ class Settings(BaseSettings):
     local_admin_email: str = ""
     # Durée de vie du JWT local en secondes (défaut 12h).
     local_admin_token_ttl_s: int = 43200
-
-    # Sprint 5 — Cost tracking Mistral (rates par token, $2/$6 par million)
-    mistral_input_token_rate_usd: float = 0.000002
-    mistral_output_token_rate_usd: float = 0.000006
-
-    # Sprint 8 — GitHub OAuth (publication des rôles sur un repo user)
-    github_oauth_client_id: str = ""
-    github_oauth_client_secret: str = ""
-    github_oauth_redirect_uri: str = "http://localhost:8000/api/auth/github/callback"
-    github_oauth_scope: str = "public_repo"
 
 
 settings = Settings()  # type: ignore[call-arg]

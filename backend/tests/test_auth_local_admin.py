@@ -112,15 +112,20 @@ def test_issue_token_omits_email_when_not_configured(monkeypatch: pytest.MonkeyP
 
 
 def test_disabled_user_has_email_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    """En mode disable_auth, _DISABLED_USER.email doit refléter local_admin_email."""
-    from role_builder.config import settings as _settings
+    """En mode disable_auth, le user stub doit refléter local_admin_email.
+
+    Le stub est construit à l'appel (pas à l'import) : le monkeypatch des
+    settings suffit, sans importlib.reload — un reload sous settings patchés
+    figeait l'email dans le module et polluait les tests suivants.
+    """
     from role_builder.auth import dependencies as deps
+    from role_builder.config import settings as _settings
 
     monkeypatch.setattr(_settings, "local_admin_email", "llm.beard.family@gmail.com", raising=False)
-    # Reconstruit _DISABLED_USER en rechargeant la valeur
-    import importlib
-    importlib.reload(deps)
-    assert deps._DISABLED_USER.email == "llm.beard.family@gmail.com"
+    assert deps._disabled_user().email == "llm.beard.family@gmail.com"
+
+    monkeypatch.setattr(_settings, "local_admin_email", "", raising=False)
+    assert deps._disabled_user().email is None
 
 
 def test_verify_token_rejects_wrong_secret(monkeypatch: pytest.MonkeyPatch) -> None:

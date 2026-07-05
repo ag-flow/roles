@@ -106,6 +106,34 @@ async def test_insert_source_items_bulk_uses_executemany(
     assert "vid-1" in batch[0]
 
 
+async def test_insert_source_items_bulk_accepts_description_and_tags(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """description_excerpt/tags (list_discovered enrichi) sont optionnels, propagés si fournis."""
+    from role_builder.db_helpers import source_items
+
+    source_id = uuid4()
+    tenant_id = uuid4()
+    items = [
+        {
+            "id": "vid-1",
+            "title": "T1",
+            "description_excerpt": "Dans cette vidéo…",
+            "tags": ["ux", "interview"],
+        },
+        {"id": "vid-2", "title": "T2"},  # sans description/tags — doit rester optionnel
+    ]
+
+    await source_items.insert_source_items_bulk(
+        items, source_id=source_id, tenant_id=tenant_id, pool=stub_pool
+    )
+
+    _, batch = stub_conn.executemany_calls[0]
+    assert "Dans cette vidéo…" in batch[0]
+    assert ["ux", "interview"] in batch[0]
+    assert None in batch[1]  # description_excerpt absente -> None
+
+
 async def test_update_source_item_status_executes_update(
     stub_conn: _StubConn, stub_pool: Any
 ) -> None:
@@ -167,6 +195,75 @@ async def test_list_items_by_source_applies_filters(stub_conn: _StubConn, stub_p
     assert True in args
     assert 10 in args
     assert 20 in args
+
+
+async def test_list_items_by_source_applies_extended_filters(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """max_duration_s / until_date / title_contains — filtres de la sélection auto (§2.1)."""
+    from role_builder.db_helpers import source_items
+
+    source_id = uuid4()
+    stub_conn.fetch_return = [{"id": uuid4()}]
+    until = datetime(2024, 6, 1, tzinfo=UTC)
+
+    await source_items.list_items_by_source(
+        source_id,
+        max_duration_s=1800,
+        until_date=until,
+        title_contains="UX",
+        limit=10,
+        offset=0,
+        pool=stub_pool,
+    )
+
+    _, query, args = stub_conn.calls[0]
+    assert "duration_s <=" in query
+    assert "published_at <=" in query
+    assert "title ILIKE" in query
+    assert source_id in args
+    assert 1800 in args
+    assert until in args
+    assert "%UX%" in args
+
+
+async def test_count_by_status_groups_status_and_selected(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """count_by_status — support de request_status (counts agrégés, §2.3)."""
+    from role_builder.db_helpers import source_items
+
+    source_id = uuid4()
+    stub_conn.fetch_return = [
+        {"status": "pending_download", "selected": True, "n": 3},
+        {"status": "deposited", "selected": True, "n": 2},
+    ]
+
+    rows = await source_items.count_by_status(source_id, pool=stub_pool)
+
+    assert rows == stub_conn.fetch_return
+    method, query, args = stub_conn.calls[0]
+    assert method == "fetch"
+    assert "GROUP BY status, selected" in query
+    assert source_id in args
+
+
+async def test_reset_for_retry_clears_error_and_sets_pending(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """reset_for_retry — roles__retry_failed remet l'item à zéro (efface l'erreur)."""
+    from role_builder.db_helpers import source_items
+
+    source_id = uuid4()
+    await source_items.reset_for_retry(source_id, "vid-1", pool=stub_pool)
+
+    method, query, args = stub_conn.calls[0]
+    assert method == "execute"
+    assert "UPDATE source_items" in query
+    assert "pending_download" in query
+    assert "error = NULL" in query
+    assert source_id in args
+    assert "vid-1" in args
 
 
 async def test_select_items_marks_listed_and_optional_deselect(

@@ -6,10 +6,6 @@ import type { ReactNode } from 'react';
 
 const TABS = [
   { suffix: 'sources', label: 'Sources' },
-  { suffix: 'corpus', label: 'Corpus' },
-  { suffix: 'prompts', label: 'Prompts' },
-  { suffix: 'analyses', label: 'Analyses' },
-  { suffix: 'role', label: 'Rôle' },
 ];
 
 export default function ProjectLayout({ children }: { children: ReactNode }) {

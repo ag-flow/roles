@@ -5,7 +5,6 @@ queues asyncio des subscribers (filtrées par `tenant_id`).
 
 Channels écoutés (cf. migration 0010) :
 - source_items_changes
-- runs_changes
 - workers_changes
 - keys_changes
 
@@ -29,10 +28,8 @@ log = structlog.get_logger(__name__)
 
 _CHANNELS = (
     "source_items_changes",
-    "runs_changes",
     "workers_changes",
     "keys_changes",
-    "agflow_push_events",
 )
 
 
@@ -51,7 +48,7 @@ class WSRelay:
         self._subscribers: list[tuple[UUID, asyncio.Queue[dict[str, Any]]]] = []
 
     async def start(self) -> None:
-        """Open the dedicated connection and register listeners on the 4 channels."""
+        """Open the dedicated connection and register listeners on the 3 channels."""
         self._conn = await asyncpg.connect(self._dsn)
         for channel in _CHANNELS:
             await self._conn.add_listener(channel, self._on_notify)

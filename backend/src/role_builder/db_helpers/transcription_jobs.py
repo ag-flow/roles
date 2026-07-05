@@ -73,6 +73,41 @@ async def reassign_pending_to_shared(user_pool_id: str, *, pool: asyncpg.Pool) -
     return 0
 
 
+async def cancel_pending_claimed(source_id: UUID, *, pool: asyncpg.Pool) -> int:
+    """Annule (status='cancelled') les jobs pending/claimed d'une source, via ses items.
+
+    transcription_jobs n'a pas de source_id direct (seulement source_item_id) :
+    la jointure passe par source_items. Retourne le nombre de lignes modifiées.
+    """
+    query = """
+        UPDATE transcription_jobs
+        SET status = 'cancelled', updated_at = now()
+        WHERE status IN ('pending', 'claimed')
+          AND source_item_id IN (SELECT id FROM source_items WHERE source_id = $1)
+    """
+    async with pool.acquire() as conn:
+        result = await conn.execute(query, source_id)
+    parts = result.split()
+    if len(parts) >= 2 and parts[0].upper() == "UPDATE":
+        try:
+            return int(parts[1])
+        except ValueError:
+            return 0
+    return 0
+
+
+async def sum_cost_for_source(source_id: UUID, *, pool: asyncpg.Pool) -> float:
+    """Somme des coûts de transcription (réel si connu, sinon estimé) d'une source."""
+    query = """
+        SELECT sum(COALESCE(cost_actual_usd, cost_estimate_usd, 0))
+        FROM transcription_jobs
+        WHERE source_item_id IN (SELECT id FROM source_items WHERE source_id = $1)
+    """
+    async with pool.acquire() as conn:
+        total = await conn.fetchval(query, source_id)
+    return float(total) if total is not None else 0.0
+
+
 async def list_jobs(
     *,
     status: str | None = None,

@@ -20,8 +20,6 @@ def test_settings_loads_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.minio_access_key == "key"
     assert s.minio_secret_key == "secret"
     assert s.log_level == "INFO"  # default
-    assert s.agflow_base_url == "https://docker-agflow.yoops.org"  # default
-    assert s.agflow_api_token == ""  # Sprint 7 — token admin ag.flow
     # Sprint 2 Phase C defaults
     assert s.youtube_cookies_b64 == ""
     assert s.instagram_cookies_b64 == ""
@@ -43,15 +41,6 @@ def test_settings_loads_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.keycloak_client_id == ""
     assert s.keycloak_audience == ""
     assert s.disable_auth is False
-    # Sprint 4 — Mistral defaults + chunking_worker
-    assert s.mistral_api_key == ""
-    assert s.mistral_base_url == "https://api.mistral.ai"
-    assert s.mistral_embed_model == "mistral-embed"
-    assert s.mistral_chat_model == "mistral-large-latest"
-    assert s.disable_chunking_worker is False
-    # Sprint 5 — Cost tracking Mistral
-    assert s.mistral_input_token_rate_usd == 0.000002
-    assert s.mistral_output_token_rate_usd == 0.000006
     # Sprint 6 — Scheduler
     assert s.disable_scheduler is False
 

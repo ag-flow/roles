@@ -4,9 +4,10 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
-# curl pour le healthcheck du compose
+# curl pour le healthcheck du compose ; ffmpeg pour l'extraction audio des
+# vidéos uploadées (cf. services/acquisition/upload/audio_extraction.py)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl ca-certificates && \
+    apt-get install -y --no-install-recommends curl ca-certificates ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

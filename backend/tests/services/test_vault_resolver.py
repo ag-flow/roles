@@ -1,7 +1,6 @@
 """Tests unitaires pour VaultResolver."""
 from __future__ import annotations
 
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -67,11 +66,11 @@ def test_resolve_settings_patches_vault_refs(monkeypatch: pytest.MonkeyPatch) ->
         minio_endpoint="http://localhost:9000",
         minio_access_key="minioadmin",
         minio_secret_key="minioadmin",
-        mistral_api_key="${vault://api1:mistral_api_key}",
+        keycloak_client_id="${vault://api1:keycloak_client_id}",
         local_admin_password="${vault://api1:local_admin_password}",
     )
     r.resolve_settings(s)
-    assert s.mistral_api_key == "resolved_mistral_api_key"
+    assert s.keycloak_client_id == "resolved_keycloak_client_id"
     assert s.local_admin_password == "resolved_local_admin_password"
     assert s.database_url == "postgresql://rb:pass@localhost/rb"
 

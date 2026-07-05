@@ -49,14 +49,14 @@ def test_scheduler_instantiation(monkeypatch: pytest.MonkeyPatch, stubbed_env: N
 
 
 # ---------------------------------------------------------------------------
-# Test 2 — start() schedule 3 jobs
+# Test 2 — start() schedule 4 jobs
 # ---------------------------------------------------------------------------
 
 
-def test_scheduler_start_schedules_three_jobs(
+def test_scheduler_start_schedules_four_jobs(
     monkeypatch: pytest.MonkeyPatch, stubbed_env: None
 ) -> None:
-    """Après start(), 3 jobs enregistrés avec les ids attendus."""
+    """Après start(), 4 jobs enregistrés avec les ids attendus."""
     monkeypatch.setattr(
         "role_builder.services.scheduler.AsyncIOScheduler",
         _FakeAsyncIOScheduler,
@@ -72,7 +72,7 @@ def test_scheduler_start_schedules_three_jobs(
         "poll_credit_balances",
         "reset_monthly_spend",
         "cleanup_revoked_secrets",
-        "cleanup_oauth_states",
+        "cleanup_upload_slots",
     }
     assert rbs._started is True
 
@@ -83,7 +83,7 @@ def test_scheduler_start_schedules_three_jobs(
 
 
 def test_scheduler_start_idempotent(monkeypatch: pytest.MonkeyPatch, stubbed_env: None) -> None:
-    """Deux appels start() → toujours 3 jobs (pas 6)."""
+    """Deux appels start() → toujours 4 jobs (pas 8)."""
     monkeypatch.setattr(
         "role_builder.services.scheduler.AsyncIOScheduler",
         _FakeAsyncIOScheduler,
@@ -174,54 +174,3 @@ async def test_scheduler_reset_monthly_spend_calls_helper(
     assert reset_calls[0] is pool
 
 
-# ---------------------------------------------------------------------------
-# Test 7 — _cleanup_oauth_states appelle oauth_states.cleanup_expired
-# ---------------------------------------------------------------------------
-
-
-async def test_scheduler_cleanup_oauth_states_calls_helper(
-    monkeypatch: pytest.MonkeyPatch, stubbed_env: None
-) -> None:
-    """_cleanup_oauth_states() → oauth_states.cleanup_expired(pool=...) appelé."""
-    monkeypatch.setattr(
-        "role_builder.services.scheduler.AsyncIOScheduler",
-        _FakeAsyncIOScheduler,
-    )
-    from role_builder.db_helpers import oauth_states
-    from role_builder.services.scheduler import RoleBuilderScheduler
-
-    cleanup_calls: list[Any] = []
-
-    async def fake_cleanup(*, pool: Any) -> int:
-        cleanup_calls.append(pool)
-        return 7
-
-    monkeypatch.setattr(oauth_states, "cleanup_expired", fake_cleanup)
-
-    pool = _StubPool()
-    rbs = RoleBuilderScheduler(pool=pool)
-    await rbs._cleanup_oauth_states()
-
-    assert len(cleanup_calls) == 1
-    assert cleanup_calls[0] is pool
-
-
-async def test_scheduler_cleanup_oauth_states_swallows_exception(
-    monkeypatch: pytest.MonkeyPatch, stubbed_env: None
-) -> None:
-    """Si cleanup_expired raise, le job ne propage pas (best-effort)."""
-    monkeypatch.setattr(
-        "role_builder.services.scheduler.AsyncIOScheduler",
-        _FakeAsyncIOScheduler,
-    )
-    from role_builder.db_helpers import oauth_states
-    from role_builder.services.scheduler import RoleBuilderScheduler
-
-    async def fake_cleanup(*, pool: Any) -> int:
-        raise RuntimeError("DB unreachable")
-
-    monkeypatch.setattr(oauth_states, "cleanup_expired", fake_cleanup)
-
-    rbs = RoleBuilderScheduler(pool=_StubPool())
-    # Doit avaler l'exception (try/except dans le job)
-    await rbs._cleanup_oauth_states()

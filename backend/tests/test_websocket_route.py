@@ -58,11 +58,11 @@ def app_with_stub_relay(
     monkeypatch.setattr(_settings, "disable_orchestrator", True, raising=False)
     monkeypatch.setattr(_settings, "disable_ws_relay", True, raising=False)
     monkeypatch.setattr(_settings, "disable_worker_manager", True, raising=False)
-    monkeypatch.setattr(_settings, "disable_chunking_worker", True, raising=False)
     monkeypatch.setattr(_settings, "disable_scheduler", True, raising=False)
     monkeypatch.setattr(_settings, "disable_auth", True, raising=False)
     monkeypatch.setattr(_settings, "disable_migrations", True, raising=False)
     monkeypatch.setattr(_settings, "disable_vault", True, raising=False)
+    monkeypatch.setattr(_settings, "disable_mcp_server", True, raising=False)
 
     class _StubPool:
         async def close(self) -> None:
@@ -80,7 +80,7 @@ def test_ws_accepts_connection_and_forwards_event(
     app_with_stub_relay: tuple[Any, _StubRelay],
 ) -> None:
     """Avec disable_auth=True, /ws accepte la connexion et tenant_id vient
-    du _DISABLED_USER (TENANT_ID_DEFAULT)."""
+    du user stub _disabled_user() (TENANT_ID_DEFAULT)."""
     app, stub = app_with_stub_relay
     from role_builder.config import TENANT_ID_DEFAULT
 
@@ -190,9 +190,9 @@ def test_ws_accepts_valid_token(
         with client.websocket_connect("/ws?token=valid-token") as ws:
             assert stub.subscriber_count == 1
             event = {
-                "channel": "runs_changes",
+                "channel": "workers_changes",
                 "payload": {
-                    "table": "runs",
+                    "table": "transcription_workers",
                     "op": "UPDATE",
                     "tenant_id": str(TENANT_ID_DEFAULT),
                     "id": str(uuid4()),

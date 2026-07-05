@@ -106,6 +106,51 @@ async def mark_job_failed(job_id: UUID, error: str, *, pool: asyncpg.Pool) -> No
         await conn.execute(query, error, job_id)
 
 
+async def get_active_job_for_item(
+    source_item_id: UUID, command: str, *, pool: asyncpg.Pool
+) -> bool:
+    """True si un job pending/claimed/processing existe déjà pour cet item+command.
+
+    Utilisé par roles__select_items pour rester idempotent : une sélection
+    répétée ne doit pas ré-enqueuer un download déjà en vol.
+    """
+    query = """
+        SELECT 1 FROM scraping_jobs
+        WHERE source_item_id = $1 AND command = $2
+          AND status IN ('pending', 'claimed', 'processing')
+        LIMIT 1
+    """
+    async with pool.acquire() as conn:
+        row = await conn.fetchval(query, source_item_id, command)
+    return row is not None
+
+
+async def cancel_pending_claimed(source_id: UUID, *, pool: asyncpg.Pool) -> int:
+    """Annule (status='cancelled') les jobs pending/claimed d'une source.
+
+    Retourne le nombre de lignes modifiées. Les jobs déjà 'processing' ne
+    sont pas touchés (cf. roles__cancel_request §2.5 : "jobs pending").
+    """
+    query = """
+        UPDATE scraping_jobs
+        SET status = 'cancelled', updated_at = now()
+        WHERE source_id = $1 AND status IN ('pending', 'claimed')
+    """
+    async with pool.acquire() as conn:
+        result = await conn.execute(query, source_id)
+    return _parse_update_count(result)
+
+
+def _parse_update_count(execute_result: str) -> int:
+    parts = execute_result.split()
+    if len(parts) >= 2 and parts[0].upper() == "UPDATE":
+        try:
+            return int(parts[1])
+        except ValueError:
+            return 0
+    return 0
+
+
 async def list_jobs(
     *,
     status: str | None = None,

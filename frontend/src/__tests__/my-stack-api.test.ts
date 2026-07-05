@@ -14,7 +14,6 @@ import {
   getUsage,
   deleteKey,
 } from '@/lib/api/transcription-keys';
-import { getMistralConfig, setMistralConfig } from '@/lib/api/mistral-config';
 
 interface FetchCall {
   url: string;
@@ -247,48 +246,5 @@ describe('transcription-keys API client', () => {
 
     expect(calls[0]!.url).toBe('/api/transcription-keys/key-1');
     expect(calls[0]!.init.method).toBe('DELETE');
-  });
-});
-
-// ─── Mistral Config ───────────────────────────────────────────────────────────
-
-describe('mistral-config API client', () => {
-  const originalFetch = globalThis.fetch;
-
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  it('getMistralConfig envoie GET sur /api/role-projects/{id}/mistral-config', async () => {
-    const payload = { secret_ref: 'mistral-key-ref', status: 'configured' };
-    const { calls, fn } = mockFetch({ json: async () => payload });
-    globalThis.fetch = fn;
-
-    const result = await getMistralConfig('proj1');
-
-    expect(result).toEqual(payload);
-    expect(calls[0]!.url).toBe(
-      '/api/role-projects/proj1/mistral-config',
-    );
-    expect(calls[0]!.init.method).toBeUndefined();
-  });
-
-  it('setMistralConfig envoie PUT avec {secret_ref}', async () => {
-    const payload = { secret_ref: 'mistral-key', status: 'configured' };
-    const { calls, fn } = mockFetch({ json: async () => payload });
-    globalThis.fetch = fn;
-
-    const result = await setMistralConfig('proj1', 'mistral-key');
-
-    expect(result).toEqual(payload);
-    expect(calls[0]!.url).toBe(
-      '/api/role-projects/proj1/mistral-config',
-    );
-    expect(calls[0]!.init.method).toBe('PUT');
-    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ secret_ref: 'mistral-key' });
   });
 });

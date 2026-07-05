@@ -14,6 +14,7 @@ def calls() -> dict[str, list[dict[str, Any]]]:
         "insert_items": [],
         "update_source_status": [],
         "update_item_status": [],
+        "on_discovery_complete": [],
     }
 
 
@@ -35,11 +36,13 @@ def calls_with_jobs() -> dict[str, list[dict[str, Any]]]:
 @pytest.fixture()
 def patched(monkeypatch: pytest.MonkeyPatch, calls: dict[str, list[dict[str, Any]]]) -> Any:
     """Patch the db_helpers used by event_handlers with no-op recorders."""
+    from role_builder.db_helpers import acquisition_requests as ar
     from role_builder.db_helpers import role_projects as rp
     from role_builder.db_helpers import source_items as si
     from role_builder.db_helpers import sources as sm
     from role_builder.db_helpers import transcription_jobs as tj
     from role_builder.db_helpers import transcription_keys as tk
+    from role_builder.services.acquisition import auto_select
 
     async def fake_insert_bulk(items: list[dict[str, Any]], **kwargs: Any) -> int:
         calls["insert_items"].append({"items": items, "kwargs": kwargs})
@@ -47,6 +50,15 @@ def patched(monkeypatch: pytest.MonkeyPatch, calls: dict[str, list[dict[str, Any
 
     async def fake_update_source_status(*args: Any, **kwargs: Any) -> None:
         calls["update_source_status"].append({"args": args, "kwargs": kwargs})
+
+    async def fake_get_by_source_id(_source_id: Any, *, pool: Any) -> dict[str, Any] | None:
+        return None  # par défaut : pas de requête V2 rattachée (comportement V1 inchangé)
+
+    async def fake_on_discovery_complete(request: Any, **kwargs: Any) -> None:
+        calls["on_discovery_complete"].append({"request": request, "kwargs": kwargs})
+
+    monkeypatch.setattr(ar, "get_by_source_id", fake_get_by_source_id)
+    monkeypatch.setattr(auto_select, "on_discovery_complete", fake_on_discovery_complete)
 
     async def fake_update_item_status(*args: Any, **kwargs: Any) -> None:
         calls["update_item_status"].append({"args": args, "kwargs": kwargs})
@@ -131,6 +143,42 @@ async def test_handle_discovered_inserts_items_and_updates_source(
     assert upd["args"][0] == job["source_id"]
     assert upd["args"][1] == "discovered"
     assert upd["kwargs"]["discovered_count"] == 2
+
+    # Pas de requête V2 rattachée (fake_get_by_source_id -> None) : comportement
+    # V1 inchangé, on_discovery_complete n'est pas appelé.
+    assert calls["on_discovery_complete"] == []
+
+
+async def test_handle_discovered_calls_on_discovery_complete_when_request_exists(
+    monkeypatch: pytest.MonkeyPatch,
+    patched: Any,
+    job: dict[str, Any],
+    calls: dict[str, list[dict[str, Any]]],
+) -> None:
+    """Source rattachée à une acquisition_request : la couche requête se branche
+    dessus (auto-sélection si mode=auto, sinon simple marquage discovered)."""
+    from role_builder.db_helpers import acquisition_requests as ar
+    from role_builder.services import event_handlers
+
+    request_row = {"request_key": "yt-x-2026-07-05", "mode": "auto", "source_id": job["source_id"]}
+
+    async def fake_get_by_source_id(source_id: Any, *, pool: Any) -> dict[str, Any]:
+        assert source_id == job["source_id"]
+        return request_row
+
+    monkeypatch.setattr(ar, "get_by_source_id", fake_get_by_source_id)
+
+    pool = object()
+    items = [{"id": "v1", "title": "T1"}]
+    await event_handlers.handle_scraper_event(
+        {"type": "discovered", "total": 1, "items": items}, job, pool=pool
+    )
+
+    assert len(calls["on_discovery_complete"]) == 1
+    call = calls["on_discovery_complete"][0]
+    assert call["request"] == request_row
+    assert call["kwargs"]["source_id"] == job["source_id"]
+    assert call["kwargs"]["tenant_id"] == job["tenant_id"]
 
 
 async def test_handle_item_done_marks_queued_transcription(

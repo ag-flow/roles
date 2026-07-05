@@ -25,6 +25,9 @@ class _MinioLike(Protocol):
     ) -> None: ...
     def get_object(self, bucket: str, key: str) -> object: ...
     def presigned_get_object(self, bucket: str, key: str, expires: timedelta) -> str: ...
+    def presigned_put_object(self, bucket: str, key: str, expires: timedelta) -> str: ...
+    def stat_object(self, bucket: str, key: str) -> object: ...
+    def remove_object(self, bucket: str, key: str) -> None: ...
 
 
 def _build_minio_client() -> Minio:
@@ -85,6 +88,34 @@ class MinioWrapper:
         return self._client.presigned_get_object(
             bucket, key, expires=timedelta(seconds=expires_seconds)
         )
+
+    def presigned_put_url(
+        self,
+        bucket: str,
+        key: str,
+        *,
+        expires_seconds: int = 3600,
+    ) -> str:
+        """Generate a presigned PUT URL valid for `expires_seconds`."""
+        return self._client.presigned_put_object(
+            bucket, key, expires=timedelta(seconds=expires_seconds)
+        )
+
+    def object_exists(self, bucket: str, key: str) -> bool:
+        """True si l'objet existe (stat) ; les autres erreurs S3 remontent."""
+        from minio.error import S3Error
+
+        try:
+            self._client.stat_object(bucket, key)
+        except S3Error as exc:
+            if exc.code in ("NoSuchKey", "NoSuchObject"):
+                return False
+            raise
+        return True
+
+    def remove_object(self, bucket: str, key: str) -> None:
+        """Delete an object; no-op if it does not exist (sémantique S3)."""
+        self._client.remove_object(bucket, key)
 
 
 minio_client = MinioWrapper()

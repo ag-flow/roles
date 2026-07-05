@@ -22,6 +22,7 @@ class _StubConn:
         self.fetchval_return: Any = None
         self.fetchrow_return: Any = None
         self.transaction_count = 0
+        self.execute_return: str = "UPDATE 0"
 
     async def fetchval(self, query: str, *args: Any) -> Any:
         self.calls.append(("fetchval", query, args))
@@ -35,8 +36,9 @@ class _StubConn:
         self.calls.append(("fetch", query, args))
         return getattr(self, "fetch_return", [])
 
-    async def execute(self, query: str, *args: Any) -> None:
+    async def execute(self, query: str, *args: Any) -> str:
         self.calls.append(("execute", query, args))
+        return self.execute_return
 
     def transaction(self) -> _StubTransaction:
         self.transaction_count += 1
@@ -175,6 +177,59 @@ async def test_list_jobs_filters_by_status_and_limit(stub_conn: _StubConn, stub_
     _, query2, args2 = stub_conn.calls[0]
     assert "WHERE" not in query2
     assert 5 in args2
+
+
+async def test_get_active_job_for_item_returns_true_when_row_found(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """get_active_job_for_item — idempotence de select_items (façade MCP)."""
+    from role_builder.db_helpers import scraping_jobs
+
+    item_id = uuid4()
+    stub_conn.fetchval_return = 1
+
+    found = await scraping_jobs.get_active_job_for_item(item_id, "download", pool=stub_pool)
+
+    assert found is True
+    method, query, args = stub_conn.calls[0]
+    assert method == "fetchval"
+    assert "FROM scraping_jobs" in query
+    assert "pending" in query
+    assert "claimed" in query
+    assert "processing" in query
+    assert item_id in args
+    assert "download" in args
+
+
+async def test_get_active_job_for_item_returns_false_when_none(
+    stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    from role_builder.db_helpers import scraping_jobs
+
+    stub_conn.fetchval_return = None
+
+    found = await scraping_jobs.get_active_job_for_item(uuid4(), "download", pool=stub_pool)
+
+    assert found is False
+
+
+async def test_cancel_pending_claimed_returns_count(stub_conn: _StubConn, stub_pool: Any) -> None:
+    """cancel_pending_claimed annule pending/claimed d'une source, retourne le compte."""
+    from role_builder.db_helpers import scraping_jobs
+
+    stub_conn.execute_return = "UPDATE 3"  # type: ignore[attr-defined]
+
+    source_id = uuid4()
+    n = await scraping_jobs.cancel_pending_claimed(source_id, pool=stub_pool)
+
+    assert n == 3
+    method, query, args = stub_conn.calls[0]
+    assert method == "execute"
+    assert "UPDATE scraping_jobs" in query
+    assert "cancelled" in query
+    assert "pending" in query
+    assert "claimed" in query
+    assert source_id in args
 
 
 async def test_mark_job_lifecycle(stub_conn: _StubConn, stub_pool: Any) -> None:
