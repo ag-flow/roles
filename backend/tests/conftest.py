@@ -48,18 +48,24 @@ def stubbed_env(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture()
 def client(stubbed_env: None, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """FastAPI TestClient with a stubbed DB pool and orchestrator disabled."""
+    from cryptography.fernet import Fernet
+
     from role_builder import db as db_module
     from role_builder.config import settings as _settings
     from role_builder.main import app
+
+    monkeypatch.setattr(
+        _settings, "secret_encryption_key", Fernet.generate_key().decode(), raising=False
+    )
 
     monkeypatch.setattr(_settings, "disable_orchestrator", True, raising=False)
     monkeypatch.setattr(_settings, "disable_ws_relay", True, raising=False)
     monkeypatch.setattr(_settings, "disable_worker_manager", True, raising=False)
     monkeypatch.setattr(_settings, "disable_deposit_worker", True, raising=False)
+    monkeypatch.setattr(_settings, "disable_extraction_worker", True, raising=False)
     monkeypatch.setattr(_settings, "disable_scheduler", True, raising=False)
     monkeypatch.setattr(_settings, "disable_auth", True, raising=False)
     monkeypatch.setattr(_settings, "disable_migrations", True, raising=False)
-    monkeypatch.setattr(_settings, "disable_vault", True, raising=False)
     monkeypatch.setattr(_settings, "disable_mcp_server", True, raising=False)
     monkeypatch.setattr(db_module.db_pool, "_pool", _StubPool(), raising=False)
     return TestClient(app)

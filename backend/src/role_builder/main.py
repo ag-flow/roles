@@ -15,6 +15,7 @@ from role_builder import __version__
 from role_builder.config import settings
 from role_builder.db import db_pool
 from role_builder.logging_setup import configure_logging
+from role_builder.mcp_server.auth_middleware import MCPAuthMiddleware
 from role_builder.mcp_server.server import mcp
 from role_builder.migrations import run_migrations
 from role_builder.routes import (
@@ -36,12 +37,11 @@ from role_builder.routes import (
 from role_builder.routes import (
     version as version_route,
 )
-from role_builder.services import user_vault as user_vault_mod
+from role_builder.services.acquisition.upload.extraction_worker import AudioExtractionWorker
 from role_builder.services.deposit.factory import build_depositor
 from role_builder.services.deposit.worker import DepositWorker
 from role_builder.services.scheduler import RoleBuilderScheduler
 from role_builder.services.scraper_orchestrator import ScraperOrchestrator
-from role_builder.services.vault_resolver import VaultResolver
 from role_builder.services.worker_manager import WorkerManager
 from role_builder.services.ws_relay import ws_relay
 
@@ -92,16 +92,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 @asynccontextmanager
 async def _lifespan_body(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(settings.log_level)
-    if not settings.disable_vault:
-        log.info("vault.resolver.starting")
-        try:
-            resolver = VaultResolver()
-            await asyncio.to_thread(resolver.resolve_settings, settings)
-            user_vault_mod.init_service(resolver.get_client())
-            log.info("vault.resolver.done")
-        except RuntimeError as exc:
-            log.critical("vault.resolver.failed", error=str(exc))
-            raise
+    # Plus de résolution vault au boot (chantier self-service 2026-07-05) :
+    # les secrets utilisateur vivent dans user_secrets/user_wallets, les
+    # secrets machine sont des valeurs planes du .env. La clé de chiffrement
+    # des secrets en base, elle, est vérifiée au boot — échec bruyant
+    # immédiat plutôt que des 500 à la première requête.
+    if not settings.secret_encryption_key:
+        log.critical("secret_encryption_key.missing")
+        raise RuntimeError(
+            "SECRET_ENCRYPTION_KEY manquante — générée par dev-deploy.sh, ou : "
+            "openssl rand -base64 32 | tr '+/' '-_'"
+        )
     if db_pool._pool is None:  # noqa: SLF001 — autorise injection en tests
         await db_pool.connect()
 
@@ -152,6 +153,19 @@ async def _lifespan_body(app: FastAPI) -> AsyncIterator[None]:
         )
         log.info("deposit_worker.started", backend=settings.deposit_backend)
 
+    extraction_worker_task: asyncio.Task[None] | None = None
+    if not settings.disable_extraction_worker:
+        extraction_worker = AudioExtractionWorker(
+            pool=db_pool.pool,
+            max_attempts=settings.extraction_max_attempts,
+            backoff_base_s=settings.extraction_backoff_base_s,
+            poll_interval_s=settings.extraction_poll_interval_s,
+        )
+        extraction_worker_task = asyncio.create_task(
+            extraction_worker.run_loop(stop), name="audio-extraction-worker"
+        )
+        log.info("extraction_worker.started")
+
     scheduler: RoleBuilderScheduler | None = None
     if not settings.disable_scheduler:
         scheduler = RoleBuilderScheduler(pool=db_pool.pool)
@@ -181,6 +195,11 @@ async def _lifespan_body(app: FastAPI) -> AsyncIterator[None]:
                 await deposit_worker_task
             except Exception:  # noqa: BLE001 — shutdown best-effort
                 log.exception("deposit_worker.shutdown_error")
+        if extraction_worker_task is not None:
+            try:
+                await extraction_worker_task
+            except Exception:  # noqa: BLE001 — shutdown best-effort
+                log.exception("extraction_worker.shutdown_error")
         if not settings.disable_ws_relay:
             try:
                 await ws_relay.stop()
@@ -198,8 +217,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # à restreindre en prod
-    allow_credentials=True,
+    allow_origins=[o.strip() for o in settings.cors_allow_origins.split(",") if o.strip()],
+    allow_credentials=False,  # auth Bearer, pas de cookie — pas de wildcard+credentials
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -219,4 +238,5 @@ app.include_router(auth_local.router, prefix="/api", tags=["auth-local"])
 app.include_router(websocket.router, tags=["websocket"])
 
 # Façade MCP roles__* (backend), exposée à la passerelle sur /mcp.
-app.mount("/mcp", mcp_asgi_app)
+# Protégée par un jeton machine si settings.mcp_auth_token est posé (BUG-34).
+app.mount("/mcp", MCPAuthMiddleware(mcp_asgi_app, token=settings.mcp_auth_token))

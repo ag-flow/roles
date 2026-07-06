@@ -10,6 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+from role_builder.db_helpers import transcription_jobs as transcription_jobs_helper
 from role_builder.db_helpers import transcription_keys as keys_helper
 from role_builder.services.acquisition.upload.cleanup import cleanup_expired_slots
 from role_builder.services.credit_monitor import poll_all_balances
@@ -20,6 +21,7 @@ _BALANCE_POLL_INTERVAL_HOURS = 1
 _RESET_SPEND_DAY = 1
 _CLEANUP_HOUR = 3
 _UPLOAD_SLOT_CLEANUP_INTERVAL_MIN = 15
+_TRANSCRIPTION_RECONCILE_INTERVAL_MIN = 2
 
 
 class RoleBuilderScheduler:
@@ -61,6 +63,12 @@ class RoleBuilderScheduler:
             id="cleanup_upload_slots",
             replace_existing=True,
         )
+        self._scheduler.add_job(
+            self._reconcile_dead_transcriptions,
+            IntervalTrigger(minutes=_TRANSCRIPTION_RECONCILE_INTERVAL_MIN),
+            id="reconcile_dead_transcriptions",
+            replace_existing=True,
+        )
         self._scheduler.start()
         self._started = True
         log.info("scheduler.started", jobs=[j.id for j in self._scheduler.get_jobs()])
@@ -93,6 +101,18 @@ class RoleBuilderScheduler:
                 log.info("scheduler.upload_slots_cleaned", removed=removed)
         except Exception:
             log.exception("scheduler.cleanup_upload_slots_failed")
+
+    async def _reconcile_dead_transcriptions(self) -> None:
+        """Bascule `failed` les items dont le job de transcription a échoué
+        sans les faire progresser (le container ne touche que le job, §BUG-19)."""
+        try:
+            failed = await transcription_jobs_helper.fail_items_with_dead_transcription_jobs(
+                pool=self._pool
+            )
+            if failed:
+                log.info("scheduler.transcriptions_reconciled", failed=failed)
+        except Exception:
+            log.exception("scheduler.reconcile_transcriptions_failed")
 
     async def _cleanup_revoked_secrets(self) -> None:
         """Best-effort : nettoyage des secrets vault liés à des credentials

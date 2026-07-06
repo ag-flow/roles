@@ -18,6 +18,7 @@ from role_builder.db_helpers import credentials as credentials_helper
 from role_builder.db_helpers import scraping_jobs as scraping_jobs_helper
 from role_builder.db_helpers import sources as sources_helper
 from role_builder.services.acquisition.errors import AcquisitionError
+from role_builder.services.acquisition.filters import resolve_item_filters
 from role_builder.services.acquisition.platform_detection import deduce_platform, infer_source_type
 from role_builder.services.acquisition.request_creation import insert_request_with_retry
 from role_builder.services.acquisition.request_key import build_request_key_base
@@ -42,6 +43,11 @@ async def submit_acquisition(
         AcquisitionError(INVALID_URL | UNSUPPORTED_PLATFORM | NO_CREDENTIALS)
     """
     resolved_platform = deduce_platform(url, platform_hint=platform)
+
+    # Valide les filtres au bord : un mode=auto aux filtres invalides doit
+    # échouer ici (INVALID_FILTERS) plutôt que de bloquer la requête en
+    # `discovering` à l'event `discovered` (résolution auto), sans signal.
+    resolve_item_filters(filters)
 
     credential = await credentials_helper.get_active_credential_for_platform(
         resolved_platform, pool=pool

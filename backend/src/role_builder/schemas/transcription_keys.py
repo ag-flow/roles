@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -26,10 +25,13 @@ class TranscriptionKeyOut(BaseModel):
 
 
 class CreateTranscriptionKeyRequest(BaseModel):
-    provider: Literal["openai-whisper", "deepgram", "assemblyai", "speechmatics"]
+    """La clé référence un secret déjà saisi (/api/secrets).
+
+    Le provider est dérivé du secret_type du secret sélectionné.
+    """
+
+    secret_id: UUID
     label: str | None = None
-    api_key: str
-    harpocrate_key: str = Field(min_length=1)
     workers_count: int = Field(default=1, ge=1, le=5)
     is_primary: bool = False
     is_fallback: bool = False

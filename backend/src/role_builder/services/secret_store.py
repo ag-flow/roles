@@ -13,6 +13,7 @@ l'unicité.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Callable
 from typing import Any
 from uuid import UUID, uuid4
@@ -20,11 +21,15 @@ from uuid import UUID, uuid4
 import asyncpg
 import structlog
 from harpocrate import SecretNotFound, VaultClient
-from harpocrate.exceptions import HarpocrateError
+from harpocrate.exceptions import HarpocrateError, VaultHttpError
 
 from role_builder.db_helpers import user_secrets as secrets_helper
 from role_builder.db_helpers import user_wallets as wallets_helper
-from role_builder.services.secret_cipher import SecretCipher, cipher_from_settings
+from role_builder.services.secret_cipher import (
+    SecretCipher,
+    SecretDecryptError,
+    cipher_from_settings,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -37,6 +42,11 @@ class UnknownWalletError(Exception):
 
 class InvalidWalletTokenError(Exception):
     """Le token fourni est refusé par Harpocrate (format ou droits)."""
+
+
+class WalletUnavailableError(Exception):
+    """Le wallet est joignable en base mais l'opération Harpocrate a échoué
+    (token révoqué, coffre indisponible, valeur indéchiffrable)."""
 
 
 def _default_client_factory(token: str, base_url: str) -> VaultClient:
@@ -68,7 +78,16 @@ class SecretStore:
         """Valide le token en direct (construction du client) puis l'enregistre chiffré."""
         try:
             await asyncio.to_thread(self._client_factory, token, api_url)
-        except HarpocrateError as exc:
+        except VaultHttpError as exc:
+            # status_code 0 = échec de connexion (Harpocrate injoignable) : ce
+            # n'est PAS un token refusé → 502, pas 400 (BUG-37). L'utilisateur
+            # ne doit pas re-saisir un token pourtant valide.
+            if exc.status_code == 0:
+                raise WalletUnavailableError(str(exc)) from exc
+            raise InvalidWalletTokenError(str(exc)) from exc
+        except (HarpocrateError, ValueError, TypeError, KeyError) as exc:
+            # ValueError couvre notamment une api_url http:// refusée par le
+            # client et une réponse non-JSON ; KeyError un wallet_id absent.
             raise InvalidWalletTokenError(str(exc)) from exc
         return await wallets_helper.insert_wallet(
             tenant_id=tenant_id,
@@ -114,24 +133,57 @@ class SecretStore:
         )
 
     async def read_value(self, secret: dict[str, Any], *, pool: asyncpg.Pool) -> str | None:
-        """Valeur en clair du secret ; None si l'objet wallet a disparu."""
+        """Valeur en clair du secret ; None si elle est devenue inaccessible.
+
+        Inaccessible = objet disparu du wallet, wallet en erreur (token
+        révoqué, coffre injoignable) ou valeur locale indéchiffrable. Les
+        appelants traitent None comme « secret invalide, re-saisie requise ».
+        """
         if secret["storage"] == "local":
-            return self._cipher.decrypt(bytes(secret["value_encrypted"]))
-        client = await self._wallet_client(
-            wallet_id=secret["wallet_id"], user_id=secret["user_id"], pool=pool
-        )
+            try:
+                return self._cipher.decrypt(bytes(secret["value_encrypted"]))
+            except SecretDecryptError:
+                log.warning("secret_store.local_decrypt_failed", secret_id=str(secret["id"]))
+                return None
         try:
+            client = await self._wallet_client(
+                wallet_id=secret["wallet_id"], user_id=secret["user_id"], pool=pool
+            )
             return await asyncio.to_thread(client.secrets.get, secret["wallet_path"])
         except SecretNotFound:
             return None
+        except (HarpocrateError, SecretDecryptError):
+            log.warning("secret_store.wallet_read_failed", secret_id=str(secret["id"]))
+            return None
+
+    async def read_secret_by_id(
+        self, *, secret_id: UUID, user_id: UUID, pool: asyncpg.Pool
+    ) -> str | None:
+        """Valeur en clair d'un secret par id ; None si absent ou disparu.
+
+        Point d'entrée des consommateurs (routes de service, workers,
+        credit monitor) qui ne détiennent que le secret_id d'une ligne.
+        """
+        secret = await secrets_helper.get_secret(
+            secret_id=secret_id, user_id=user_id, pool=pool
+        )
+        if secret is None:
+            return None
+        return await self.read_value(secret, pool=pool)
 
     async def delete_secret(self, secret: dict[str, Any], *, pool: asyncpg.Pool) -> None:
-        """Supprime la valeur wallet (best-effort) puis la ligne en base."""
-        if secret["storage"] == "wallet":
-            await self._try_delete_in_wallet(secret, pool=pool)
+        """Supprime la ligne en base PUIS la valeur wallet (best-effort).
+
+        Ordre important (BUG-38) : si le DELETE SQL échoue (FK RESTRICT — une
+        clé/credential référence encore le secret, créé entre le pré-check et
+        ici), la valeur wallet n'a PAS été purgée → le secret reste utilisable.
+        L'inverse détruisait la valeur d'un secret qui survivait en base.
+        """
         await secrets_helper.delete_secret(
             secret_id=secret["id"], user_id=secret["user_id"], pool=pool
         )
+        if secret["storage"] == "wallet":
+            await self._try_delete_in_wallet(secret, pool=pool)
 
     def invalidate_wallet(self, wallet_id: UUID) -> None:
         """Évince le client en cache (wallet supprimé ou token modifié)."""
@@ -175,33 +227,47 @@ class SecretStore:
         wallet_id: UUID,
         pool: asyncpg.Pool,
     ) -> UUID:
-        client = await self._wallet_client(wallet_id=wallet_id, user_id=user_id, pool=pool)
         path = f"roles/{secret_type}/{secret_id}"
-        await self._vault_upsert(client, path, value)
-        return await secrets_helper.insert_secret(
-            secret_id=secret_id,
-            tenant_id=tenant_id,
-            user_id=user_id,
-            secret_type=secret_type,
-            label=label,
-            storage="wallet",
-            value_encrypted=None,
-            wallet_id=wallet_id,
-            wallet_path=path,
-            pool=pool,
-        )
+        try:
+            client = await self._wallet_client(wallet_id=wallet_id, user_id=user_id, pool=pool)
+            await self._vault_upsert(client, path, value)
+        except (HarpocrateError, SecretDecryptError) as exc:
+            raise WalletUnavailableError(str(exc)) from exc
+        try:
+            return await secrets_helper.insert_secret(
+                secret_id=secret_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                secret_type=secret_type,
+                label=label,
+                storage="wallet",
+                value_encrypted=None,
+                wallet_id=wallet_id,
+                wallet_path=path,
+                pool=pool,
+            )
+        except Exception:
+            # Compensation : l'insert a échoué après l'écriture wallet — on
+            # retire la valeur pour ne pas laisser d'orphelin dans le coffre.
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(client.secrets.delete, path)
+            raise
 
     async def _wallet_client(
         self, *, wallet_id: UUID, user_id: UUID, pool: asyncpg.Pool
     ) -> Any:
-        cached = self._clients.get(wallet_id)
-        if cached is not None:
-            return cached
+        # Le contrôle de propriété (scoping user_id) s'exécute à CHAQUE appel,
+        # avant toute consultation du cache : le store est un singleton
+        # partagé entre requêtes, un client en cache ne prouve rien sur le
+        # droit de l'appelant courant à utiliser ce wallet.
         wallet = await wallets_helper.get_wallet(
             wallet_id=wallet_id, user_id=user_id, pool=pool
         )
         if wallet is None:
             raise UnknownWalletError(f"wallet {wallet_id} introuvable pour cet utilisateur")
+        cached = self._clients.get(wallet_id)
+        if cached is not None:
+            return cached
         token = self._cipher.decrypt(bytes(wallet["api_token_encrypted"]))
         # La construction du VaultClient résout le wallet_id côté Harpocrate
         # (appel réseau) — toujours hors event loop.

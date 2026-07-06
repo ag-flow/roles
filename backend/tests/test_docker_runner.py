@@ -35,9 +35,14 @@ class _StubProc:
         self.stdout = _StubStdout(lines)
         self.stderr = _StubStdout([])
         self._returncode = returncode
+        self.returncode: int | None = None  # None tant que wait() n'a pas été appelé
 
     async def wait(self) -> int:
+        self.returncode = self._returncode
         return self._returncode
+
+    def kill(self) -> None:  # pragma: no cover — chemin d'abandon
+        self.returncode = -9
 
 
 @pytest.fixture()
@@ -45,11 +50,17 @@ def patch_subprocess(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Patch asyncio.create_subprocess_exec; return capture dict for assertions."""
     import asyncio
 
-    capture: dict[str, Any] = {"args": None, "kwargs": None, "proc": None}
+    capture: dict[str, Any] = {"args": None, "kwargs": None, "proc": None, "env_file": None}
 
     async def fake_exec(*args: Any, **kwargs: Any) -> _StubProc:
         capture["args"] = args
         capture["kwargs"] = kwargs
+        # Capture le contenu de l'env-file tant qu'il existe (supprimé après run).
+        arg_list = list(args)
+        if "--env-file" in arg_list:
+            path = arg_list[arg_list.index("--env-file") + 1]
+            with open(path, encoding="utf-8") as handle:  # noqa: ASYNC230 — petit fichier de test
+                capture["env_file"] = handle.read()
         return capture["proc"]
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
@@ -109,7 +120,7 @@ async def test_run_container_yields_invalid_line_on_bad_json(
 async def test_run_container_passes_env_args_to_docker_run(
     patch_subprocess: dict[str, Any],
 ) -> None:
-    """create_subprocess_exec receives '-e KEY=value' for each env entry."""
+    """create_subprocess_exec passe --env-file ; les secrets ne sont pas en argv."""
     from role_builder.services import docker_runner
 
     patch_subprocess["proc"] = _StubProc([], returncode=0)
@@ -128,11 +139,16 @@ async def test_run_container_passes_env_args_to_docker_run(
     assert args[1] == "run"
     assert "--rm" in args
     assert "-i" in args
+    assert "--env-file" in args
     assert "agflow-scraper-youtube:latest" in args
-    # env args present
+    # Les valeurs d'env ne fuitent PAS dans l'argv (BUG-48).
     args_str = " ".join(str(a) for a in args)
-    assert "FOO=bar" in args_str
-    assert "MINIO_ENDPOINT=http://x" in args_str
+    assert "FOO=bar" not in args_str
+    assert "MINIO_ENDPOINT=http://x" not in args_str
+    # Elles sont dans l'env-file (lu par docker au démarrage).
+    env_file_content = patch_subprocess["env_file"]
+    assert "FOO=bar" in env_file_content
+    assert "MINIO_ENDPOINT=http://x" in env_file_content
     # stdin payload was JSON-encoded and written
     proc = patch_subprocess["proc"]
     assert proc.stdin.closed is True

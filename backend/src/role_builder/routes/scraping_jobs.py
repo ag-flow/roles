@@ -44,7 +44,9 @@ async def list_scraping_jobs(
 ) -> list[ScrapingJobResponse]:
     """List scraping_jobs newest-first, optionally filtered by status."""
     pool = db_pool.pool
-    rows = await jobs_helper.list_jobs(status=status, limit=limit, pool=pool)
+    rows = await jobs_helper.list_jobs(
+        status=status, tenant_id=user.tenant_id, limit=limit, pool=pool
+    )
     return [ScrapingJobResponse(**_pick(r)) for r in rows]
 
 

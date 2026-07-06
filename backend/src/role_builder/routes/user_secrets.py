@@ -23,6 +23,7 @@ from role_builder.db_helpers import user_secrets as secrets_helper
 from role_builder.schemas.user_secrets import CreateSecretRequest, SecretOut
 from role_builder.services.secret_store import (
     UnknownWalletError,
+    WalletUnavailableError,
 )
 from role_builder.services.secret_store import (
     get_secret_store as _get_secret_store,
@@ -62,6 +63,11 @@ async def create_secret_endpoint(
         )
     except UnknownWalletError as exc:
         raise HTTPException(status_code=404, detail="wallet not found") from exc
+    except WalletUnavailableError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"écriture dans le wallet impossible : {exc}",
+        ) from exc
 
     log.info(
         "secrets.created",

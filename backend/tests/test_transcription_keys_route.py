@@ -37,7 +37,7 @@ def _make_key_row(
         "user_id": _FIXED_USER_ID,
         "provider": provider,
         "label": "Ma clé Deepgram",
-        "vault_secret_name": f"${{vault://api1:users/no_email/transcription/{provider}/test_key}}",
+        "secret_id": uuid4(),
         "status": status,
         "is_primary": is_primary,
         "is_fallback": is_fallback,
@@ -52,27 +52,37 @@ def _make_key_row(
     }
 
 
-class _FakeUserVaultService:
-    """Stub UserVaultService pour les tests."""
+class _FakeSecretStore:
+    """Stub SecretStore : valeur configurable, jamais d'I/O."""
 
-    def __init__(
-        self,
-        secret_value: str | None = "test_api_key",
-        *,
-        record_calls: dict[str, Any] | None = None,
-    ) -> None:
+    def __init__(self, secret_value: str | None = "test_api_key") -> None:
         self._secret_value = secret_value
-        self._calls = record_calls if record_calls is not None else {}
 
-    async def write(self, secret_name: str, value: str) -> None:
-        self._calls["write_name"] = secret_name
-        self._calls["write_value"] = value
-
-    async def read(self, secret_name: str) -> str | None:
+    async def read_value(self, secret: dict[str, Any], *, pool: Any) -> str | None:
         return self._secret_value
 
-    async def try_delete(self, secret_name: str) -> None:
-        self._calls["delete_name"] = secret_name
+    async def read_secret_by_id(
+        self, *, secret_id: UUID, user_id: UUID, pool: Any
+    ) -> str | None:
+        return self._secret_value
+
+
+def _make_secret_row(secret_id: UUID, secret_type: str = "deepgram") -> dict[str, Any]:
+    now = datetime.now(tz=UTC)
+    return {
+        "id": secret_id,
+        "tenant_id": _FIXED_TENANT_ID,
+        "user_id": _FIXED_USER_ID,
+        "secret_type": secret_type,
+        "label": "Clé DG",
+        "storage": "local",
+        "value_encrypted": b"fernet",
+        "wallet_id": None,
+        "wallet_path": None,
+        "status": "active",
+        "created_at": now,
+        "updated_at": now,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -115,17 +125,22 @@ def test_create_key_returns_201_and_dto(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """POST /api/transcription-keys → 201 + TranscriptionKeyOut si clé valide."""
+    from role_builder.routes import secret_selection as selection
     from role_builder.routes import transcription_keys as route
 
-    key_id = uuid4()
+    key_id, secret_id = uuid4(), uuid4()
     key_row = _make_key_row(key_id=key_id, provider="deepgram")
     calls: dict[str, Any] = {}
 
+    async def fake_get_secret(*, secret_id: UUID, user_id: UUID, pool: Any) -> dict:
+        return _make_secret_row(secret_id, secret_type="deepgram")
+
     async def fake_validate(provider: str, api_key: str) -> dict[str, Any]:
+        calls["validated"] = (provider, api_key)
         return {"valid": True, "error": None, "balance_usd": None}
 
     async def fake_insert(**kwargs: Any) -> UUID:
-        calls["insert_vault_secret_name"] = kwargs.get("vault_secret_name", "")
+        calls["insert"] = kwargs
         return key_id
 
     async def fake_get(k_id: UUID, *, user_id: UUID, pool: Any) -> dict[str, Any]:
@@ -136,19 +151,18 @@ def test_create_key_returns_201_and_dto(
     ) -> None:
         calls["update_balance_called"] = True
 
+    monkeypatch.setattr(selection.secrets_helper, "get_secret", fake_get_secret)
     monkeypatch.setattr(route.transcription_validator, "validate_transcription_key", fake_validate)
     monkeypatch.setattr(route.keys_helper, "insert_transcription_key", fake_insert)
     monkeypatch.setattr(route.keys_helper, "get_key", fake_get)
     monkeypatch.setattr(route.keys_helper, "update_key_balance", fake_update_balance)
-    monkeypatch.setattr(route, "_get_vault_service", lambda: _FakeUserVaultService(record_calls=calls))
+    monkeypatch.setattr(selection, "_get_secret_store", lambda: _FakeSecretStore("dg_test_key_123"))
 
     resp = client.post(
         "/api/transcription-keys",
         json={
-            "provider": "deepgram",
+            "secret_id": str(secret_id),
             "label": "Ma clé Deepgram",
-            "api_key": "dg_test_key_123",
-            "harpocrate_key": "ma_cle_deepgram",
             "workers_count": 1,
             "is_primary": False,
             "is_fallback": False,
@@ -158,11 +172,10 @@ def test_create_key_returns_201_and_dto(
     body = resp.json()
     assert body["id"] == str(key_id)
     assert body["provider"] == "deepgram"
-    assert "write_name" in calls
-    assert calls["write_name"].startswith("users/")
-    assert "ma_cle_deepgram" in calls["write_name"]
-    assert calls.get("insert_vault_secret_name", "").startswith("${vault://")
-    assert "ma_cle_deepgram" in calls.get("insert_vault_secret_name", "")
+    # Provider dérivé du secret, valeur résolue par le store, secret_id persisté
+    assert calls["validated"] == ("deepgram", "dg_test_key_123")
+    assert calls["insert"]["provider"] == "deepgram"
+    assert calls["insert"]["secret_id"] == secret_id
     assert calls.get("update_balance_called") is None
 
 
@@ -176,16 +189,24 @@ def test_create_key_invalid_returns_400(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """POST /api/transcription-keys → 400 si validate retourne valid=False."""
+    from role_builder.routes import secret_selection as selection
     from role_builder.routes import transcription_keys as route
+
+    secret_id = uuid4()
+
+    async def fake_get_secret(*, secret_id: UUID, user_id: UUID, pool: Any) -> dict:
+        return _make_secret_row(secret_id, secret_type="deepgram")
 
     async def fake_validate(provider: str, api_key: str) -> dict[str, Any]:
         return {"valid": False, "error": "unauthorized: invalid api key", "balance_usd": None}
 
+    monkeypatch.setattr(selection.secrets_helper, "get_secret", fake_get_secret)
     monkeypatch.setattr(route.transcription_validator, "validate_transcription_key", fake_validate)
+    monkeypatch.setattr(selection, "_get_secret_store", lambda: _FakeSecretStore("bad_key"))
 
     resp = client.post(
         "/api/transcription-keys",
-        json={"provider": "deepgram", "api_key": "bad_key", "harpocrate_key": "any_key"},
+        json={"secret_id": str(secret_id)},
     )
     assert resp.status_code == 400, resp.text
     assert "unauthorized" in resp.json()["detail"]
@@ -201,11 +222,15 @@ def test_create_key_with_balance_calls_update_balance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """POST /api/transcription-keys → update_key_balance appelé si balance_usd présent."""
+    from role_builder.routes import secret_selection as selection
     from role_builder.routes import transcription_keys as route
 
-    key_id = uuid4()
+    key_id, secret_id = uuid4(), uuid4()
     key_row = _make_key_row(key_id=key_id, current_balance_usd=42.5)
     calls: dict[str, Any] = {}
+
+    async def fake_get_secret(*, secret_id: UUID, user_id: UUID, pool: Any) -> dict:
+        return _make_secret_row(secret_id, secret_type="deepgram")
 
     async def fake_validate(provider: str, api_key: str) -> dict[str, Any]:
         return {"valid": True, "error": None, "balance_usd": 42.5}
@@ -221,15 +246,16 @@ def test_create_key_with_balance_calls_update_balance(
     ) -> None:
         calls["balance_usd"] = balance_usd
 
+    monkeypatch.setattr(selection.secrets_helper, "get_secret", fake_get_secret)
     monkeypatch.setattr(route.transcription_validator, "validate_transcription_key", fake_validate)
     monkeypatch.setattr(route.keys_helper, "insert_transcription_key", fake_insert)
     monkeypatch.setattr(route.keys_helper, "get_key", fake_get)
     monkeypatch.setattr(route.keys_helper, "update_key_balance", fake_update_balance)
-    monkeypatch.setattr(route, "_get_vault_service", lambda: _FakeUserVaultService())
+    monkeypatch.setattr(selection, "_get_secret_store", lambda: _FakeSecretStore("dg_valid"))
 
     resp = client.post(
         "/api/transcription-keys",
-        json={"provider": "deepgram", "api_key": "dg_valid", "harpocrate_key": "ma_cle"},
+        json={"secret_id": str(secret_id)},
     )
     assert resp.status_code == 201, resp.text
     assert calls.get("balance_usd") == 42.5
@@ -336,9 +362,7 @@ def test_test_key_valid_returns_active(
     mock_acquire.__aexit__ = AsyncMock(return_value=None)
     monkeypatch.setattr(route.db_pool.pool, "acquire", lambda: mock_acquire)
 
-    monkeypatch.setattr(
-        route, "_get_vault_service", lambda: _FakeUserVaultService(secret_value="dg_valid")
-    )
+    monkeypatch.setattr(route, "_get_secret_store", lambda: _FakeSecretStore("dg_valid"))
 
     resp = client.post(f"/api/transcription-keys/{key_id}/test")
     assert resp.status_code == 200, resp.text
@@ -376,9 +400,7 @@ def test_test_key_invalid_calls_mark_invalid(
     monkeypatch.setattr(route.keys_helper, "get_key", fake_get)
     monkeypatch.setattr(route.transcription_validator, "validate_transcription_key", fake_validate)
     monkeypatch.setattr(route.keys_helper, "mark_invalid", fake_mark_invalid)
-    monkeypatch.setattr(
-        route, "_get_vault_service", lambda: _FakeUserVaultService(secret_value="bad")
-    )
+    monkeypatch.setattr(route, "_get_secret_store", lambda: _FakeSecretStore("bad"))
 
     resp = client.post(f"/api/transcription-keys/{key_id}/test")
     assert resp.status_code == 200, resp.text
@@ -412,14 +434,14 @@ def test_test_key_missing_secret_returns_invalid(
 
     monkeypatch.setattr(route.keys_helper, "get_key", fake_get)
     monkeypatch.setattr(route.keys_helper, "mark_invalid", fake_mark_invalid)
-    # vault retourne None (secret absent)
-    monkeypatch.setattr(route, "_get_vault_service", lambda: _FakeUserVaultService(secret_value=None))
+    # store retourne None (secret supprimé ou disparu du wallet)
+    monkeypatch.setattr(route, "_get_secret_store", lambda: _FakeSecretStore(None))
 
     resp = client.post(f"/api/transcription-keys/{key_id}/test")
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] == "invalid"
-    assert "vault" in body["error"]
+    assert "inaccessible" in body["error"]
     assert calls.get("mark_invalid_called") is True
 
 
@@ -527,7 +549,7 @@ def test_delete_key_returns_204_and_cleans_up(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """DELETE /api/transcription-keys/{id} → 204 + vault.delete + delete_key appelés."""
+    """DELETE /api/transcription-keys/{id} → 204 + delete_key appelé (secret intact)."""
     from role_builder.routes import transcription_keys as route
 
     key_id = uuid4()
@@ -542,12 +564,10 @@ def test_delete_key_returns_204_and_cleans_up(
 
     monkeypatch.setattr(route.keys_helper, "get_key", fake_get)
     monkeypatch.setattr(route.keys_helper, "delete_key", fake_delete)
-    monkeypatch.setattr(route, "_get_vault_service", lambda: _FakeUserVaultService(record_calls=calls))
 
     resp = client.delete(f"/api/transcription-keys/{key_id}")
     assert resp.status_code == 204, resp.text
     assert calls.get("deleted_id") == key_id
-    assert "delete_name" in calls
 
 
 # ---------------------------------------------------------------------------

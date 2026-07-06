@@ -31,6 +31,8 @@ ALL_MIGRATIONS = (
     "0006_drop_synthesis_tables.sql",
     "0007_acquisition_facade.sql",
     "0008_upload_intake.sql",
+    "0009_user_wallets_secrets.sql",
+    "0010_drop_vault_secret_name.sql",
 )
 
 
@@ -84,15 +86,29 @@ TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 async def insert_active_credential(
     pool: asyncpg.Pool, *, platform: str, user_id: uuid.UUID | None = None
 ) -> uuid.UUID:
-    """Helper de fixture : crée une user_credentials active pour une plateforme."""
+    """Helper de fixture : crée une user_credentials active (avec son secret cookies)."""
     from role_builder.db_helpers import credentials as credentials_helper
+    from role_builder.db_helpers import user_secrets as secrets_helper
 
+    owner_id = user_id or uuid.uuid4()
+    secret_id = await secrets_helper.insert_secret(
+        secret_id=uuid.uuid4(),
+        tenant_id=TENANT_ID,
+        user_id=owner_id,
+        secret_type=f"{platform}-cookies",
+        label="test",
+        storage="local",
+        value_encrypted=b"stub",
+        wallet_id=None,
+        wallet_path=None,
+        pool=pool,
+    )
     return await credentials_helper.insert_user_credential(
         tenant_id=TENANT_ID,
-        user_id=user_id or uuid.uuid4(),
+        user_id=owner_id,
         platform=platform,
         label="test",
-        vault_secret_name="vault://test:cookies",
+        secret_id=secret_id,
         status="active",
         pool=pool,
     )

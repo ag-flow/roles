@@ -8,15 +8,22 @@ from role_builder.services.acquisition.errors import AcquisitionError
 
 _SUPPORTED_PLATFORMS = {"youtube", "instagram", "tiktok"}
 
-_HOST_MAP = {
+# Suffixes de domaine → plateforme : couvre les sous-domaines courants
+# (m., music., vm., vt., www.) sans les énumérer un par un (BUG-30).
+_DOMAIN_SUFFIXES = {
     "youtube.com": "youtube",
-    "www.youtube.com": "youtube",
     "youtu.be": "youtube",
     "instagram.com": "instagram",
-    "www.instagram.com": "instagram",
     "tiktok.com": "tiktok",
-    "www.tiktok.com": "tiktok",
 }
+
+
+def _match_host(host: str) -> str | None:
+    host = host.lower()
+    for domain, platform in _DOMAIN_SUFFIXES.items():
+        if host == domain or host.endswith("." + domain):
+            return platform
+    return None
 
 
 def deduce_platform(url: str, *, platform_hint: str | None) -> str:
@@ -33,11 +40,17 @@ def deduce_platform(url: str, *, platform_hint: str | None) -> str:
             )
         return platform_hint
 
+    # Tolère une URL sans schéma (`youtube.com/watch?v=x`) : urlparse la met
+    # dans `path`, pas `netloc` — on re-parse avec `//` en préfixe, mais
+    # seulement si le premier segment ressemble à un host (contient un `.`),
+    # pour qu'une vraie chaîne non-URL reste INVALID_URL.
+    if "//" not in url and "." in url.split("/", 1)[0]:
+        url = "//" + url
     parsed = urlparse(url)
     if not parsed.netloc:
         raise AcquisitionError("INVALID_URL", f"cannot parse URL: {url!r}")
 
-    platform = _HOST_MAP.get(parsed.netloc.lower())
+    platform = _match_host(parsed.hostname or parsed.netloc)
     if platform is None:
         raise AcquisitionError("UNSUPPORTED_PLATFORM", f"unsupported host: {parsed.netloc!r}")
     return platform

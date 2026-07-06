@@ -18,14 +18,23 @@ DOCFLOW_DEPOSIT_FAILED = "DOCFLOW_DEPOSIT_FAILED"
 
 
 async def claim_next_for_deposit(*, pool: asyncpg.Pool) -> dict[str, Any] | None:
-    """Claim FIFO le prochain item `transcribed` → `depositing` ; None si vide."""
+    """Claim FIFO le prochain item `transcribed` → `depositing` ; None si vide.
+
+    Exclut les items d'une requête annulée : après un `cancel_request`, un item
+    déjà transcrit (ou transcrit *après* l'annulation) ne doit plus être déposé
+    dans docflow. Les items V1 sans acquisition_request restent éligibles.
+    """
     query = """
         UPDATE source_items
         SET status = 'depositing', updated_at = now()
         WHERE id = (
-            SELECT id FROM source_items
-            WHERE status = 'transcribed'
-            ORDER BY updated_at ASC
+            SELECT si.id FROM source_items si
+            WHERE si.status = 'transcribed'
+              AND NOT EXISTS (
+                  SELECT 1 FROM acquisition_requests ar
+                  WHERE ar.source_id = si.source_id AND ar.status = 'cancelled'
+              )
+            ORDER BY si.updated_at ASC
             FOR UPDATE SKIP LOCKED
             LIMIT 1
         )

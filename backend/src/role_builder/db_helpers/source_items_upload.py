@@ -76,3 +76,81 @@ async def delete_item(item_id: UUID, *, pool: asyncpg.Pool) -> None:
     """Supprime un slot nettoyé (jamais utilisé sur un item entré en pipeline)."""
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM source_items WHERE id = $1", item_id)
+
+
+async def claim_finalize_slot(
+    item_id: UUID,
+    *,
+    new_status: str,
+    audio_s3_key: str | None = None,
+    pool: asyncpg.Pool,
+) -> dict[str, Any] | None:
+    """Sort atomiquement un slot de `awaiting_upload` vers `new_status`.
+
+    Claim conditionnel : la ligne n'est mise à jour que si elle est encore
+    `awaiting_upload`. Deux `finalize_upload` concurrents ne peuvent donc pas
+    entrer tous les deux en pipeline — le second reçoit ``None`` (BUG-20). Un
+    slot ainsi claimé n'est plus `awaiting_upload`, donc hors de portée du
+    nettoyage périodique (BUG-21).
+    """
+    query = """
+        UPDATE source_items
+        SET status = $2,
+            audio_s3_key = COALESCE($3, audio_s3_key),
+            updated_at = now()
+        WHERE id = $1 AND status = 'awaiting_upload'
+        RETURNING *
+    """
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(query, item_id, new_status, audio_s3_key)
+    if row is None:
+        return None
+    return dict(row) if not isinstance(row, dict) else row
+
+
+async def claim_next_for_extraction(*, pool: asyncpg.Pool) -> dict[str, Any] | None:
+    """Claim FIFO le prochain item `pending_extraction` → `extracting_audio`.
+
+    Même pattern que la queue de dépôt (FOR UPDATE SKIP LOCKED) : un seul
+    worker d'extraction par déploiement (cf. requeue_stale_extracting).
+    """
+    query = """
+        UPDATE source_items
+        SET status = 'extracting_audio', updated_at = now()
+        WHERE id = (
+            SELECT id FROM source_items
+            WHERE status = 'pending_extraction'
+            ORDER BY updated_at ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+        )
+        RETURNING *
+    """
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(query)
+    if row is None:
+        return None
+    return dict(row) if not isinstance(row, dict) else row
+
+
+async def requeue_stale_extracting(*, pool: asyncpg.Pool) -> int:
+    """Remet les items `extracting_audio` orphelins en `pending_extraction`.
+
+    À appeler au démarrage de la boucle d'extraction uniquement (reprise
+    crash). La ré-extraction est idempotente : l'objet vidéo brut n'est
+    supprimé qu'après l'entrée effective en transcription.
+    """
+    query = """
+        UPDATE source_items
+        SET status = 'pending_extraction', updated_at = now()
+        WHERE status = 'extracting_audio'
+    """
+    async with pool.acquire() as conn:
+        result = await conn.execute(query)
+    parts = result.split()
+    if len(parts) >= 2 and parts[0].upper() == "UPDATE":
+        try:
+            return int(parts[1])
+        except ValueError:
+            return 0
+    return 0

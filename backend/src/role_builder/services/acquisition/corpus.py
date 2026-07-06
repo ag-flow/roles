@@ -24,15 +24,23 @@ from role_builder.services.acquisition.status_shape import derive_display_status
 
 _TERMINAL_DISPLAY_STATUSES = {"completed", "partially_failed", "cancelled"}
 
+# `caller` porte le curseur only_new. La spec (§2.4) le veut géré côté stack ;
+# tant qu'il n'existe pas d'identité de session passerelle non falsifiable
+# (fondations §3, à ne pas inventer), on garde une identité *déclarée*
+# optionnelle, avec un défaut partagé pour les appels conformes à la spec
+# (`get_corpus(request_key, only_new?, cursor?)`).
+_DEFAULT_CALLER = "default"
+
 
 async def get_corpus(
     request_key: str,
     *,
-    caller: str,
+    caller: str | None = None,
     only_new: bool = False,
     cursor: str | None = None,
     pool: asyncpg.Pool,
 ) -> dict[str, Any]:
+    caller = caller or _DEFAULT_CALLER
     request = await ar.get_by_key(request_key, pool=pool)
     if request is None:
         raise AcquisitionError("UNKNOWN_REQUEST", f"no acquisition request {request_key!r}")
@@ -71,6 +79,16 @@ async def get_corpus(
     if not stateless and latest is not None:
         await cursors_helper.upsert_cursor(request["id"], caller, latest, pool=pool)
 
+    # next_cursor : le plus récent servi, sinon la position déjà connue — en
+    # mode serveur sans nouveaux items, renvoyer le curseur stocké (`since`)
+    # plutôt que null, pour ne pas perdre la position (BUG-25).
+    if latest is not None:
+        next_cursor = latest.isoformat()
+    elif stateless:
+        next_cursor = cursor
+    else:
+        next_cursor = since.isoformat() if since is not None else None
+
     return {
         "request_key": request_key,
         "complete": display_status in _TERMINAL_DISPLAY_STATUSES,
@@ -79,7 +97,7 @@ async def get_corpus(
             {"item_id": row["id"], "title": row.get("title"), "error": row.get("error")}
             for row in failed_rows
         ],
-        "next_cursor": latest.isoformat() if latest else cursor,
+        "next_cursor": next_cursor,
     }
 
 

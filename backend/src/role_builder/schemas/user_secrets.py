@@ -20,6 +20,20 @@ SecretType = Literal[
     "tiktok-cookies",
 ]
 
+# Types utilisables comme clé de transcription (le type EST le provider).
+TRANSCRIPTION_PROVIDER_TYPES = frozenset(
+    {"openai-whisper", "deepgram", "assemblyai", "speechmatics"}
+)
+
+_COOKIES_SUFFIX = "-cookies"
+
+
+def cookies_platform(secret_type: str) -> str | None:
+    """Plateforme d'un type cookies ('youtube-cookies' → 'youtube'), sinon None."""
+    if secret_type.endswith(_COOKIES_SUFFIX):
+        return secret_type.removesuffix(_COOKIES_SUFFIX)
+    return None
+
 
 class SecretOut(BaseModel):
     """Ni valeur ni chemin wallet : seules les métadonnées sortent de l'API."""

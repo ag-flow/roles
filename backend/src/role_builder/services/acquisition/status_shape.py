@@ -10,7 +10,8 @@ from typing import Any
 _DOWNLOADED_STATUSES = {"audio_ready", "queued_transcription", "transcribing", "transcribed",
                         "depositing", "deposited"}
 _TRANSCRIBED_STATUSES = {"transcribed", "depositing", "deposited"}
-_PENDING_STATUSES = {"pending_download", "downloading", "awaiting_upload"}
+_PENDING_STATUSES = {"pending_download", "downloading", "awaiting_upload",
+                     "pending_extraction", "extracting_audio"}
 
 _DISCOVERY_STAGES = {"discovering", "discovered", "open_for_upload"}
 
@@ -52,10 +53,16 @@ def derive_display_status(stored_status: str, counts: dict[str, int], *, selecte
     `completed`/`partially_failed` sont recalculés à la lecture (dépendent
     de l'état courant des items, jamais figés en base).
     """
-    if stored_status == "cancelled" or stored_status in _DISCOVERY_STAGES:
+    if stored_status in ("cancelled", "failed") or stored_status in _DISCOVERY_STAGES:
         return stored_status
 
+    # Requête entrée en acquisition mais 0 item sélectionné (mode=auto sans
+    # match, ou upload fermé sans slot) : corpus vide mais terminé — sinon le
+    # ticket resterait `acquiring` à jamais et le pilote pull sans fin (BUG-14).
+    if selected_total == 0:
+        return "completed"
+
     finished = counts["deposited"] + counts["failed"]
-    if selected_total > 0 and finished >= selected_total:
+    if finished >= selected_total:
         return "partially_failed" if counts["failed"] > 0 else "completed"
     return "acquiring"

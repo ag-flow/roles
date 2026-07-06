@@ -11,7 +11,7 @@ import structlog
 
 from role_builder.db_helpers import transcription_keys as keys_helper
 from role_builder.services import transcription_validator
-from role_builder.services.user_vault import UserVaultService, get_service
+from role_builder.services.secret_store import SecretStore, get_secret_store
 
 log = structlog.get_logger(__name__)
 
@@ -32,13 +32,13 @@ def _is_low_balance(balance: float, monthly_cap_usd: float | None) -> bool:
 async def poll_all_balances(
     *,
     pool: asyncpg.Pool,
-    user_vault_svc: UserVaultService | None = None,
+    secret_store: SecretStore | None = None,
 ) -> dict[str, int]:
     """Poll les balances des clés actives.
     Retourne {polled, updated, exhausted, errors}.
 
     Pour chaque clé :
-    - Lit l'api_key depuis Harpocrate via vault_secret_name
+    - Résout l'api_key via le SecretStore (secret_id de la clé)
     - fetch_balance(provider, api_key)
     - Si balance is None → skip (provider sans support)
     - Sinon update_key_balance + check thresholds :
@@ -48,12 +48,16 @@ async def poll_all_balances(
     keys: list[dict[str, Any]] = await keys_helper.list_active_keys_for_balance_polling(pool=pool)
     counters = {"polled": 0, "updated": 0, "exhausted": 0, "errors": 0}
 
-    svc = user_vault_svc if user_vault_svc is not None else get_service()
+    store = secret_store if secret_store is not None else get_secret_store()
 
     for key in keys:
         counters["polled"] += 1
         try:
-            api_key = await svc.read(key["vault_secret_name"])
+            api_key = None
+            if key.get("secret_id") is not None:
+                api_key = await store.read_secret_by_id(
+                    secret_id=key["secret_id"], user_id=key["user_id"], pool=pool
+                )
             if not api_key:
                 log.warning("credit_monitor.secret_missing", key_id=str(key["id"]))
                 counters["errors"] += 1

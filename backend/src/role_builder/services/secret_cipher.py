@@ -10,6 +10,10 @@ from __future__ import annotations
 from cryptography.fernet import Fernet, InvalidToken
 
 
+class SecretDecryptError(RuntimeError):
+    """La valeur chiffrée ne se déchiffre pas (clé changée ou donnée corrompue)."""
+
+
 class SecretCipher:
     """Chiffre/déchiffre les valeurs sensibles persistées en base."""
 
@@ -36,7 +40,7 @@ class SecretCipher:
         try:
             return self._fernet.decrypt(token).decode()
         except InvalidToken as exc:
-            raise RuntimeError(
+            raise SecretDecryptError(
                 "Échec de déchiffrement d'un secret — SECRET_ENCRYPTION_KEY "
                 "a changé ou la valeur en base est corrompue."
             ) from exc

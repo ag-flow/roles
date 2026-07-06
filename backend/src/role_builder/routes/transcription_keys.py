@@ -10,9 +10,9 @@ Routes :
 - DELETE /api/transcription-keys/{key_id}
 
 Tous protégés par ``Depends(get_current_user)``.
-La clé API réelle est stockée dans Harpocrate sous le chemin :
-  users/{email_slug}/transcription/{provider}/{harpocrate_key}
-La DB enregistre la référence vault : ${vault://api1:<chemin>}
+Une clé référence un secret saisi via /api/secrets (secret_id) : le provider
+est le secret_type du secret, la valeur est résolue par le SecretStore
+(base chiffrée ou wallet Harpocrate de l'utilisateur).
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from role_builder.auth.dependencies import CurrentUser, get_current_user
 from role_builder.db import db_pool
 from role_builder.db_helpers import transcription_keys as keys_helper
+from role_builder.routes.secret_selection import resolve_selected_secret
 from role_builder.schemas.transcription_keys import (
     CreateTranscriptionKeyRequest,
     TestKeyResponse,
@@ -35,13 +36,8 @@ from role_builder.schemas.transcription_keys import (
     UsageResponse,
 )
 from role_builder.services import transcription_validator
-from role_builder.services.user_vault import (
-    build_transcription_vault_path,
-    build_vault_ref,
-    extract_vault_path,
-)
-from role_builder.services.user_vault import (
-    get_service as _get_vault_service,
+from role_builder.services.secret_store import (
+    get_secret_store as _get_secret_store,
 )
 
 router = APIRouter()
@@ -98,34 +94,34 @@ async def create_key_endpoint(
     """Crée une clé transcription après validation auprès du provider.
 
     Étapes :
-    1. Validation via l'API du provider
-    2. Génération key_id + nom de secret vault
-    3. Stockage de la clé dans vault
-    4. Insertion des métadonnées en base
-    5. Mise à jour du solde si retourné
-    6. Best-effort worker provisioning
-    7. Retour du DTO créé
+    1. Résolution du secret sélectionné (existence, type provider, valeur)
+    2. Validation via l'API du provider
+    3. Insertion des métadonnées en base (référence secret_id)
+    4. Mise à jour du solde si retourné
+    5. Best-effort worker provisioning
+    6. Retour du DTO créé
     """
-    result = await transcription_validator.validate_transcription_key(
-        request.provider, request.api_key
+    secret, api_key = await resolve_selected_secret(
+        secret_id=request.secret_id,
+        user_id=user.user_id,
+        expected_kind="transcription",
+        pool=db_pool.pool,
     )
+    provider = secret["secret_type"]
+
+    result = await transcription_validator.validate_transcription_key(provider, api_key)
     if not result["valid"]:
         raise HTTPException(
             status_code=400,
             detail=result.get("error") or "invalid api key",
         )
 
-    path = build_transcription_vault_path(user.email, request.provider, request.harpocrate_key)
-    vault_ref = build_vault_ref(path)
-
-    await _get_vault_service().write(path, request.api_key)
-
     inserted_id = await keys_helper.insert_transcription_key(
         tenant_id=user.tenant_id,
         user_id=user.user_id,
-        provider=request.provider,
+        provider=provider,
         label=request.label,
-        vault_secret_name=vault_ref,
+        secret_id=request.secret_id,
         workers_count=request.workers_count,
         is_primary=request.is_primary,
         is_fallback=request.is_fallback,
@@ -145,7 +141,7 @@ async def create_key_endpoint(
     log.info(
         "transcription_keys.created",
         key_id=str(inserted_id),
-        provider=request.provider,
+        provider=provider,
         user_id=str(user.user_id),
     )
 
@@ -188,8 +184,11 @@ async def test_key_endpoint(
     if key is None:
         raise HTTPException(status_code=404, detail="key not found")
 
-    path = extract_vault_path(key["vault_secret_name"])
-    raw_key = await _get_vault_service().read(path)
+    raw_key = None
+    if key.get("secret_id") is not None:
+        raw_key = await _get_secret_store().read_secret_by_id(
+            secret_id=key["secret_id"], user_id=user.user_id, pool=db_pool.pool
+        )
 
     if raw_key is None:
         await keys_helper.mark_invalid(key_id, pool=db_pool.pool)
@@ -197,7 +196,7 @@ async def test_key_endpoint(
             status="invalid",
             last_validated_at=None,
             balance_usd=None,
-            error="api_key missing from vault",
+            error="secret inaccessible (supprimé ou disparu du wallet)",
         )
 
     api_key = raw_key
@@ -285,15 +284,16 @@ async def delete_key_endpoint(
     key_id: UUID,
     user: CurrentUser = Depends(get_current_user),
 ) -> None:
-    """Supprime une clé : arrêt workers (best-effort), purge vault, suppression BDD."""
+    """Supprime une clé : arrêt workers (best-effort), suppression BDD.
+
+    Le secret référencé n'est pas touché — il reste disponible dans
+    /api/secrets pour une autre définition de service.
+    """
     key = await keys_helper.get_key(key_id, user_id=user.user_id, pool=db_pool.pool)
     if key is None:
         raise HTTPException(status_code=404, detail="key not found")
 
     await _trigger_worker_stop(key_id)
-
-    path = extract_vault_path(key["vault_secret_name"])
-    await _get_vault_service().try_delete(path)
 
     await keys_helper.delete_key(key_id, pool=db_pool.pool)
     log.info("transcription_keys.deleted", key_id=str(key_id))

@@ -162,9 +162,11 @@ async def test_criterion_8_cancel_preserves_advanced_items(pool: asyncpg.Pool) -
         request_key, item_ids=[str(r["id"]) for r in rows]
     )
 
-    # vid-1 a déjà progressé (simule le pipeline réel) ; vid-2 reste pending.
+    # Le premier item listé a déjà progressé (simule le pipeline réel) ; l'autre
+    # reste pending. On cible rows[0] par sa clé réelle (l'ordre est désormais
+    # stable, cf. tie-breaker BUG-15) plutôt qu'un platform_item_id hardcodé.
     await source_items_helper.update_source_item_status(
-        source_id, "vid-1", "transcribed", pool=pool
+        source_id, rows[0]["platform_item_id"], "transcribed", pool=pool
     )
 
     result = await admin_tool.cancel_request(request_key, note="plus besoin")

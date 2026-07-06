@@ -13,6 +13,7 @@ from role_builder.services.secret_store import (
     InvalidWalletTokenError,
     SecretStore,
     UnknownWalletError,
+    WalletUnavailableError,
 )
 
 TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -287,6 +288,45 @@ async def test_read_value_wallet_secret_gone_returns_none(
 
 
 # ---------------------------------------------------------------------------
+# read_secret_by_id — point d'entrée des consommateurs (routes, workers…)
+# ---------------------------------------------------------------------------
+
+
+async def test_read_secret_by_id_local(
+    cipher: SecretCipher, stub_pool: Any, stub_conn: _StubConn
+) -> None:
+    store, _, _ = _make_store(cipher)
+    secret_id, user_id = uuid4(), uuid4()
+    stub_conn.fetchrow_return = {
+        "id": secret_id,
+        "user_id": user_id,
+        "storage": "local",
+        "value_encrypted": cipher.encrypt("sk-abc"),
+        "wallet_id": None,
+        "wallet_path": None,
+    }
+
+    value = await store.read_secret_by_id(
+        secret_id=secret_id, user_id=user_id, pool=stub_pool
+    )
+
+    assert value == "sk-abc"
+
+
+async def test_read_secret_by_id_missing_row_returns_none(
+    cipher: SecretCipher, stub_pool: Any, stub_conn: _StubConn
+) -> None:
+    store, _, _ = _make_store(cipher)
+    stub_conn.fetchrow_return = None
+
+    value = await store.read_secret_by_id(
+        secret_id=uuid4(), user_id=uuid4(), pool=stub_pool
+    )
+
+    assert value is None
+
+
+# ---------------------------------------------------------------------------
 # delete_secret
 # ---------------------------------------------------------------------------
 
@@ -388,6 +428,169 @@ async def test_register_wallet_invalid_token_raises(
 # ---------------------------------------------------------------------------
 # Cache des clients par wallet + invalidation
 # ---------------------------------------------------------------------------
+
+
+async def test_cached_wallet_client_still_enforces_ownership(
+    cipher: SecretCipher, stub_pool: Any, stub_conn: _StubConn
+) -> None:
+    """Cache chaud ou pas, un wallet d'un autre utilisateur reste inaccessible."""
+    store, _, fake_client = _make_store(cipher)
+    wallet_id, owner_id = uuid4(), uuid4()
+    stub_conn.fetchrow_return = _wallet_row(cipher, wallet_id, owner_id)
+    fake_client.secrets.create("roles/deepgram/a", "v")
+    secret = {
+        "id": uuid4(),
+        "user_id": owner_id,
+        "storage": "wallet",
+        "value_encrypted": None,
+        "wallet_id": wallet_id,
+        "wallet_path": "roles/deepgram/a",
+    }
+    # Amorce le cache en tant que propriétaire
+    assert await store.read_value(secret, pool=stub_pool) == "v"
+
+    # Un autre utilisateur tente de créer un secret dans ce wallet :
+    # get_wallet scopé user ne retourne rien → UnknownWalletError,
+    # même si le client est déjà en cache.
+    stub_conn.fetchrow_return = None
+    with pytest.raises(UnknownWalletError):
+        await store.create_secret(
+            tenant_id=TENANT_ID,
+            user_id=uuid4(),  # pas le propriétaire
+            secret_type="deepgram",
+            label="intrusion",
+            value="x",
+            wallet_id=wallet_id,
+            pool=stub_pool,
+        )
+    assert len(fake_client.secrets.store) == 1  # rien n'a été écrit
+
+
+async def test_read_value_local_decrypt_failure_returns_none(
+    cipher: SecretCipher, stub_pool: Any, stub_conn: _StubConn
+) -> None:
+    """Valeur locale indéchiffrable (clé changée) → None, pas d'exception."""
+    store, _, _ = _make_store(cipher)
+    other_cipher = SecretCipher(Fernet.generate_key().decode())
+    secret = {
+        "id": uuid4(),
+        "user_id": uuid4(),
+        "storage": "local",
+        "value_encrypted": other_cipher.encrypt("v"),
+        "wallet_id": None,
+        "wallet_path": None,
+    }
+
+    assert await store.read_value(secret, pool=stub_pool) is None
+
+
+async def test_read_value_wallet_error_returns_none(
+    cipher: SecretCipher, stub_pool: Any, stub_conn: _StubConn
+) -> None:
+    """Erreur Harpocrate à la lecture (token révoqué…) → None, pas d'exception."""
+    from harpocrate.exceptions import HarpocrateError
+
+    store, _, fake_client = _make_store(cipher)
+    wallet_id, user_id = uuid4(), uuid4()
+    stub_conn.fetchrow_return = _wallet_row(cipher, wallet_id, user_id)
+
+    def failing_get(name: str) -> str:
+        raise HarpocrateError("token révoqué")
+
+    fake_client.secrets.get = failing_get  # type: ignore[method-assign]
+    secret = {
+        "id": uuid4(),
+        "user_id": user_id,
+        "storage": "wallet",
+        "value_encrypted": None,
+        "wallet_id": wallet_id,
+        "wallet_path": "roles/deepgram/a",
+    }
+
+    assert await store.read_value(secret, pool=stub_pool) is None
+
+
+async def test_create_wallet_secret_upsert_failure_raises_unavailable(
+    cipher: SecretCipher, stub_pool: Any, stub_conn: _StubConn
+) -> None:
+    """Échec Harpocrate à l'écriture → WalletUnavailableError (mappée 502 en route)."""
+    from harpocrate.exceptions import HarpocrateError
+
+    store, _, fake_client = _make_store(cipher)
+    wallet_id, user_id = uuid4(), uuid4()
+    stub_conn.fetchrow_return = _wallet_row(cipher, wallet_id, user_id)
+
+    def failing_put(name: str, value: str) -> int:
+        raise HarpocrateError("coffre indisponible")
+
+    fake_client.secrets.put = failing_put  # type: ignore[method-assign]
+    fake_client.secrets.create = failing_put  # type: ignore[method-assign]
+
+    with pytest.raises(WalletUnavailableError):
+        await store.create_secret(
+            tenant_id=TENANT_ID,
+            user_id=user_id,
+            secret_type="deepgram",
+            label="x",
+            value="v",
+            wallet_id=wallet_id,
+            pool=stub_pool,
+        )
+    # Aucune ligne insérée
+    assert not any("INSERT INTO user_secrets" in c[1] for c in stub_conn.calls)
+
+
+async def test_create_wallet_secret_compensates_on_insert_failure(
+    cipher: SecretCipher, stub_pool: Any, stub_conn: _StubConn
+) -> None:
+    """Insert DB en échec après l'écriture wallet → la valeur est retirée du coffre."""
+    store, _, fake_client = _make_store(cipher)
+    wallet_id, user_id = uuid4(), uuid4()
+    stub_conn.fetchrow_return = _wallet_row(cipher, wallet_id, user_id)
+
+    original_fetchval = stub_conn.fetchval
+
+    async def failing_fetchval(query: str, *args: Any) -> Any:
+        if "INSERT INTO user_secrets" in query:
+            raise RuntimeError("connexion perdue")
+        return await original_fetchval(query, *args)
+
+    stub_conn.fetchval = failing_fetchval  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="connexion perdue"):
+        await store.create_secret(
+            tenant_id=TENANT_ID,
+            user_id=user_id,
+            secret_type="deepgram",
+            label="x",
+            value="v",
+            wallet_id=wallet_id,
+            pool=stub_pool,
+        )
+    # La valeur écrite a été retirée (compensation) : coffre vide
+    assert fake_client.secrets.store == {}
+    assert len(fake_client.secrets.deleted) == 1
+
+
+async def test_register_wallet_value_error_maps_to_invalid_token(
+    cipher: SecretCipher, stub_pool: Any, stub_conn: _StubConn
+) -> None:
+    """Une ValueError du client (ex. api_url http:// refusée) → InvalidWalletTokenError."""
+
+    def failing_factory(token: str, base_url: str) -> Any:
+        raise ValueError("Production requires https:// base_url")
+
+    store = SecretStore(cipher, client_factory=failing_factory)
+
+    with pytest.raises(InvalidWalletTokenError):
+        await store.register_wallet(
+            tenant_id=TENANT_ID,
+            user_id=uuid4(),
+            label="x",
+            token="hrpv_1_abc",
+            api_url="http://vault.local",
+            pool=stub_pool,
+        )
 
 
 async def test_wallet_client_is_cached_per_wallet(

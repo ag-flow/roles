@@ -13,9 +13,8 @@ export async function listCredentials(
 }
 
 export async function createCredential(body: {
-  platform: CredentialPlatform;
+  secret_id: string;
   label?: string | null;
-  cookies_b64: string;
 }): Promise<UserCredential> {
   return api<UserCredential>('/api/credentials', {
     method: 'POST',

@@ -23,6 +23,7 @@ from role_builder.db_helpers import user_wallets as wallets_helper
 from role_builder.schemas.wallets import CreateWalletRequest, WalletOut
 from role_builder.services.secret_store import (
     InvalidWalletTokenError,
+    WalletUnavailableError,
 )
 from role_builder.services.secret_store import (
     get_secret_store as _get_secret_store,
@@ -56,6 +57,10 @@ async def create_wallet_endpoint(
             api_url=request.api_url,
             pool=db_pool.pool,
         )
+    except WalletUnavailableError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"coffre injoignable, réessayer : {exc}"
+        ) from exc
     except InvalidWalletTokenError as exc:
         raise HTTPException(status_code=400, detail=f"token refusé : {exc}") from exc
 

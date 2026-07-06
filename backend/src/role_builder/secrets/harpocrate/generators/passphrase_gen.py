@@ -37,7 +37,12 @@ def _load_wordlist(language: str) -> list[str]:
     if not path.exists():
         raise ValueError(f"Wordlist for language '{language}' not found. Supported: en, fr")
 
-    words = [w.strip() for w in path.read_text(encoding="utf-8").splitlines() if w.strip()]
+    # dict.fromkeys : déduplique en préservant l'ordre. Des doublons dans le
+    # fichier donneraient à certains mots une proba de sélection doublée →
+    # entropie réelle < log2(N) annoncée (BUG-44).
+    words = list(dict.fromkeys(
+        w.strip() for w in path.read_text(encoding="utf-8").splitlines() if w.strip()
+    ))
     if len(words) < 10:
         raise ValueError(f"Wordlist '{language}' is too small ({len(words)} words)")
 

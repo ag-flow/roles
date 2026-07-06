@@ -65,7 +65,11 @@ class VaultHttpClient:
         self._base_url = base_url
         self._token = token
         self._timeout = timeout
-        self._verify_tls = os.environ.get("HARPOCRATE_ALLOW_INSECURE", "0") != "1"
+        # HARPOCRATE_ALLOW_INSECURE n'autorise QUE le http:// en dev (via
+        # _check_base_url) ; il ne doit PAS couper la vérification TLS des URLs
+        # https:// (MITM sur les tokens/blobs chiffrés). La désactivation de la
+        # vérif TLS a son propre flag explicite (BUG-43).
+        self._verify_tls = os.environ.get("HARPOCRATE_TLS_NO_VERIFY", "0") != "1"
 
     def _headers(self) -> dict[str, str]:
         """Headers HTTP communs (Authorization non loggé)."""

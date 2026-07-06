@@ -6,6 +6,8 @@ Désactivé (404 sur tout) si ``settings.local_admin_enabled`` est false.
 
 from __future__ import annotations
 
+import asyncio
+
 import structlog
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -15,6 +17,20 @@ from role_builder.config import settings
 
 router = APIRouter()
 log = structlog.get_logger(__name__)
+
+# Throttle anti-brute-force en mémoire (mono-process) : au-delà de N échecs,
+# un délai croissant est appliqué avant de répondre (BUG-41).
+_failed_attempts: dict[str, int] = {}
+_THROTTLE_AFTER = 3
+_BASE_DELAY_S = 0.5
+_MAX_DELAY_S = 8.0
+
+
+def _throttle_delay(username: str) -> float:
+    count = _failed_attempts.get(username, 0)
+    if count < _THROTTLE_AFTER:
+        return 0.0
+    return min(_BASE_DELAY_S * 2 ** (count - _THROTTLE_AFTER), _MAX_DELAY_S)
 
 
 class LocalLoginRequest(BaseModel):
@@ -50,12 +66,16 @@ async def local_login(body: LocalLoginRequest) -> LocalLoginResponse:
         ) from exc
 
     if not ok:
+        # Délai croissant AVANT la réponse : freine le brute-force à haut débit.
+        await asyncio.sleep(_throttle_delay(body.username))
+        _failed_attempts[body.username] = _failed_attempts.get(body.username, 0) + 1
         log.warning("local_admin.login_failed", username=body.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid credentials",
         )
 
+    _failed_attempts.pop(body.username, None)  # reset sur succès
     token, expires_in = local_admin.issue_token()
     log.info("local_admin.login_succeeded", username=body.username)
     return LocalLoginResponse(access_token=token, expires_in=expires_in)

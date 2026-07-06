@@ -39,11 +39,13 @@ async def extract_audio_to_mp3(
     with tempfile.TemporaryDirectory(prefix="rb-upload-extract-") as tmp_dir:
         source_path = Path(tmp_dir) / ("in" + Path(source_key).suffix)
         target_path = Path(tmp_dir) / "out.mp3"
-        source_path.write_bytes(video_bytes)
+        # I/O fichier hors de l'event loop : un write/read de plusieurs
+        # centaines de Mo bloquerait sinon toute la boucle asyncio.
+        await asyncio.to_thread(source_path.write_bytes, video_bytes)
 
         await _run_ffmpeg(source_path, target_path)
 
-        audio_bytes = target_path.read_bytes()
+        audio_bytes = await asyncio.to_thread(target_path.read_bytes)
 
     await asyncio.to_thread(
         minio.upload_bytes, bucket, target_key, audio_bytes, content_type="audio/mpeg"

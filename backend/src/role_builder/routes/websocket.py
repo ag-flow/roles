@@ -48,20 +48,36 @@ async def websocket_endpoint(
         user_id=str(user.user_id),
     )
 
+    # Lecture concurrente : `ws.receive()` capte immédiatement la fermeture du
+    # client (sinon détectée seulement au prochain send, jusqu'à 30 s plus
+    # tard) ; le send est protégé contre `OSError`/`ClientDisconnected`
+    # (uvicorn), qui n'est PAS une WebSocketDisconnect Starlette.
+    receive_task = asyncio.create_task(ws.receive())
     try:
         while True:
-            try:
-                event = await asyncio.wait_for(queue.get(), timeout=30.0)
-            except TimeoutError:
-                # Heartbeat pour détecter une connexion half-open
+            get_task = asyncio.create_task(queue.get())
+            done, _pending = await asyncio.wait(
+                {receive_task, get_task}, timeout=30.0, return_when=asyncio.FIRST_COMPLETED
+            )
+            if not done:  # timeout → heartbeat (détecte une connexion half-open)
+                get_task.cancel()
                 await ws.send_json({"type": "ping"})
                 continue
-            await ws.send_json(event)
-    except WebSocketDisconnect:
+            if get_task in done:
+                await ws.send_json(get_task.result())
+            else:
+                get_task.cancel()
+            if receive_task in done:
+                message = receive_task.result()  # WebSocketDisconnect si déconnecté
+                if message.get("type") == "websocket.disconnect":
+                    break
+                receive_task = asyncio.create_task(ws.receive())  # message client ignoré
+    except (WebSocketDisconnect, OSError):
         log.info(
             "ws.client_disconnected",
             tenant_id=str(user.tenant_id),
             user_id=str(user.user_id),
         )
     finally:
+        receive_task.cancel()
         ws_relay.unsubscribe(queue)
