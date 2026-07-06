@@ -21,3 +21,11 @@ Soit documenter pgvector comme prérequis d'installation tant que 0001 n'est pas
 ## Pourquoi Opus
 
 Le re-compactage de migration est une opération délicate à synchroniser avec les DB déjà migrées (risque de divergence de `schema_migrations`).
+
+## ✅ Résolu (2026-07-06)
+
+Dépendance pgvector supprimée : migration 0001 ne crée plus l'extension `vector`, ni la colonne `embedding vector(1024)`, ni l'index ivfflat. La table `corpus_chunks` (droppée par 0006 de toute façon) est conservée sans le vecteur. Une base neuve n'exige donc plus un Postgres avec pgvector.
+
+Résidu fonctionnel associé nettoyé en même temps (hors des 62 bugs initiaux) : le worker de transcription (`docker/transcription-worker/`) ne fait plus le handoff chunking pgvector (`insert_chunking_job`/`lookup_role_project_for_item` supprimés).
+
+Vérifié : `test_migrations.py` applique 0001→0010 sur une base éphémère SANS extension vector (481 passed backend, 33 passed worker).

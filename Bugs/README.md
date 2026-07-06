@@ -4,17 +4,19 @@ Audit complet du dépôt par revue multi-agents (backend services, acquisition, 
 
 ## État des corrections (2026-07-06)
 
-**51 bugs corrigés sur 62** — les fichiers résolus sont dans [`fixed/`](fixed/).
+**52 bugs corrigés sur 62** — les fichiers résolus sont dans [`fixed/`](fixed/).
 
 - **Fable (1)** : BUG-22.
-- **Opus (16)** : BUG-04, 10, 11, 17, 18, 19, 23, 24, 32, 33, 34, 36, 42, 45, 48 (+ BUG-20, 21 réglés via BUG-22).
+- **Opus (17)** : BUG-04, 10, 11, 17, 18, 19, 23, 24, 32, 33, 34, 36, 42, 45, 48, 62 (+ BUG-20, 21 réglés via BUG-22).
 - **Sonnet (30)** : BUG-03, 05, 06, 07, 08, 09, 12, 13, 14, 15, 16, 25, 26, 27, 28, 29, 30, 31, 35, 37, 38, 39, 40, 41, 43, 44, 46, 47, 49, 57, 59, 60, 61.
 
-**⏸️ Restants (11)** :
+**⏸️ Restants (10)** :
 - **Frontend « en sursis »** (règle CLAUDE.md « ne rien y développer sans décision ») — 7 : BUG-50, 51, 52, 53, 54, 55, 56.
-- **Deploy/contrat non vérifiables dans le devcontainer** — 4 : BUG-01 (contrat scraper figé), BUG-02 (socket docker + réseau compose), BUG-58 (volumes vs credentials), BUG-62 (migration 0001/pgvector).
+- **Deploy/contrat non vérifiables dans le devcontainer** — 3 : BUG-01 (contrat scraper figé), BUG-02 (socket docker + réseau compose), BUG-58 (volumes vs credentials).
 
-Suite backend : **481 passed** (2 échecs préexistants `test_migration_0009`, sans rapport — tables `user_secrets`/`user_transcription_keys` non touchées). Endpoint MCP vérifié empiriquement (POST /mcp → 200, Host non-localhost). Lint `ruff` clean. Tests exécutés contre un Postgres pgvector réel.
+**Nettoyage pgvector V2 (BUG-62)** : la dépendance à l'extension `vector` a été retirée de la migration 0001 (plus de colonne `embedding`/index ivfflat) et le worker de transcription ne fait plus le handoff chunking pgvector — une base neuve n'exige plus un Postgres avec pgvector.
+
+Suite backend : **481 passed** (2 échecs préexistants `test_migration_0009`, sans rapport — tables `user_secrets`/`user_transcription_keys` non touchées). Worker transcription : **33 passed**. Migration 0001→0010 validée sur base éphémère **sans** pgvector. Endpoint MCP vérifié (POST /mcp → 200, Host non-localhost). Lint `ruff` clean (backend + worker).
 
 ## Échelle de difficulté
 
@@ -91,7 +93,7 @@ Suite backend : **481 passed** (2 échecs préexistants `test_migration_0009`, s
 - [BUG-59 — `IMAGE_TAG` du `.env` lu par compose mais pas par `build.sh`](fixed/BUG-59-image-tag-build-vs-compose.md) — Sonnet
 - [BUG-60 — `SCRAPER_IMAGE_TAG`/`WORKER_IMAGE_TAG` du `.env` silencieusement ignorés](fixed/BUG-60-scraper-worker-image-tag.md) — Sonnet
 - [BUG-61 — `archive_v1_tables.sh` : une archive partielle bloque définitivement les runs suivants](fixed/BUG-61-archive-v1-partielle.md) — Sonnet
-- [BUG-62 — Migration 0001 exige l'extension `vector` alors que la V2 l'a abandonnée](BUG-62-migration-0001-vector.md) — Opus
+- [BUG-62 — Migration 0001 exige l'extension `vector` alors que la V2 l'a abandonnée](fixed/BUG-62-migration-0001-vector.md) — Opus
 
 ### Frontend (en sursis — vue admin minimale)
 - [BUG-50 — Reconnexion WebSocket zombie après `disconnect()` + sockets dupliquées](BUG-50-ws-reconnexion-zombie.md) — Sonnet
