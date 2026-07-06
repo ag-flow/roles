@@ -75,7 +75,10 @@ _env_set() {
 _env_needs_generation() {
     local val
     val="$(_env_get "$1")"
-    [[ -z "$val" || "$val" == "changeme_in_real_env" ]]
+    # Les indirections '${vault://...}' des anciens .env ne sont plus résolues
+    # depuis la refonte self-service : un tel litéral doit être régénéré,
+    # sinon il deviendrait la valeur effective du secret.
+    [[ -z "$val" || "$val" == "changeme_in_real_env" || "$val" == *'${vault://'* ]]
 }
 
 if _env_needs_generation POSTGRES_USER || _env_needs_generation POSTGRES_PASSWORD; then
@@ -98,24 +101,43 @@ if _env_needs_generation MINIO_ROOT_USER || _env_needs_generation MINIO_ROOT_PAS
     echo "==> MINIO_ROOT_USER/PASSWORD générés (${MINIO_USER})"
 fi
 
-if [[ -z "$(_env_get LOCAL_ADMIN_SECRET)" ]]; then
+if _env_needs_generation LOCAL_ADMIN_SECRET; then
     _env_set LOCAL_ADMIN_SECRET "$(openssl rand -hex 32)"
     echo "==> LOCAL_ADMIN_SECRET généré"
 fi
 
-if [[ -z "$(_env_get LOCAL_ADMIN_PASSWORD)" ]]; then
+if _env_needs_generation LOCAL_ADMIN_PASSWORD; then
     _env_set LOCAL_ADMIN_PASSWORD "$(openssl rand -hex 12)"
     echo "==> LOCAL_ADMIN_PASSWORD généré"
 fi
 
-if [[ -z "$(_env_get NEXTAUTH_SECRET)" ]]; then
+if _env_needs_generation NEXTAUTH_SECRET; then
     _env_set NEXTAUTH_SECRET "$(openssl rand -hex 32)"
     echo "==> NEXTAUTH_SECRET généré"
+fi
+
+# KEYCLOAK_CLIENT_SECRET est un prérequis externe (jamais généré ici) : si
+# l'ancien .env porte encore une indirection vault, on la vide + warning.
+if [[ "$(_env_get KEYCLOAK_CLIENT_SECRET)" == *'${vault://'* ]]; then
+    _env_set KEYCLOAK_CLIENT_SECRET ""
+    echo "ATTENTION : KEYCLOAK_CLIENT_SECRET portait une indirection vault" >&2
+    echo "obsolète — vidé. Renseigner la vraie valeur si l'auth Keycloak est utilisée." >&2
+fi
+
+# Clé Fernet (32 octets base64 url-safe) : chiffre les secrets utilisateur
+# stockés en base (tokens de wallets Harpocrate + secrets "local").
+if _env_needs_generation SECRET_ENCRYPTION_KEY; then
+    _env_set SECRET_ENCRYPTION_KEY "$(openssl rand -base64 32 | tr '+/' '-_')"
+    echo "==> SECRET_ENCRYPTION_KEY générée"
 fi
 
 unset -f _env_needs_generation
 
 # --- 4) Build images locales ---
+# build.sh ne lit que l'env du shell, pas .env : on lui passe l'IMAGE_TAG de
+# .env pour qu'il tague les images comme le compose les attend au `up`, sinon
+# `up --pull never` échoue « image not found » (BUG-59).
+IMAGE_TAG="$(_env_get IMAGE_TAG)"; export IMAGE_TAG="${IMAGE_TAG:-latest}"
 chmod +x build.sh
 ./build.sh
 
@@ -133,11 +155,6 @@ docker compose -f docker-compose-dev.yml up -d --remove-orphans --pull never
 # --- 7) Smoke test /health (timeout 90s) + tail des logs ---
 BACKEND_PORT="$(_env_get BACKEND_PORT)"; BACKEND_PORT="${BACKEND_PORT:-8000}"
 HEALTH_URL="http://localhost:${BACKEND_PORT}/health/"
-
-if [[ -z "$(_env_get HARPOCRATE_API_TOKEN)" ]]; then
-    echo "ATTENTION : HARPOCRATE_API_TOKEN est vide — le backend va probablement" >&2
-    echo "échouer au démarrage (résolution vault obligatoire au boot, cf. docs/specs/vault.md)." >&2
-fi
 
 echo "Smoke test : ${HEALTH_URL} (timeout 90s)..."
 START="$SECONDS"

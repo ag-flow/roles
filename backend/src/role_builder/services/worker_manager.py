@@ -16,33 +16,20 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import asyncpg
 import structlog
 
 from role_builder.config import settings
 from role_builder.db_helpers import transcription_keys as tk
+from role_builder.services.docker_runner import env_file
+from role_builder.services.provider_keys import (
+    provider_env_key,
+    resolve_provider_api_key,
+)
 
 log = structlog.get_logger(__name__)
-
-
-# Mapping provider name (kebab-case côté DB) -> attribut Settings (snake_case).
-_PROVIDER_TO_SETTINGS_ATTR: dict[str, str] = {
-    "openai-whisper": "openai_api_key",
-    "deepgram": "deepgram_api_key",
-    "assemblyai": "assemblyai_api_key",
-    "speechmatics": "speechmatics_api_key",
-    # faster-whisper local : pas d'API key requise (modèle embarqué).
-    "faster-whisper": "",
-}
-
-
-def _provider_env_key(provider: str) -> str:
-    """Env var attendue par le worker côté container pour un provider donné."""
-    # `openai-whisper` → `OPENAI_API_KEY`
-    base = provider.split("-", 1)[0].upper()
-    return f"{base}_API_KEY"
 
 
 class WorkerManager:
@@ -103,7 +90,11 @@ class WorkerManager:
         """`docker run -d` un worker user, l'enregistre en DB. Retourne container_id."""
         provider = str(key["provider"])
         worker_pool_id = f"user_{user_id}"
-        worker_id = f"rb-worker-{user_id}-{provider}-{instance_index}"
+        # Suffixe unique : le nom déterministe index-based entrait en collision
+        # au respawn (container stoppé non supprimé, ou index recalculé = index
+        # d'un worker encore en marche) → `docker run` échouait « name in use »
+        # (BUG-08). Un suffixe uuid garantit l'unicité quel que soit l'index.
+        worker_id = f"rb-worker-{user_id}-{provider}-{instance_index}-{uuid4().hex[:8]}"
 
         env: dict[str, str] = {
             "WORKER_POOL_ID": worker_pool_id,
@@ -115,26 +106,13 @@ class WorkerManager:
             "MINIO_SECRET_KEY": settings.minio_secret_key,
             "LOG_LEVEL": settings.log_level,
         }
-        api_attr = _PROVIDER_TO_SETTINGS_ATTR.get(provider, "")
-        if api_attr:
-            api_key = getattr(settings, api_attr, "") or ""
-            if api_key:
-                env[_provider_env_key(provider)] = api_key
-
-        env_args: list[str] = []
-        for k, v in env.items():
-            env_args.extend(["-e", f"{k}={v}"])
+        api_key = await resolve_provider_api_key(
+            user_id=user_id, key=key, provider=provider, pool=self._pool
+        )
+        if api_key:
+            env[provider_env_key(provider)] = api_key
 
         image = f"agflow-transcription-worker:{self._image_tag}"
-        cmd = [
-            "docker",
-            "run",
-            "-d",
-            "--name",
-            worker_id,
-            *env_args,
-            image,
-        ]
 
         log.info(
             "worker_manager.spawn",
@@ -144,7 +122,15 @@ class WorkerManager:
             image=image,
         )
 
-        stdout, _stderr = await self._run_subprocess(cmd)
+        # env-file plutôt que -e K=V : la clé SaaS du user, DATABASE_URL et
+        # MINIO_SECRET_KEY ne transitent pas par l'argv du CLI docker (BUG-48).
+        # docker lit le fichier au `run` (avant de rendre la main en -d), il
+        # peut donc être supprimé immédiatement après.
+        with env_file(env) as env_path:
+            cmd = [
+                "docker", "run", "-d", "--name", worker_id, "--env-file", env_path, image,
+            ]
+            stdout, _stderr = await self._run_subprocess(cmd)
         container_id = stdout.decode("utf-8", errors="replace").strip()
         # Si docker run échoue, container_id sera vide → on lève.
         if not container_id:
@@ -266,6 +252,9 @@ class WorkerManager:
             if container_id:
                 try:
                     await self._run_subprocess(["docker", "stop", str(container_id)])
+                    # rm libère le nom : sans ça un container stoppé bloque le
+                    # respawn d'un worker de même index (BUG-08).
+                    await self._run_subprocess(["docker", "rm", str(container_id)])
                 except Exception:  # noqa: BLE001
                     log.exception(
                         "worker_manager.docker_stop_failed",

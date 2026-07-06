@@ -59,6 +59,26 @@ class Settings(BaseSettings):
     deposit_poll_interval_s: float = 2.0
     disable_deposit_worker: bool = False
 
+    # V2 lot upload — Extraction audio asynchrone (pending_extraction →
+    # extracting_audio → audio_ready). Le ffmpeg d'un upload vidéo ne bloque
+    # plus l'appel MCP finalize_upload : il tourne dans un worker de fond,
+    # même modèle que le DepositWorker (cf. upload/extraction_worker.py).
+    extraction_max_attempts: int = 3
+    extraction_backoff_base_s: float = 1.0
+    extraction_poll_interval_s: float = 2.0
+    disable_extraction_worker: bool = False
+
+    # CORS — origines autorisées (liste séparée par des virgules). Défaut « * »
+    # pour le dev ; à restreindre en prod. `allow_credentials` reste désactivé
+    # (auth Bearer, pas de cookie) — wildcard + credentials est interdit par la
+    # spec Fetch (BUG-39).
+    cors_allow_origins: str = "*"
+
+    # Façade MCP roles__* — jeton machine partagé avec la passerelle.
+    # Vide (défaut dev/test) : le mount /mcp est ouvert. En prod, poser
+    # MCP_AUTH_TOKEN active la vérification Bearer sur /mcp (BUG-34).
+    mcp_auth_token: str = ""
+
     # Phase A — Auth Keycloak
     keycloak_issuer_url: str = ""
     keycloak_client_id: str = ""
@@ -68,8 +88,11 @@ class Settings(BaseSettings):
     # Sprint 6 — Scheduler périodique (poll balance, reset mensuel)
     disable_scheduler: bool = False
 
-    # Harpocrate vault — désactiver pour les tests qui ne fournissent pas de token
-    disable_vault: bool = False
+    # Clé Fernet (base64 url-safe, 32 octets) chiffrant les secrets stockés
+    # en base : tokens de wallets Harpocrate + secrets storage='local'.
+    # Générée par dev-deploy.sh ; vide = les routes wallets/secrets refusent
+    # de fonctionner (RuntimeError explicite à la première utilisation).
+    secret_encryption_key: str = ""
 
     # Façade MCP roles__* — session_manager.run() est mono-usage par instance
     # (cf. mcp.server.streamable_http_manager) : désactivé dans les tests, qui

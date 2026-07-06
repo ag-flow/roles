@@ -83,7 +83,7 @@ async def insert_transcription_key(
     user_id: UUID,
     provider: str,
     label: str | None,
-    vault_secret_name: str,
+    secret_id: UUID,
     workers_count: int = 1,
     is_primary: bool = False,
     is_fallback: bool = False,
@@ -92,12 +92,13 @@ async def insert_transcription_key(
 ) -> UUID:
     """INSERT INTO user_transcription_keys RETURNING id.
 
-    Si is_primary=True : transaction qui démote d'abord les autres primary
-    du même user, puis insère la nouvelle ligne avec is_primary=true.
+    La clé référence un user_secrets (secret_id) — elle ne porte plus le
+    secret elle-même. Si is_primary=True : transaction qui démote d'abord
+    les autres primary du même user, puis insère la nouvelle ligne.
     """
     insert_query = (
         "INSERT INTO user_transcription_keys "
-        "(tenant_id, user_id, provider, label, vault_secret_name, workers_count, "
+        "(tenant_id, user_id, provider, label, secret_id, workers_count, "
         "is_primary, is_fallback, monthly_cap_usd, status, last_validated_at) "
         "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', now()) "
         "RETURNING id"
@@ -117,7 +118,7 @@ async def insert_transcription_key(
                     user_id,
                     provider,
                     label,
-                    vault_secret_name,
+                    secret_id,
                     workers_count,
                     is_primary,
                     is_fallback,
@@ -130,7 +131,7 @@ async def insert_transcription_key(
                 user_id,
                 provider,
                 label,
-                vault_secret_name,
+                secret_id,
                 workers_count,
                 is_primary,
                 is_fallback,

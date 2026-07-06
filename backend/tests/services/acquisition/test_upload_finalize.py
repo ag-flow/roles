@@ -17,7 +17,7 @@ from role_builder.services.acquisition.upload import finalize as finalize_mod
 from role_builder.services.acquisition.upload import intake
 from role_builder.services.acquisition.upload.intake import AUDIO_BUCKET
 from tests.services.acquisition.conftest import TENANT_ID
-from tests.services.acquisition.upload_helpers import FakeObjectStore, make_fake_extractor
+from tests.services.acquisition.upload_helpers import FakeObjectStore
 
 pytestmark = pytest.mark.asyncio
 
@@ -89,16 +89,16 @@ async def test_finalize_audio_nominal(pool: asyncpg.Pool) -> None:
     assert jobs[0]["status"] == "pending"
 
 
-async def test_finalize_video_extracts_audio(
-    pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """media_type vidéo → extraction ffmpeg : audio_s3_key = mp3 extrait, brut supprimé."""
+async def test_finalize_video_enqueues_extraction_without_blocking(pool: asyncpg.Pool) -> None:
+    """media_type vidéo → l'item passe `pending_extraction` et l'appel retourne
+    immédiatement : aucune extraction ffmpeg, aucun job, brut conservé.
+
+    Le ffmpeg est déféré au worker de fond (spec §1.1 : aucun tool ne bloque) —
+    cf. test_upload_extraction_worker.
+    """
     store = FakeObjectStore()
     ctx = await _request_with_slot(pool, store, media_type="video/mp4", filename="conf.mp4")
     store.objects[(AUDIO_BUCKET, ctx["upload_s3_key"])] = b"video-bytes"
-
-    extractor = make_fake_extractor(store)
-    monkeypatch.setattr(finalize_mod, "extract_audio_to_mp3", extractor)
 
     result = await finalize_mod.finalize_upload(
         request_key=ctx["request_key"],
@@ -107,43 +107,13 @@ async def test_finalize_video_extracts_audio(
         pool=pool,
         minio=store,
     )
-    assert result["status"] == "queued_transcription"
-
-    expected_audio_key = ctx["upload_s3_key"].rsplit(".", 1)[0] + ".mp3"
-    assert extractor.calls == [(AUDIO_BUCKET, ctx["upload_s3_key"], expected_audio_key)]
+    assert result == {"item_id": ctx["item_id"], "status": "pending_extraction"}
 
     item = await source_items_helper.get_by_id(ctx["item_id"], pool=pool)
-    assert item["audio_s3_key"] == expected_audio_key
-    # L'objet vidéo brut est supprimé après extraction (seul l'audio est conservé).
-    assert (AUDIO_BUCKET, ctx["upload_s3_key"]) not in store.objects
-    assert (AUDIO_BUCKET, expected_audio_key) in store.objects
-
-    jobs = await _transcription_jobs_for(pool, ctx["item_id"])
-    assert jobs[0]["audio_s3_key"] == expected_audio_key
-
-
-async def test_finalize_video_extraction_failure_marks_item_failed(
-    pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    store = FakeObjectStore()
-    ctx = await _request_with_slot(pool, store, media_type="video/mp4", filename="conf.mp4")
-    store.objects[(AUDIO_BUCKET, ctx["upload_s3_key"])] = b"video-bytes"
-
-    monkeypatch.setattr(finalize_mod, "extract_audio_to_mp3", make_fake_extractor(store, fail=True))
-
-    with pytest.raises(AcquisitionError) as excinfo:
-        await finalize_mod.finalize_upload(
-            request_key=ctx["request_key"],
-            item_id=ctx["item_id"],
-            now=NOW,
-            pool=pool,
-            minio=store,
-        )
-    assert excinfo.value.code == "AUDIO_EXTRACTION_FAILED"
-
-    item = await source_items_helper.get_by_id(ctx["item_id"], pool=pool)
-    assert item["status"] == "failed"
-    assert "AUDIO_EXTRACTION_FAILED" in item["error"]
+    assert item["status"] == "pending_extraction"
+    # Rien n'est encore extrait : le brut est intact, aucun job de transcription.
+    assert (AUDIO_BUCKET, ctx["upload_s3_key"]) in store.objects
+    assert store.removed == []
     assert await _transcription_jobs_for(pool, ctx["item_id"]) == []
 
 

@@ -115,12 +115,13 @@ async def test_insert_user_credential_sends_insert_returns_uuid(
 
     tenant_id = uuid4()
     user_id = uuid4()
+    secret_id = uuid4()
     result = await credentials.insert_user_credential(
         tenant_id=tenant_id,
         user_id=user_id,
         platform="youtube",
         label="Mon compte YT",
-        vault_secret_name="users/test_at_example.com/scraping/youtube/abc",
+        secret_id=secret_id,
         pool=stub_pool,
     )
 
@@ -130,12 +131,13 @@ async def test_insert_user_credential_sends_insert_returns_uuid(
     assert method == "fetchval"
     assert "INSERT INTO user_credentials" in query
     assert "RETURNING id" in query
+    assert "secret_id" in query
     # Les 8 args ordonnés
     assert args[0] == tenant_id
     assert args[1] == user_id
     assert args[2] == "youtube"
     assert args[3] == "Mon compte YT"
-    assert args[4] == "users/test_at_example.com/scraping/youtube/abc"
+    assert args[4] == secret_id
     assert args[5] == "active"
     assert args[6] is None  # last_validated_at
     assert args[7] is None  # expires_at

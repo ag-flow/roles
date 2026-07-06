@@ -49,6 +49,10 @@ def test_get_scraping_jobs_forwards_status_filter(
     assert rows[0]["status"] == "pending"
     assert captured["status"] == "pending"
     assert captured["limit"] == 25
+    # Scopé au tenant de l'appelant (pas de fuite cross-tenant, BUG-33).
+    from role_builder.config import TENANT_ID_DEFAULT
+
+    assert captured["tenant_id"] == TENANT_ID_DEFAULT
 
 
 def test_get_scraping_jobs_no_status_filter(

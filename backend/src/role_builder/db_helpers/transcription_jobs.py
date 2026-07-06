@@ -50,6 +50,21 @@ async def insert_job(
     return new_id  # type: ignore[no-any-return]
 
 
+async def has_job_for_item(source_item_id: UUID, *, pool: asyncpg.Pool) -> bool:
+    """True si un transcription_job existe déjà pour cet item (hors annulés).
+
+    Garde d'idempotence de l'entrée en pipeline : après une reprise crash, la
+    ré-extraction ne doit pas insérer un second job (double transcription).
+    """
+    query = """
+        SELECT 1 FROM transcription_jobs
+        WHERE source_item_id = $1 AND status <> 'cancelled'
+        LIMIT 1
+    """
+    async with pool.acquire() as conn:
+        return await conn.fetchval(query, source_item_id) is not None
+
+
 async def reassign_pending_to_shared(user_pool_id: str, *, pool: asyncpg.Pool) -> int:
     """Bascule worker_pool_id=user_X -> 'shared_default' pour tous les jobs pending.
 
@@ -87,6 +102,43 @@ async def cancel_pending_claimed(source_id: UUID, *, pool: asyncpg.Pool) -> int:
     """
     async with pool.acquire() as conn:
         result = await conn.execute(query, source_id)
+    parts = result.split()
+    if len(parts) >= 2 and parts[0].upper() == "UPDATE":
+        try:
+            return int(parts[1])
+        except ValueError:
+            return 0
+    return 0
+
+
+async def fail_items_with_dead_transcription_jobs(*, pool: asyncpg.Pool) -> int:
+    """Marque `failed` les items bloqués en transcription dont le job a échoué.
+
+    Le worker de transcription (container) ne fait que `mark_job_failed` sans
+    toucher le `source_item` : sans réconciliation, l'item resterait
+    `queued_transcription`/`transcribing` pour toujours (requête jamais
+    `completed`, item invisible pour `retry_failed`). On ne bascule que si
+    l'item n'a plus aucun job actif (pending/claimed/processing) — pour ne pas
+    court-circuiter un retry en vol. Retourne le nombre d'items basculés.
+    """
+    query = """
+        UPDATE source_items si
+        SET status = 'failed',
+            error = COALESCE(si.error, 'TRANSCRIPTION_FAILED'),
+            updated_at = now()
+        WHERE si.status IN ('queued_transcription', 'transcribing')
+          AND EXISTS (
+              SELECT 1 FROM transcription_jobs tj
+              WHERE tj.source_item_id = si.id AND tj.status = 'failed'
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM transcription_jobs tj2
+              WHERE tj2.source_item_id = si.id
+                AND tj2.status IN ('pending', 'claimed', 'processing')
+          )
+    """
+    async with pool.acquire() as conn:
+        result = await conn.execute(query)
     parts = result.split()
     if len(parts) >= 2 and parts[0].upper() == "UPDATE":
         try:

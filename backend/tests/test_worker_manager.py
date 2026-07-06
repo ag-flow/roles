@@ -90,7 +90,16 @@ def _patch_subprocess(
     queue = list(stdouts or [])
 
     async def fake_create(*cmd: str, **_: Any) -> _StubProc:
-        captured.append(list(cmd))
+        # Les secrets passent par --env-file (BUG-48), plus par l'argv. On lit
+        # le fichier tant qu'il existe et on annexe ses lignes à la commande
+        # capturée, pour que les assertions "clé passée au worker" restent
+        # valides tout en reflétant que l'argv, lui, ne contient plus les valeurs.
+        tokens = list(cmd)
+        if "--env-file" in tokens:
+            path = tokens[tokens.index("--env-file") + 1]
+            with open(path, encoding="utf-8") as handle:  # noqa: ASYNC230 — petit fichier de test
+                tokens.extend(line.strip() for line in handle if line.strip())
+        captured.append(tokens)
         out = queue.pop(0) if queue else b""
         return _StubProc(stdout=out, returncode=returncode)
 
@@ -299,3 +308,73 @@ async def test_run_auto_stop_loop_exits_on_stop_event(
         manager.run_auto_stop_loop(stop, period_seconds=0.01),
         timeout=2.0,
     )
+
+
+async def test_spawn_worker_resolves_user_secret_before_fallback(
+    monkeypatch: pytest.MonkeyPatch, stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """spawn_worker : la clé du user (secret_id) prime sur le fallback .env."""
+    from role_builder.config import settings
+    from role_builder.services import worker_manager as wm_mod
+
+    monkeypatch.setattr(settings, "openai_api_key", "sk-global", raising=False)
+
+    class _StubStore:
+        async def read_secret_by_id(self, *, secret_id: Any, user_id: Any, pool: Any) -> str:
+            return "sk-user-secret"
+
+    from role_builder.services import provider_keys as pk_mod
+
+    monkeypatch.setattr(pk_mod, "_get_secret_store", lambda: _StubStore())
+
+    user_id = uuid4()
+    key = {
+        "id": uuid4(),
+        "user_id": user_id,
+        "provider": "openai-whisper",
+        "secret_id": uuid4(),
+        "tenant_id": uuid4(),
+        "workers_count": 1,
+    }
+    cmds = _patch_subprocess(monkeypatch, stdouts=[b"abc123def\n"])
+
+    manager = wm_mod.WorkerManager(pool=stub_pool, image_tag="latest")
+    await manager.spawn_worker(user_id=user_id, key=key, instance_index=0)
+
+    joined = " ".join(cmds[0])
+    assert "OPENAI_API_KEY=sk-user-secret" in joined
+    assert "sk-global" not in joined
+
+
+async def test_spawn_worker_falls_back_to_env_when_secret_unresolvable(
+    monkeypatch: pytest.MonkeyPatch, stub_conn: _StubConn, stub_pool: Any
+) -> None:
+    """spawn_worker : secret irrésolvable → fallback clé machine (.env)."""
+    from role_builder.config import settings
+    from role_builder.services import worker_manager as wm_mod
+
+    monkeypatch.setattr(settings, "openai_api_key", "sk-global", raising=False)
+
+    class _StubStore:
+        async def read_secret_by_id(self, *, secret_id: Any, user_id: Any, pool: Any) -> None:
+            return None
+
+    from role_builder.services import provider_keys as pk_mod
+
+    monkeypatch.setattr(pk_mod, "_get_secret_store", lambda: _StubStore())
+
+    user_id = uuid4()
+    key = {
+        "id": uuid4(),
+        "user_id": user_id,
+        "provider": "openai-whisper",
+        "secret_id": uuid4(),
+        "tenant_id": uuid4(),
+        "workers_count": 1,
+    }
+    cmds = _patch_subprocess(monkeypatch, stdouts=[b"abc123def\n"])
+
+    manager = wm_mod.WorkerManager(pool=stub_pool, image_tag="latest")
+    await manager.spawn_worker(user_id=user_id, key=key, instance_index=0)
+
+    assert "OPENAI_API_KEY=sk-global" in " ".join(cmds[0])

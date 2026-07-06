@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from typing import Any
-from uuid import UUID
 
 from role_builder.db import db_pool
+from role_builder.mcp_server.tools.parsing import parse_item_ids
 from role_builder.services.acquisition.admin import cancel_request as _cancel_request
 from role_builder.services.acquisition.admin import retry_failed as _retry_failed
 from role_builder.services.acquisition.errors import AcquisitionError
@@ -24,7 +24,6 @@ async def retry_failed(
 ) -> dict[str, Any]:
     """Re-queue les items `failed` (tous, ou une sélection explicite)."""
     try:
-        resolved_ids = [UUID(item_id) for item_id in item_ids] if item_ids is not None else None
-        return await _retry_failed(request_key, resolved_ids, pool=db_pool.pool)
+        return await _retry_failed(request_key, parse_item_ids(item_ids), pool=db_pool.pool)
     except AcquisitionError as exc:
         return exc.to_dict()

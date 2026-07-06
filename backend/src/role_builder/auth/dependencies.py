@@ -67,8 +67,15 @@ def _disabled_user() -> CurrentUser:
 
 
 def _claims_to_user(claims: dict[str, Any]) -> CurrentUser:
+    # Le `sub` d'un token valide n'est pas toujours un UUID (identity broker,
+    # certains service-accounts) : un sub non-UUID doit donner 401, pas 500
+    # (BUG-40).
+    try:
+        user_id = UUID(claims["sub"])
+    except (ValueError, KeyError, TypeError) as exc:
+        raise InvalidTokenError(f"unsupported subject format: {claims.get('sub')!r}") from exc
     return CurrentUser(
-        user_id=UUID(claims["sub"]),
+        user_id=user_id,
         username=claims.get("preferred_username", ""),
         email=claims.get("email"),
         tenant_id=TENANT_ID_DEFAULT,
@@ -103,14 +110,13 @@ async def get_current_user(
     token = authorization[len("Bearer ") :]
     try:
         claims = await _validate_token(token)
+        return _claims_to_user(claims)
     except InvalidTokenError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid token: {exc}",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
-
-    return _claims_to_user(claims)
 
 
 async def authenticate_websocket(token: str | None) -> CurrentUser:

@@ -30,7 +30,8 @@ async def list_discovered(
     source_id = request["source_id"]
     source = await sources_helper.get_source(source_id, pool=pool) if source_id else None
 
-    offset = int(cursor) if cursor else 0
+    offset = _parse_cursor(cursor)
+    limit = _parse_limit(limit)
     rows = (
         await source_items_helper.list_items_by_source(
             source_id, limit=limit + 1, offset=offset, pool=pool
@@ -47,6 +48,28 @@ async def list_discovered(
         "items": [_shape_item(row) for row in page],
         "next_cursor": str(offset + limit) if has_more else None,
     }
+
+
+def _parse_cursor(cursor: str | None) -> int:
+    """Curseur opaque = offset entier ≥ 0 ; mal formé → INVALID_CURSOR (BUG-28)."""
+    if not cursor:
+        return 0
+    try:
+        offset = int(cursor)
+    except (TypeError, ValueError) as exc:
+        raise AcquisitionError(
+            "INVALID_CURSOR", f"cursor {cursor!r} is not a valid offset"
+        ) from exc
+    if offset < 0:
+        raise AcquisitionError("INVALID_CURSOR", "cursor offset must be >= 0")
+    return offset
+
+
+def _parse_limit(limit: int) -> int:
+    """Borne le limit dans [1, 200] ; un négatif produirait une erreur PG."""
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+        raise AcquisitionError("INVALID_LIMIT", "limit must be a positive integer")
+    return min(limit, 200)
 
 
 def _shape_item(row: dict[str, Any]) -> dict[str, Any]:

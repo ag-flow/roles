@@ -201,12 +201,13 @@ async def test_insert_transcription_key_simple_no_transaction(
 
     tenant_id = uuid4()
     user_id = uuid4()
+    secret_id = uuid4()
     result = await transcription_keys.insert_transcription_key(
         tenant_id=tenant_id,
         user_id=user_id,
         provider="deepgram",
         label="Clé Deepgram",
-        vault_secret_name="users/test_at_example.com/transcription/deepgram/k1",
+        secret_id=secret_id,
         pool=stub_pool,
     )
 
@@ -217,8 +218,10 @@ async def test_insert_transcription_key_simple_no_transaction(
     method, query, args = fetchval_calls[0]
     assert "INSERT INTO user_transcription_keys" in query
     assert "RETURNING id" in query
+    assert "secret_id" in query
     assert tenant_id in args
     assert user_id in args
+    assert secret_id in args
     assert "deepgram" in args
 
 
@@ -238,7 +241,7 @@ async def test_insert_transcription_key_with_is_primary_uses_transaction(
         user_id=user_id,
         provider="openai-whisper",
         label=None,
-        vault_secret_name="users/test_at_example.com/transcription/openai-whisper/k2",
+        secret_id=uuid4(),
         is_primary=True,
         pool=stub_pool,
     )

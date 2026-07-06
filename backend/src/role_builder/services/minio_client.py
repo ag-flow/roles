@@ -31,7 +31,11 @@ class _MinioLike(Protocol):
 
 
 def _build_minio_client() -> Minio:
-    parsed = urlparse(settings.minio_endpoint)
+    endpoint = settings.minio_endpoint
+    # Un endpoint sans schéma « host:port » (convention MinIO) est mal parsé par
+    # urlparse (`minio:9000` → scheme='minio', path='9000') : on préfixe « // »
+    # pour le forcer dans netloc (BUG-49).
+    parsed = urlparse(endpoint if "//" in endpoint else "//" + endpoint)
     secure = parsed.scheme == "https"
     netloc = parsed.netloc or parsed.path
     return Minio(

@@ -95,7 +95,7 @@ async def list_by_project(
         "SELECT si.* FROM source_items si "
         "JOIN sources s ON s.id = si.source_id "
         "WHERE s.role_project_id = $1 "
-        "ORDER BY si.published_at DESC NULLS LAST "
+        "ORDER BY si.published_at DESC NULLS LAST, si.id ASC "
         "LIMIT $2 OFFSET $3"
     )
     async with pool.acquire() as conn:
@@ -175,14 +175,33 @@ async def list_items_by_source(
     offset_idx = len(params)
 
     where = " AND ".join(clauses)
+    # Tie-breaker `id` : sans lui, l'ordre entre ex æquo (dates à précision
+    # jour, uploads published_at NULL) n'est pas garanti par Postgres → un item
+    # apparaîtrait sur deux pages et un autre jamais entre deux appels (BUG-15).
     query = (
         "SELECT * FROM source_items "
         f"WHERE {where} "
-        "ORDER BY published_at DESC NULLS LAST "
+        "ORDER BY published_at DESC NULLS LAST, id ASC "
         f"LIMIT ${limit_idx} OFFSET ${offset_idx}"
     )
     async with pool.acquire() as conn:
         rows = await conn.fetch(query, *params)
+    return [dict(r) if not isinstance(r, dict) else r for r in rows]
+
+
+async def list_items_by_ids(
+    source_id: UUID, item_ids: list[UUID], *, pool: asyncpg.Pool
+) -> list[dict[str, Any]]:
+    """Items de `source_id` dont l'id est dans `item_ids` (validation d'appartenance).
+
+    Permet de rejeter les item_ids inconnus ou d'une autre source avant toute
+    écriture (pas de job download pour un item hors périmètre, pas de FK 500).
+    """
+    if not item_ids:
+        return []
+    query = "SELECT * FROM source_items WHERE source_id = $1 AND id = ANY($2::uuid[])"
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query, source_id, item_ids)
     return [dict(r) if not isinstance(r, dict) else r for r in rows]
 
 
@@ -233,11 +252,19 @@ async def select_items(
                 source_id,
                 item_ids,
             )
-        await conn.execute(
+        result = await conn.execute(
             "UPDATE source_items "
             "SET selected = true, updated_at = now() "
             "WHERE source_id = $1 AND id = ANY($2::uuid[])",
             source_id,
             item_ids,
         )
-    return len(item_ids)
+    # Nombre réel de lignes sélectionnées (pas len(item_ids)) : des ids inconnus,
+    # d'une autre source ou en double ne gonflent pas le compteur (BUG-13).
+    parts = result.split()
+    if len(parts) >= 2 and parts[0].upper() == "UPDATE":
+        try:
+            return int(parts[1])
+        except ValueError:
+            return 0
+    return 0

@@ -33,16 +33,20 @@ async def insert_user_credential(
     user_id: UUID,
     platform: str,
     label: str | None,
-    vault_secret_name: str,
+    secret_id: UUID,
     status: str = "active",
     last_validated_at: datetime | None = None,
     expires_at: datetime | None = None,
     pool: asyncpg.Pool,
 ) -> UUID:
-    """INSERT INTO user_credentials RETURNING id."""
+    """INSERT INTO user_credentials RETURNING id.
+
+    Le credential référence un user_secrets (secret_id, type *-cookies) —
+    il ne porte plus la référence vault lui-même.
+    """
     query = (
         "INSERT INTO user_credentials "
-        "(tenant_id, user_id, platform, label, vault_secret_name, status, "
+        "(tenant_id, user_id, platform, label, secret_id, status, "
         "last_validated_at, expires_at) "
         "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
         "RETURNING id"
@@ -54,7 +58,7 @@ async def insert_user_credential(
             user_id,
             platform,
             label,
-            vault_secret_name,
+            secret_id,
             status,
             last_validated_at,
             expires_at,
@@ -94,6 +98,24 @@ async def get_credential(
     query = "SELECT * FROM user_credentials WHERE id = $1 AND user_id = $2"
     async with pool.acquire() as conn:
         row = await conn.fetchrow(query, cred_id, user_id)
+    if row is None:
+        return None
+    return dict(row) if not isinstance(row, dict) else row
+
+
+async def get_credential_by_id(
+    cred_id: UUID,
+    *,
+    pool: asyncpg.Pool,
+) -> dict[str, Any] | None:
+    """SELECT WHERE id=$1 sans scoping user — usage interne (orchestrateur).
+
+    La ligne porte user_id + secret_id : le lecteur résout ensuite le secret
+    au nom de son propriétaire.
+    """
+    query = "SELECT * FROM user_credentials WHERE id = $1"
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(query, cred_id)
     if row is None:
         return None
     return dict(row) if not isinstance(row, dict) else row

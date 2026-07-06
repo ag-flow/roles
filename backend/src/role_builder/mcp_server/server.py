@@ -14,10 +14,24 @@ que soit la politique de nommage du gateway.
 from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from role_builder.mcp_server.tools import admin, corpus, discovery, status, submission, upload
 
-mcp = FastMCP("roles")
+# streamable_http_path="/" : monté sur /mcp (main.py), l'endpoint réel est
+# alors /mcp — sans ça FastMCP ajoute son propre /mcp et le tout serait servi
+# sur /mcp/mcp (BUG-03).
+#
+# transport_security : la protection DNS-rebinding par défaut (host localhost)
+# rejette 421 toute requête dont le Host n'est pas localhost — donc 100 % des
+# appels de la passerelle en déploiement. On la désactive : la façade est
+# derrière la passerelle (réseau privé) et protégée par MCPAuthMiddleware
+# (BUG-04).
+mcp = FastMCP(
+    "roles",
+    streamable_http_path="/",
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 
 mcp.add_tool(
     submission.submit_acquisition,

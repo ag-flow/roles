@@ -84,9 +84,8 @@ describe('credentials API client', () => {
     globalThis.fetch = fn;
 
     const result = await createCredential({
-      platform: 'instagram',
+      secret_id: 'secret-1',
       label: 'mon compte',
-      cookies_b64: 'abc123',
     });
 
     expect(result).toEqual(payload);
@@ -94,9 +93,8 @@ describe('credentials API client', () => {
     expect(calls[0]!.url).toBe('/api/credentials');
     expect(calls[0]!.init.method).toBe('POST');
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({
-      platform: 'instagram',
+      secret_id: 'secret-1',
       label: 'mon compte',
-      cookies_b64: 'abc123',
     });
   });
 
@@ -154,10 +152,8 @@ describe('transcription-keys API client', () => {
     globalThis.fetch = fn;
 
     const result = await createKey({
-      provider: 'deepgram',
+      secret_id: 'secret-1',
       label: 'ma clé deepgram',
-      api_key: 'dg-secret',
-      harpocrate_key: 'ma_cle_deepgram',
       workers_count: 2,
     });
 
@@ -165,10 +161,8 @@ describe('transcription-keys API client', () => {
     expect(calls[0]!.url).toBe('/api/transcription-keys');
     expect(calls[0]!.init.method).toBe('POST');
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({
-      provider: 'deepgram',
+      secret_id: 'secret-1',
       label: 'ma clé deepgram',
-      api_key: 'dg-secret',
-      harpocrate_key: 'ma_cle_deepgram',
       workers_count: 2,
     });
   });

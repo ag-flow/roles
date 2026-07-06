@@ -151,18 +151,52 @@ def _parse_update_count(execute_result: str) -> int:
     return 0
 
 
+async def requeue_stale_jobs(*, pool: asyncpg.Pool) -> int:
+    """Remet les jobs `claimed`/`processing` orphelins en `pending` (reprise crash).
+
+    À appeler au démarrage de la boucle d'orchestration uniquement : suppose un
+    seul orchestrator par déploiement (même hypothèse que le DepositWorker).
+    Sans ça, un job claimé au moment d'un crash/redéploiement reste bloqué à
+    jamais (claim_next_pending_job ne prend que `pending`), et l'item associé
+    n'est plus retraitable via select_items (job « en vol »).
+    """
+    query = """
+        UPDATE scraping_jobs
+        SET status = 'pending', updated_at = now()
+        WHERE status IN ('claimed', 'processing')
+    """
+    async with pool.acquire() as conn:
+        result = await conn.execute(query)
+    parts = result.split()
+    if len(parts) >= 2 and parts[0].upper() == "UPDATE":
+        try:
+            return int(parts[1])
+        except ValueError:
+            return 0
+    return 0
+
+
 async def list_jobs(
     *,
     status: str | None = None,
+    tenant_id: UUID | None = None,
     limit: int = 50,
     pool: asyncpg.Pool,
 ) -> list[dict[str, Any]]:
-    """List scraping_jobs newest-first, optionally filtered by status."""
+    """List scraping_jobs newest-first, optionally filtered by status/tenant.
+
+    `tenant_id` scope la liste au tenant de l'appelant : la route REST ne doit
+    pas exposer les jobs (ni le tenant_id) d'autrui.
+    """
     params: list[Any] = []
-    where = ""
+    clauses: list[str] = []
     if status is not None:
         params.append(status)
-        where = "WHERE status = $1 "
+        clauses.append(f"status = ${len(params)}")
+    if tenant_id is not None:
+        params.append(tenant_id)
+        clauses.append(f"tenant_id = ${len(params)}")
+    where = ("WHERE " + " AND ".join(clauses) + " ") if clauses else ""
     params.append(limit)
     limit_idx = len(params)
     query = (

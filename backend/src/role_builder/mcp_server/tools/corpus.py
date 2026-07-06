@@ -17,7 +17,7 @@ from role_builder.services.acquisition.errors import AcquisitionError
 async def get_corpus(
     request_key: str,
     *,
-    caller: str,
+    caller: str | None = None,
     only_new: bool = False,
     cursor: str | None = None,
 ) -> dict[str, Any]:
@@ -25,8 +25,11 @@ async def get_corpus(
 
     `only_new=true` : uniquement les items déposés depuis le dernier
     `get_corpus` de cet appelant (curseur serveur par (request_key, caller)).
-    `cursor` (ISO 8601) : alternative stateless, prioritaire sur le curseur
-    serveur et sans effet sur lui. La lecture du texte : `docflow__get_document`.
+    `caller` est optionnel (défaut partagé) — conforme à la signature spec
+    `get_corpus(request_key, only_new?, cursor?)` ; le passer isole le curseur
+    only_new par appelant. `cursor` (ISO 8601) : alternative stateless,
+    prioritaire sur le curseur serveur et sans effet sur lui. La lecture du
+    texte : `docflow__get_document`.
     """
     try:
         return await _get_corpus(

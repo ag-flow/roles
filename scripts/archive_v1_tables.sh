@@ -42,10 +42,18 @@ else
     for t in "${TABLES[@]}"; do
         table_args+=(--table="$t")
     done
+    # Écriture atomique : dump vers .tmp puis mv seulement en cas de succès.
+    # Sinon un pg_dump échoué (set -e) laissait un .gz tronqué que le run
+    # suivant croyait valide, puis gzip -t échouait sans explication (BUG-61).
+    tmp_file="$OUT_FILE.tmp.$$"
+    trap 'rm -f "$tmp_file"' EXIT
     pg_dump "$DB_URL" \
         --no-owner --no-privileges \
         "${table_args[@]}" \
-        | gzip > "$OUT_FILE"
+        | gzip > "$tmp_file"
+    gzip -t "$tmp_file"  # valide avant de publier
+    mv "$tmp_file" "$OUT_FILE"
+    trap - EXIT
 fi
 
 echo "Vérification d'intégrité gzip..."

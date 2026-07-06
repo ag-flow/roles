@@ -33,6 +33,12 @@ async def on_discovery_complete(
     `mode=discover_only` : marque simplement la requête `discovered`, le pilote
     appellera `list_discovered` puis `select_items` lui-même.
     """
+    # Un job discover déjà `processing` va au bout même après cancel_request
+    # (qui n'annule que pending/claimed) : ne pas défaire l'annulation en
+    # repassant la requête `discovered`/`acquiring` (BUG-16).
+    if request["status"] == "cancelled":
+        return
+
     if request["mode"] != "auto":
         await ar.update_status(request["request_key"], "discovered", pool=pool)
         return

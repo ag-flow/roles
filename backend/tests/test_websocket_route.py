@@ -49,19 +49,23 @@ def app_with_stub_relay(
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[Any, _StubRelay]:
     """Inject a stub relay into the singleton slot consumed by routes/websocket."""
+    from cryptography.fernet import Fernet
+
     from role_builder import db as db_module
     from role_builder.config import settings as _settings
     from role_builder.main import app
     from role_builder.routes import websocket as ws_route_module
     from role_builder.services import ws_relay as ws_relay_module
 
+    monkeypatch.setattr(
+        _settings, "secret_encryption_key", Fernet.generate_key().decode(), raising=False
+    )
     monkeypatch.setattr(_settings, "disable_orchestrator", True, raising=False)
     monkeypatch.setattr(_settings, "disable_ws_relay", True, raising=False)
     monkeypatch.setattr(_settings, "disable_worker_manager", True, raising=False)
     monkeypatch.setattr(_settings, "disable_scheduler", True, raising=False)
     monkeypatch.setattr(_settings, "disable_auth", True, raising=False)
     monkeypatch.setattr(_settings, "disable_migrations", True, raising=False)
-    monkeypatch.setattr(_settings, "disable_vault", True, raising=False)
     monkeypatch.setattr(_settings, "disable_mcp_server", True, raising=False)
 
     class _StubPool:

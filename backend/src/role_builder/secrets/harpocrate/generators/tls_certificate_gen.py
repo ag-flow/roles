@@ -72,6 +72,11 @@ def generate(descriptor: dict[str, Any]) -> str:
         except ValueError:
             san_list.append(x509.DNSName(san))
 
+    # SAN par défaut = CN : les stacks TLS modernes (Go, navigateurs) rejettent
+    # un certificat serveur sans SAN, même en interne (BUG-47).
+    if not san_list:
+        san_list.append(x509.DNSName(common_name))
+
     now = datetime.datetime.now(datetime.timezone.utc)
     not_before = now
     not_after = now + datetime.timedelta(days=validity_days)
@@ -86,16 +91,39 @@ def generate(descriptor: dict[str, Any]) -> str:
         .not_valid_after(not_after)
     )
 
-    if san_list:
-        builder = builder.add_extension(
-            x509.SubjectAlternativeName(san_list),
-            critical=False,
-        )
+    builder = builder.add_extension(
+        x509.SubjectAlternativeName(san_list),
+        critical=False,
+    )
 
     # Extension Basic Constraints : pas une CA
     builder = builder.add_extension(
         x509.BasicConstraints(ca=False, path_length=None),
         critical=True,
+    )
+
+    # KeyUsage + ExtendedKeyUsage(serverAuth+clientAuth) : sans ça un cert
+    # serveur est refusé par de nombreuses stacks TLS (BUG-47).
+    builder = builder.add_extension(
+        x509.KeyUsage(
+            digital_signature=True,
+            key_encipherment=True,
+            content_commitment=False,
+            data_encipherment=False,
+            key_agreement=False,
+            key_cert_sign=False,
+            crl_sign=False,
+            encipher_only=False,
+            decipher_only=False,
+        ),
+        critical=True,
+    )
+    builder = builder.add_extension(
+        x509.ExtendedKeyUsage([
+            x509.oid.ExtendedKeyUsageOID.SERVER_AUTH,
+            x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH,
+        ]),
+        critical=False,
     )
 
     cert = builder.sign(private_key, hashes.SHA256())

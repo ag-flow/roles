@@ -28,12 +28,18 @@ async def get_last_pulled_at(
 async def upsert_cursor(
     request_id: UUID, caller: str, last_pulled_at: datetime, *, pool: asyncpg.Pool
 ) -> None:
-    """Crée ou avance le curseur d'un appelant sur une requête."""
+    """Crée ou avance le curseur d'un appelant sur une requête.
+
+    `GREATEST` : deux pulls quasi simultanés du même appelant peuvent commiter
+    dans l'ordre inverse ; sans ça le curseur reculerait et le pull `only_new`
+    suivant re-servirait des documents déjà vus (BUG-25).
+    """
     query = """
         INSERT INTO corpus_pull_cursors (request_id, caller, last_pulled_at)
         VALUES ($1, $2, $3)
         ON CONFLICT (request_id, caller)
-        DO UPDATE SET last_pulled_at = EXCLUDED.last_pulled_at
+        DO UPDATE SET last_pulled_at =
+            GREATEST(corpus_pull_cursors.last_pulled_at, EXCLUDED.last_pulled_at)
     """
     async with pool.acquire() as conn:
         await conn.execute(query, request_id, caller, last_pulled_at)

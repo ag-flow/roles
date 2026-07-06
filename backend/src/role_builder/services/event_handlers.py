@@ -9,6 +9,7 @@ inspecte le returncode pour clore le job.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import asyncpg
@@ -23,6 +24,28 @@ from role_builder.db_helpers import transcription_keys as tk
 from role_builder.services.acquisition import auto_select
 
 log = structlog.get_logger(__name__)
+
+
+def _normalize_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Convertit `published_at` (ISO 8601 émis par le scraper) en datetime.
+
+    asyncpg n'accepte pas de `str` pour une colonne `timestamptz` : sans cette
+    conversion, l'insert bulk lève une DataError et le job discover échoue
+    (BUG-05). `None`/déjà-datetime passent tels quels.
+    """
+    published = item.get("published_at")
+    if isinstance(published, str):
+        try:
+            item = {**item, "published_at": _parse_iso(published)}
+        except ValueError:
+            log.warning("scraper.invalid_published_at", value=published)
+            item = {**item, "published_at": None}
+    return item
+
+
+def _parse_iso(value: str) -> datetime:
+    """Parse un timestamp ISO 8601, tolérant le suffixe `Z` (UTC)."""
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 async def handle_scraper_event(
@@ -53,7 +76,7 @@ async def handle_scraper_event(
         return
 
     if etype == "discovered":
-        items = event.get("items") or []
+        items = [_normalize_item(item) for item in (event.get("items") or [])]
         total = event.get("total", len(items))
         log.info(
             "scraper.discovered",
@@ -166,23 +189,39 @@ async def _handle_item_done(
         )
         return
 
-    if audio_s3_key:
-        await tj.insert_job(
-            source_item_id=item_row["id"],
-            tenant_id=item_row.get("tenant_id") or job["tenant_id"],
-            audio_s3_key=audio_s3_key,
-            language=event.get("language"),
-            worker_pool_id=worker_pool_id,
-            priority=int(event.get("priority", 0) or 0),
-            pool=pool,
-        )
-        log.info(
-            "scraper.transcription_job_queued",
+    # Sans audio, aucun worker de transcription ne prendra l'item : le passer
+    # `queued_transcription` le bloquerait à jamais (requête jamais completed,
+    # invisible pour retry_failed). On le marque `failed` explicitement.
+    if not audio_s3_key:
+        log.error(
+            "scraper.item_done_without_audio",
             job_id=str(job["id"]),
             source_item_id=str(item_row["id"]),
-            worker_pool_id=worker_pool_id,
         )
+        await si.update_source_item_status(
+            job["source_id"],
+            platform_item_id,
+            "failed",
+            error="ITEM_DONE_WITHOUT_AUDIO: scraper reported item_done without audio_s3_key",
+            pool=pool,
+        )
+        return
 
+    await tj.insert_job(
+        source_item_id=item_row["id"],
+        tenant_id=item_row.get("tenant_id") or job["tenant_id"],
+        audio_s3_key=audio_s3_key,
+        language=event.get("language"),
+        worker_pool_id=worker_pool_id,
+        priority=int(event.get("priority", 0) or 0),
+        pool=pool,
+    )
+    log.info(
+        "scraper.transcription_job_queued",
+        job_id=str(job["id"]),
+        source_item_id=str(item_row["id"]),
+        worker_pool_id=worker_pool_id,
+    )
     await si.update_source_item_status(
         job["source_id"],
         platform_item_id,

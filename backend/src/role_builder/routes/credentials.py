@@ -7,14 +7,15 @@ Routes :
 - DELETE /api/credentials/{cred_id}
 
 Tous protégés par ``Depends(get_current_user)``.
-Les cookies sont stockés dans Harpocrate sous le chemin :
-  users/{email_slug}/scraping/{platform}/{cred_id}
+Un credential référence un secret cookies saisi via /api/secrets
+(secret_id, type '*-cookies') : la plateforme est dérivée du type, les
+cookies sont résolus par le SecretStore.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,17 +23,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from role_builder.auth.dependencies import CurrentUser, get_current_user
 from role_builder.db import db_pool
 from role_builder.db_helpers import credentials as creds_helper
+from role_builder.routes.secret_selection import resolve_selected_secret
 from role_builder.schemas.credentials import (
     CreateCredentialRequest,
     TestCredentialResponse,
     UserCredentialOut,
 )
+from role_builder.schemas.user_secrets import cookies_platform
 from role_builder.services import credentials_validator
-from role_builder.services.user_vault import (
-    build_credentials_vault_name,
-)
-from role_builder.services.user_vault import (
-    get_service as _get_vault_service,
+from role_builder.services.secret_store import (
+    get_secret_store as _get_secret_store,
 )
 
 router = APIRouter()
@@ -61,34 +61,34 @@ async def create_credential_endpoint(
     """Crée un nouveau credential après validation des cookies.
 
     Étapes :
-    1. Validation des cookies (format + contenu)
-    2. Génération d'un ID + chemin vault
-    3. Stockage des cookies dans Harpocrate
-    4. Insertion des métadonnées en base
-    5. Retour du DTO créé
+    1. Résolution du secret sélectionné (existence, type cookies, valeur)
+    2. Validation des cookies (format + contenu)
+    3. Insertion des métadonnées en base (référence secret_id)
+    4. Retour du DTO créé
     """
-    result = await credentials_validator.validate_cookies(
-        request.platform,
-        request.cookies_b64,
+    secret, cookies_b64 = await resolve_selected_secret(
+        secret_id=request.secret_id,
+        user_id=user.user_id,
+        expected_kind="cookies",
+        pool=db_pool.pool,
     )
+    platform = cookies_platform(secret["secret_type"])
+    assert platform is not None  # garanti par expected_kind="cookies"
+
+    result = await credentials_validator.validate_cookies(platform, cookies_b64)
     if not result["valid"]:
         raise HTTPException(
             status_code=400,
             detail=result["error"] or "invalid cookies",
         )
 
-    cred_id = uuid4()
-    secret_name = build_credentials_vault_name(user.email, request.platform, cred_id)
-
-    await _get_vault_service().write(secret_name, request.cookies_b64)
-
     now = datetime.now(UTC)
     inserted_id = await creds_helper.insert_user_credential(
         tenant_id=user.tenant_id,
         user_id=user.user_id,
-        platform=request.platform,
+        platform=platform,
         label=request.label,
-        vault_secret_name=secret_name,
+        secret_id=request.secret_id,
         status="active",
         last_validated_at=now,
         expires_at=result.get("expires_at"),
@@ -98,7 +98,7 @@ async def create_credential_endpoint(
     log.info(
         "credentials.created",
         credential_id=str(inserted_id),
-        platform=request.platform,
+        platform=platform,
         user_id=str(user.user_id),
     )
 
@@ -126,7 +126,11 @@ async def test_credential_endpoint(
     if cred is None:
         raise HTTPException(status_code=404, detail="credential not found")
 
-    cookies_b64 = await _get_vault_service().read(cred["vault_secret_name"])
+    cookies_b64 = None
+    if cred.get("secret_id") is not None:
+        cookies_b64 = await _get_secret_store().read_secret_by_id(
+            secret_id=cred["secret_id"], user_id=user.user_id, pool=db_pool.pool
+        )
 
     if not cookies_b64:
         await creds_helper.update_credential_status(
@@ -137,7 +141,7 @@ async def test_credential_endpoint(
         return TestCredentialResponse(
             status="invalid",
             last_validated_at=None,
-            error="cookies missing from vault",
+            error="secret inaccessible (supprimé ou disparu du wallet)",
         )
 
     result = await credentials_validator.validate_cookies(cred["platform"], cookies_b64)
@@ -164,7 +168,7 @@ async def delete_credential_endpoint(
     cred_id: UUID,
     user: CurrentUser = Depends(get_current_user),
 ) -> None:
-    """Supprime un credential : efface les cookies dans le vault puis la ligne en base."""
+    """Supprime un credential (le secret cookies référencé n'est pas touché)."""
     cred = await creds_helper.get_credential(
         cred_id,
         user_id=user.user_id,
@@ -172,8 +176,6 @@ async def delete_credential_endpoint(
     )
     if cred is None:
         raise HTTPException(status_code=404, detail="credential not found")
-
-    await _get_vault_service().try_delete(cred["vault_secret_name"])
 
     await creds_helper.delete_credential(cred_id, pool=db_pool.pool)
     log.info("credentials.deleted", credential_id=str(cred_id))

@@ -1,13 +1,20 @@
 """roles__finalize_upload — vérification de l'objet MinIO et entrée dans le
-pipeline standard (spec §2.2, §3).
+pipeline (spec §2.2, §3).
 
-Après le PUT client : l'objet est vérifié, l'audio est extrait si le média
-est une vidéo, l'item passe en `audio_ready` puis est mis en queue de
-transcription — exactement le chemin d'un item scrapé après `item_done`
-(event_handlers._handle_item_done), pour qu'aucun composant aval n'ait de
-cas spécial upload. Queue partagée `shared_default` : les sources upload
-n'ont pas de role_project, donc pas de clé SaaS utilisateur (même règle que
-les sources V2 scrapées).
+Après le PUT client, l'objet est vérifié puis le slot est claimé
+atomiquement hors de `awaiting_upload` (idempotence + protection contre le
+double finalize et le nettoyage concurrent) :
+
+- média **audio** : aucune extraction, l'item passe directement en queue de
+  transcription — l'appel reste court ;
+- média **vidéo** : l'item passe `pending_extraction` et l'appel retourne
+  immédiatement. L'extraction ffmpeg (potentiellement plusieurs minutes,
+  fichier volumineux) est faite par un worker de fond (extraction_worker.py),
+  jamais dans l'appel MCP — aucun tool ne bloque (spec §1.1).
+
+Queue partagée `shared_default` : les sources upload n'ont pas de
+role_project, donc pas de clé SaaS utilisateur (même règle que les sources
+V2 scrapées).
 """
 
 from __future__ import annotations
@@ -23,15 +30,13 @@ import structlog
 from role_builder.db_helpers import acquisition_requests as ar
 from role_builder.db_helpers import source_items as source_items_helper
 from role_builder.db_helpers import source_items_upload as siu
-from role_builder.db_helpers import transcription_jobs as transcription_jobs_helper
 from role_builder.services import minio_client as minio_client_module
 from role_builder.services.acquisition.errors import AcquisitionError
 from role_builder.services.acquisition.upload import media_types
-from role_builder.services.acquisition.upload.audio_extraction import (
-    AudioExtractionError,
-    extract_audio_to_mp3,
-)
 from role_builder.services.acquisition.upload.intake import AUDIO_BUCKET
+from role_builder.services.acquisition.upload.transcription_entry import (
+    enter_transcription_pipeline,
+)
 from role_builder.services.minio_client import MinioWrapper
 
 log = structlog.get_logger(__name__)
@@ -45,18 +50,24 @@ async def finalize_upload(
     pool: asyncpg.Pool,
     minio: MinioWrapper | None = None,
 ) -> dict[str, Any]:
-    """Vérifie le PUT, extrait l'audio si vidéo, met l'item en pipeline.
+    """Vérifie le PUT et fait entrer l'item dans le pipeline.
+
+    Retourne `{item_id, status}` : `queued_transcription` (audio, immédiat)
+    ou `pending_extraction` (vidéo, extraction déférée au worker de fond).
 
     Idempotent : un item déjà finalisé retourne son statut courant.
 
     Raises:
-        AcquisitionError(UNKNOWN_REQUEST | UPLOAD_NOT_FOUND | UPLOAD_EXPIRED
-        | AUDIO_EXTRACTION_FAILED)
+        AcquisitionError(UNKNOWN_REQUEST | UPLOAD_NOT_FOUND | UPLOAD_EXPIRED)
     """
     minio = minio or minio_client_module.minio_client
     request = await ar.get_by_key(request_key, pool=pool)
     if request is None or request["kind"] != "upload":
         raise AcquisitionError("UNKNOWN_REQUEST", f"no upload request {request_key!r}")
+    if request["status"] == "cancelled":
+        raise AcquisitionError(
+            "ALREADY_CANCELLED", f"upload request {request_key!r} is cancelled"
+        )
 
     item = await source_items_helper.get_by_id(item_id, pool=pool)
     if item is None or item["source_id"] != request["source_id"]:
@@ -80,56 +91,46 @@ async def finalize_upload(
             f"no object at {AUDIO_BUCKET}/{upload_key} — PUT missing or not finished",
         )
 
-    audio_key = await _resolve_audio_key(item, minio=minio, pool=pool)
-    await source_items_helper.update_source_item_status(
-        item["source_id"], item["platform_item_id"], "audio_ready",
-        audio_s3_key=audio_key, pool=pool,
+    if media_types.is_video(item["upload_media_type"]):
+        return await _enqueue_extraction(item, request_key=request_key, pool=pool)
+    return await _enter_pipeline_direct(
+        item, upload_key=upload_key, request_key=request_key, pool=pool, minio=minio
     )
-    await transcription_jobs_helper.insert_job(
-        source_item_id=item_id,
-        tenant_id=item["tenant_id"],
-        audio_s3_key=audio_key,
-        worker_pool_id="shared_default",
-        pool=pool,
-    )
-    await source_items_helper.update_source_item_status(
-        item["source_id"], item["platform_item_id"], "queued_transcription", pool=pool
-    )
-    log.info(
-        "upload.finalized",
-        request_key=request_key,
-        item_id=str(item_id),
-        audio_s3_key=audio_key,
-    )
-    return {"item_id": item_id, "status": "queued_transcription"}
 
 
-async def _resolve_audio_key(
-    item: dict[str, Any], *, minio: MinioWrapper, pool: asyncpg.Pool
-) -> str:
-    """Clé audio de l'item : l'objet uploadé tel quel, ou l'extrait mp3 si vidéo."""
-    upload_key = item["upload_s3_key"]
-    if not media_types.is_video(item["upload_media_type"]):
-        return upload_key
+async def _enqueue_extraction(
+    item: dict[str, Any], *, request_key: str, pool: asyncpg.Pool
+) -> dict[str, Any]:
+    """Claime le slot vidéo en `pending_extraction` ; le worker fera le ffmpeg."""
+    claimed = await siu.claim_finalize_slot(
+        item["id"], new_status="pending_extraction", pool=pool
+    )
+    if claimed is None:  # finalize concurrent : le slot a déjà été claimé.
+        current = await source_items_helper.get_by_id(item["id"], pool=pool)
+        return {"item_id": item["id"], "status": current["status"] if current else "unknown"}
+    log.info("upload.extraction_enqueued", request_key=request_key, item_id=str(item["id"]))
+    return {"item_id": item["id"], "status": "pending_extraction"}
 
-    audio_key = upload_key.rsplit(".", 1)[0] + ".mp3"
-    try:
-        await extract_audio_to_mp3(
-            minio, bucket=AUDIO_BUCKET, source_key=upload_key, target_key=audio_key
-        )
-    except AudioExtractionError as exc:
-        await source_items_helper.update_source_item_status(
-            item["source_id"], item["platform_item_id"], "failed",
-            error=f"AUDIO_EXTRACTION_FAILED: {exc}", pool=pool,
-        )
-        raise AcquisitionError("AUDIO_EXTRACTION_FAILED", str(exc)) from exc
 
-    # Seul l'audio est conservé ; l'objet vidéo brut est supprimé (best-effort).
-    try:
-        await asyncio.to_thread(minio.remove_object, AUDIO_BUCKET, upload_key)
-    except Exception:  # noqa: BLE001 — un brut orphelin ne bloque pas le pipeline
-        log.warning("upload.raw_video_cleanup_failed", key=upload_key)
-    return audio_key
+async def _enter_pipeline_direct(
+    item: dict[str, Any],
+    *,
+    upload_key: str,
+    request_key: str,
+    pool: asyncpg.Pool,
+    minio: MinioWrapper,
+) -> dict[str, Any]:
+    """Média audio : claime le slot puis met l'item en queue de transcription."""
+    claimed = await siu.claim_finalize_slot(
+        item["id"], new_status="audio_ready", audio_s3_key=upload_key, pool=pool
+    )
+    if claimed is None:  # finalize concurrent : le slot a déjà été claimé.
+        current = await source_items_helper.get_by_id(item["id"], pool=pool)
+        return {"item_id": item["id"], "status": current["status"] if current else "unknown"}
+    await enter_transcription_pipeline(claimed, audio_key=upload_key, pool=pool, minio=minio)
+    log.info("upload.finalized", request_key=request_key, item_id=str(item["id"]),
+             audio_s3_key=upload_key)
+    return {"item_id": item["id"], "status": "queued_transcription"}
 
 
 async def _cleanup_expired_item(

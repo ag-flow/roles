@@ -14,15 +14,17 @@
 --     à l'admin DB s'il préfère pré-charger le schéma.
 --
 -- Extensions PostgreSQL :
---   uuid-ossp / pgcrypto / vector. Le `IF NOT EXISTS` rend l'opération
---   idempotente : no-op si l'admin DB a déjà créé les extensions en amont
---   (cf. install.sh --setup-db du repo ag-flow/Configurations). En docker
---   compose local, le user `rb` est superuser de la DB role_builder donc
---   les CREATE EXTENSION fonctionnent ici.
+--   uuid-ossp / pgcrypto. Le `IF NOT EXISTS` rend l'opération idempotente :
+--   no-op si l'admin DB a déjà créé les extensions en amont (cf. install.sh
+--   --setup-db du repo ag-flow/Configurations). En docker compose local, le
+--   user `rb` est superuser de la DB role_builder donc les CREATE EXTENSION
+--   fonctionnent ici.
+--   pgvector (`vector`) N'EST PLUS requis en V2 (synthèse/indexation
+--   abandonnées, cf. docs/specs/OBSOLETE.md) : une base neuve ne dépend plus
+--   d'un Postgres avec pgvector installé (BUG-62).
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-CREATE EXTENSION IF NOT EXISTS "vector";
 
 -- ----------------------------------------------------------------------------
 -- Section ex-0002 : role_projects
@@ -98,9 +100,10 @@ CREATE INDEX source_items_tenant_idx ON source_items (tenant_id);
 -- ----------------------------------------------------------------------------
 -- Section ex-0004 : corpus_chunks
 -- ----------------------------------------------------------------------------
--- Migration 0004 : Table corpus_chunks (chunks indexés via pgvector).
--- Référence : docs/specs/01-data-model.md § corpus_chunks.
--- Dimension vecteur 1024 = Mistral Embed (à confirmer Sprint 4).
+-- Table conservée dans ce socle historique (droppée juste après par la
+-- migration 0006, refonte V2) mais SANS colonne embedding ni index ivfflat :
+-- l'indexation pgvector est abandonnée en V2, une base neuve n'a donc plus
+-- besoin de l'extension `vector` (BUG-62).
 
 CREATE TABLE corpus_chunks (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -111,17 +114,10 @@ CREATE TABLE corpus_chunks (
     start_s real,
     end_s real,
     text text NOT NULL,
-    embedding vector(1024),
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX corpus_chunks_role_project_idx ON corpus_chunks (role_project_id);
-
--- L'index ivfflat est inefficace tant qu'il y a peu de lignes.
--- À créer ou recréer (REINDEX) après ingestion d'un premier corpus.
-CREATE INDEX corpus_chunks_embedding_idx
-    ON corpus_chunks USING ivfflat (embedding vector_cosine_ops)
-    WITH (lists = 100);
 
 -- ----------------------------------------------------------------------------
 -- Section ex-0005 : queues

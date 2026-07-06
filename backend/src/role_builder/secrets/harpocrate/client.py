@@ -172,7 +172,12 @@ class SecretsClient:
         wallet_key = self._wallet_key()
         enc_value = aes_gcm_encrypt(value.encode("utf-8"), wallet_key)
         enc_value_b64 = base64.b64encode(enc_value).decode()
-        body: dict[str, Any] = {"name": name, "encrypted_value": enc_value_b64}
+        # Normalise le nom comme le fait la résolution en lecture
+        # (_resolve_id_if_pathstyle) : sans ça, un secret path-style est écrit
+        # sans '/' initial mais recherché avec → SecretNotFound / doublon.
+        body: dict[str, Any] = {
+            "name": self._normalize_name(name), "encrypted_value": enc_value_b64
+        }
         if description is not None:
             body["description"] = description
         if tags is not None:
@@ -230,7 +235,9 @@ class SecretsClient:
         Si `type_uuid` n'est pas fourni, le serveur attache automatiquement le type RAW.
         Retourne le secret_id. Requiert [add].
         """
-        body: dict[str, Any] = {"name": name, "generation_descriptor": descriptor}
+        body: dict[str, Any] = {
+            "name": self._normalize_name(name), "generation_descriptor": descriptor
+        }
         if description is not None:
             body["description"] = description
         if tags is not None:
@@ -249,38 +256,45 @@ class SecretsClient:
         Lève PlaceholderNotPopulated si le secret n'a pas de valeur.
         Lève VaultDecryptionError si le déchiffrement échoue.
         """
-        data = self._http.get(self._path_for_op(name))
-        wallet_key = self._wallet_key()
-
-        enc_value = base64.b64decode(data["encrypted_value"])
-        enc_wk = base64.b64decode(data["encrypted_wallet_key"])
-
-        # Le serveur retourne encrypted_wallet_key du caller.
-        # Pour une API key, on utilise la wallet_key du cache.
-        # Mais le serveur peut aussi retourner une wk spécifique à ce secret pour les grants.
-        # On essaie d'abord avec la wallet_key du cache, puis avec celle du serveur.
-        try:
-            plaintext = aes_gcm_decrypt(enc_value, wallet_key)
-        except VaultDecryptionError:
-            # Essai avec la wallet_key chiffrée par la grant (pour JWT callers)
-            try:
-                wk_from_grant = aes_gcm_decrypt(enc_wk, self._parsed.decryption_key)
-                plaintext = aes_gcm_decrypt(enc_value, wk_from_grant)
-                # Met à jour le cache avec la clé correcte
-                self._cache.set(str(self._wallet_id), wk_from_grant)
-            except VaultDecryptionError as exc:
-                raise VaultDecryptionError(
-                    f"Failed to decrypt secret '{name}': invalid key or corrupted data"
-                ) from exc
-
-        return plaintext.decode("utf-8")
+        return self._get_raw(name).decode("utf-8")
 
     def get_bytes(self, name: str) -> bytes:
         """Lit et déchiffre la valeur d'un secret en bytes bruts.
 
-        Utile pour les certificats TLS et autres données binaires.
+        Vrai chemin binaire (certificats TLS, clés brutes, DER) : aucun
+        round-trip UTF-8, contrairement à `get()` qui décode le plaintext.
         """
-        return self.get(name).encode("utf-8")
+        return self._get_raw(name)
+
+    def _get_raw(self, name: str) -> bytes:
+        """Lit et déchiffre un secret, retournant le plaintext en bytes bruts.
+
+        Base commune de `get`/`get_bytes`. `encrypted_wallet_key` n'est lu que
+        dans le fallback grant (JWT callers) : un secret déchiffrable via le
+        cache dont la réponse l'omet ne lève plus KeyError.
+
+        Lève VaultDecryptionError si le déchiffrement échoue.
+        """
+        data = self._http.get(self._path_for_op(name))
+        wallet_key = self._wallet_key()
+        enc_value = base64.b64decode(data["encrypted_value"])
+
+        # On essaie d'abord avec la wallet_key du cache (cas API key). Le
+        # serveur peut aussi retourner une wk spécifique au secret (grants) :
+        # fallback sur encrypted_wallet_key chiffré par la clé de décryption.
+        try:
+            return aes_gcm_decrypt(enc_value, wallet_key)
+        except VaultDecryptionError:
+            enc_wk = base64.b64decode(data["encrypted_wallet_key"])
+            try:
+                wk_from_grant = aes_gcm_decrypt(enc_wk, self._parsed.decryption_key)
+                plaintext = aes_gcm_decrypt(enc_value, wk_from_grant)
+                self._cache.set(str(self._wallet_id), wk_from_grant)  # cache la clé correcte
+                return plaintext
+            except VaultDecryptionError as exc:
+                raise VaultDecryptionError(
+                    f"Failed to decrypt secret '{name}': invalid key or corrupted data"
+                ) from exc
 
     def get_descriptor(self, name: str) -> dict[str, Any]:
         """Récupère le descripteur de génération d'un placeholder."""

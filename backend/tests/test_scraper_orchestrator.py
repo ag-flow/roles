@@ -214,3 +214,54 @@ def test_build_payload_prefix_avoids_none_literal_when_role_project_id_null() ->
 
     assert "None" not in payload["output"]["prefix"]
     assert payload["output"]["prefix"] == f"{tenant_id}/v2/{source_id}/"
+
+
+async def test_process_one_job_resolves_credential_cookies(
+    patched: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Source liée à un credential : cookies résolus via son secret, pas le .env."""
+    from role_builder.config import settings as _settings
+    from role_builder.db_helpers import sources as sm
+    from role_builder.services import scraper_orchestrator
+
+    monkeypatch.setattr(_settings, "youtube_cookies_b64", "b64-global", raising=False)
+
+    cred_id, cred_user_id, secret_id = uuid4(), uuid4(), uuid4()
+
+    async def fake_get_source(source_id: Any, **kw: Any) -> dict[str, Any]:
+        return {
+            "id": source_id,
+            "platform": "youtube",
+            "url": "https://www.youtube.com/@example",
+            "role_project_id": None,
+            "credentials_id": cred_id,
+        }
+
+    async def fake_get_credential_by_id(c_id: Any, *, pool: Any) -> dict[str, Any]:
+        assert c_id == cred_id
+        return {"id": cred_id, "user_id": cred_user_id, "secret_id": secret_id}
+
+    class _StubStore:
+        async def read_secret_by_id(self, *, secret_id: Any, user_id: Any, pool: Any) -> str:
+            return "b64-user-cookies"
+
+    monkeypatch.setattr(sm, "get_source", fake_get_source)
+    monkeypatch.setattr(scraper_orchestrator, "get_credential_by_id", fake_get_credential_by_id)
+    monkeypatch.setattr(scraper_orchestrator, "_get_secret_store", lambda: _StubStore())
+
+    runner = _make_runner([{"type": "_exit", "returncode": 0}])
+    monkeypatch.setattr(scraper_orchestrator, "run_container", runner)
+
+    job = {
+        "id": uuid4(),
+        "source_id": uuid4(),
+        "source_item_id": None,
+        "tenant_id": uuid4(),
+        "command": "download",
+        "credentials_id": cred_id,
+    }
+    orch = scraper_orchestrator.ScraperOrchestrator(pool=object(), worker_id="w-1")
+    await orch.process_one_job(job)
+
+    env = runner.last_env  # type: ignore[attr-defined]
+    assert env.get("YOUTUBE_COOKIES_B64") == "b64-user-cookies"

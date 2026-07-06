@@ -42,13 +42,17 @@ def test_app_boots_with_mcp_mount_enabled(monkeypatch: pytest.MonkeyPatch) -> No
         async def close(self) -> None:
             return None
 
+    from cryptography.fernet import Fernet
+
+    monkeypatch.setattr(
+        settings, "secret_encryption_key", Fernet.generate_key().decode(), raising=False
+    )
     monkeypatch.setattr(settings, "disable_orchestrator", True, raising=False)
     monkeypatch.setattr(settings, "disable_ws_relay", True, raising=False)
     monkeypatch.setattr(settings, "disable_worker_manager", True, raising=False)
     monkeypatch.setattr(settings, "disable_scheduler", True, raising=False)
     monkeypatch.setattr(settings, "disable_auth", True, raising=False)
     monkeypatch.setattr(settings, "disable_migrations", True, raising=False)
-    monkeypatch.setattr(settings, "disable_vault", True, raising=False)
     monkeypatch.setattr(settings, "disable_mcp_server", False, raising=False)
     monkeypatch.setattr(db_module.db_pool, "_pool", _StubPool(), raising=False)
 

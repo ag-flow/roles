@@ -40,8 +40,7 @@ services:
       minio:
         condition: service_healthy
     environment:
-      HARPOCRATE_API_TOKEN: ${HARPOCRATE_API_TOKEN:-}
-      HARPOCRATE_API_URL: ${HARPOCRATE_API_URL:-https://vault.yoops.org}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       HARPOCRATE_ALLOW_INSECURE: ${HARPOCRATE_ALLOW_INSECURE:-0}
       DATABASE_URL: postgresql://${POSTGRES_USER:-rb}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-role_builder}
       MINIO_ENDPOINT: http://minio:9000
@@ -53,7 +52,7 @@ services:
       INSTAGRAM_COOKIES_B64: ${INSTAGRAM_COOKIES_B64:-}
       TIKTOK_COOKIES_B64: ${TIKTOK_COOKIES_B64:-}
       MAX_CONCURRENT_SCRAPERS: ${MAX_CONCURRENT_SCRAPERS:-5}
-      SCRAPER_IMAGE_TAG: ${IMAGE_TAG:-latest}
+      SCRAPER_IMAGE_TAG: ${SCRAPER_IMAGE_TAG:-${IMAGE_TAG:-latest}}
       # Clés SaaS de transcription
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
@@ -61,7 +60,7 @@ services:
       SPEECHMATICS_API_KEY: ${SPEECHMATICS_API_KEY:-}
       WORKER_AUTO_STOP_THRESHOLD_S: ${WORKER_AUTO_STOP_THRESHOLD_S:-300}
       WORKER_AUTO_STOP_PERIOD_S: ${WORKER_AUTO_STOP_PERIOD_S:-60}
-      WORKER_IMAGE_TAG: ${IMAGE_TAG:-latest}
+      WORKER_IMAGE_TAG: ${WORKER_IMAGE_TAG:-${IMAGE_TAG:-latest}}
       GHCR_OWNER: ${GHCR_OWNER:-}
       # Auth Keycloak — vide en mode tests/dev (DISABLE_AUTH=true)
       KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-}
@@ -101,8 +100,6 @@ services:
       # le backend /api/auth/local-login qui valide contre LOCAL_ADMIN_*
       # (côté backend) et retourne un JWT propagé en Bearer.
       LOCAL_ADMIN_ENABLED: ${LOCAL_ADMIN_ENABLED:-false}
-      HARPOCRATE_API_TOKEN: ${HARPOCRATE_API_TOKEN:-}
-      HARPOCRATE_API_URL: ${HARPOCRATE_API_URL:-https://vault.yoops.org}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
 

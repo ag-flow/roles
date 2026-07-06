@@ -30,6 +30,10 @@ async def select_items(
     request = await ar.get_by_key(request_key, pool=pool)
     if request is None:
         raise AcquisitionError("UNKNOWN_REQUEST", f"no acquisition request {request_key!r}")
+    if request["status"] == "cancelled":
+        raise AcquisitionError(
+            "ALREADY_CANCELLED", f"request {request_key!r} is cancelled — no new selection"
+        )
 
     source_id = request["source_id"]
     source = await sources_helper.get_source(source_id, pool=pool)
@@ -86,7 +90,11 @@ async def apply_selection(
         if await scraping_jobs_helper.get_active_job_for_item(item_id, "download", pool=pool):
             continue
         item = await source_items_helper.get_by_id(item_id, pool=pool)
-        if item is None or item["status"] != "pending_download":
+        # Vérifie l'appartenance à la source : un item d'une autre requête ne
+        # doit pas obtenir un download job sous ce source_id/tenant (BUG-13).
+        if item is None or item["source_id"] != source_id:
+            continue
+        if item["status"] != "pending_download":
             continue
         await scraping_jobs_helper.insert_job(
             source_id=source_id,

@@ -3,7 +3,6 @@ import type {
   KeyUsage,
   TestKeyResult,
   TranscriptionKey,
-  TranscriptionProvider,
 } from '../types';
 
 export async function listKeys(): Promise<TranscriptionKey[]> {
@@ -11,10 +10,8 @@ export async function listKeys(): Promise<TranscriptionKey[]> {
 }
 
 export async function createKey(body: {
-  provider: TranscriptionProvider;
+  secret_id: string;
   label?: string | null;
-  api_key: string;
-  harpocrate_key: string;
   workers_count?: number;
   is_primary?: boolean;
   is_fallback?: boolean;

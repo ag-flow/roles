@@ -16,6 +16,7 @@ class _StubConn:
         self.fetchval_return: Any = None
         self.fetch_return: list[Any] = []
         self.fetchrow_return: Any = None
+        self.execute_return: str = "UPDATE 0"  # tag asyncpg par défaut
 
     async def fetchval(self, query: str, *args: Any) -> Any:
         self.calls.append(("fetchval", query, args))
@@ -29,8 +30,9 @@ class _StubConn:
         self.calls.append(("fetchrow", query, args))
         return self.fetchrow_return
 
-    async def execute(self, query: str, *args: Any) -> None:
+    async def execute(self, query: str, *args: Any) -> str:
         self.calls.append(("execute", query, args))
+        return self.execute_return
 
     async def executemany(self, query: str, args: list[tuple[Any, ...]]) -> None:
         self.executemany_calls.append((query, args))
@@ -274,7 +276,7 @@ async def test_select_items_marks_listed_and_optional_deselect(
 
     source_id = uuid4()
     item_ids = [uuid4(), uuid4()]
-    stub_conn.fetchval_return = 2
+    stub_conn.execute_return = "UPDATE 2"  # 2 lignes réellement sélectionnées
 
     count = await source_items.select_items(
         source_id, item_ids, deselect_others=True, pool=stub_pool
