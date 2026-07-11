@@ -208,10 +208,9 @@ class ScraperOrchestrator:
         return get_cookies_b64(platform)
 
     def _build_payload(self, job: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
-        # role_project_id est NULL pour les sources V2 (façade MCP, migration
-        # 0007) : "v2" évite le littéral "None" dans la clé MinIO.
-        scope = source["role_project_id"] or "v2"
-        prefix = f"{job['tenant_id']}/{scope}/{source['id']}/"
+        # Préfixe MinIO scopé au tenant/source (le concept role_project est
+        # retiré, migration 0011) ; "v2" garde la structure de clé stable.
+        prefix = f"{job['tenant_id']}/v2/{source['id']}/"
         return {
             "task_id": str(job["id"]),
             "command": job["command"],

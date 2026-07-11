@@ -16,11 +16,9 @@ import asyncpg
 import structlog
 
 from role_builder.db_helpers import acquisition_requests as ar
-from role_builder.db_helpers import role_projects as rp
 from role_builder.db_helpers import source_items as si
 from role_builder.db_helpers import sources as sm
 from role_builder.db_helpers import transcription_jobs as tj
-from role_builder.db_helpers import transcription_keys as tk
 from role_builder.services.acquisition import auto_select
 
 log = structlog.get_logger(__name__)
@@ -158,26 +156,13 @@ async def _handle_item_done(
     """Sur `item_done` : enqueue un transcription_job + bascule l'item à
     'queued_transcription'.
 
-    Worker_pool_id :
-      - `user_<user_id>` si le user a une primary key transcription active
-      - `shared_default` sinon (faster-whisper sur pve2)
+    En V2 les sources n'ont plus de role_project → plus de routage par user :
+    tout part en `shared_default` (faster-whisper sur pve2). Le routage vers un
+    pool user (`user_<id>`) était un mécanisme V1 (role_project → user).
     """
     platform_item_id = event["item_id"]
     audio_s3_key = event.get("audio_s3_key")
-
-    source = await sm.get_source(job["source_id"], pool=pool)
-    role_project_id = source.get("role_project_id") if source else None
-    user_id = (
-        await rp.get_user_id_for_project(role_project_id, pool=pool)
-        if role_project_id is not None
-        else None
-    )
-
     worker_pool_id = "shared_default"
-    if user_id is not None:
-        primary_key = await tk.get_primary_key(user_id, pool=pool)
-        if primary_key is not None:
-            worker_pool_id = f"user_{user_id}"
 
     item_row = await si.get_by_platform_id(job["source_id"], platform_item_id, pool=pool)
     if item_row is None:

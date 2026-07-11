@@ -10,7 +10,6 @@ import asyncpg
 
 async def insert_source(
     *,
-    role_project_id: UUID | None,
     tenant_id: UUID,
     platform: str,
     source_type: str,
@@ -20,18 +19,18 @@ async def insert_source(
 ) -> UUID:
     """Insert a new row into `sources`. Status defaults to 'pending_discovery'.
 
-    `role_project_id=None` pour les sources V2 (façade MCP) — rattachées à
-    une acquisition_request plutôt qu'à un role_project (cf. migration 0007).
+    En V2 une source est rattachée à une `acquisition_request` (façade MCP),
+    plus à un role_project (concept retiré, migration 0011).
     """
     query = """
         INSERT INTO sources
-            (role_project_id, tenant_id, platform, source_type, url, credentials_id)
-        VALUES ($1, $2, $3, $4, $5, $6)
+            (tenant_id, platform, source_type, url, credentials_id)
+        VALUES ($1, $2, $3, $4, $5)
         RETURNING id
     """
     async with pool.acquire() as conn:
         new_id = await conn.fetchval(
-            query, role_project_id, tenant_id, platform, source_type, url, credentials_id
+            query, tenant_id, platform, source_type, url, credentials_id
         )
     return new_id  # type: ignore[no-any-return]
 
@@ -65,17 +64,3 @@ async def get_source(source_id: UUID, *, pool: asyncpg.Pool) -> dict[str, Any] |
     if row is None:
         return None
     return dict(row) if not isinstance(row, dict) else row
-
-
-async def list_sources_by_project(
-    role_project_id: UUID, *, pool: asyncpg.Pool
-) -> list[dict[str, Any]]:
-    """List all sources attached to a role project, newest first."""
-    query = """
-        SELECT * FROM sources
-        WHERE role_project_id = $1
-        ORDER BY created_at DESC
-    """
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(query, role_project_id)
-    return [dict(r) if not isinstance(r, dict) else r for r in rows]

@@ -58,7 +58,6 @@ async def submit_acquisition(
         )
 
     source_id = await sources_helper.insert_source(
-        role_project_id=None,
         tenant_id=tenant_id,
         platform=resolved_platform,
         source_type=infer_source_type(resolved_platform, url),

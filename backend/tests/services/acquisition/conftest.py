@@ -33,6 +33,7 @@ ALL_MIGRATIONS = (
     "0008_upload_intake.sql",
     "0009_user_wallets_secrets.sql",
     "0010_drop_vault_secret_name.sql",
+    "0011_drop_role_projects.sql",
 )
 
 

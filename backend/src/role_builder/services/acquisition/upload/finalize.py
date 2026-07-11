@@ -12,9 +12,9 @@ double finalize et le nettoyage concurrent) :
   fichier volumineux) est faite par un worker de fond (extraction_worker.py),
   jamais dans l'appel MCP — aucun tool ne bloque (spec §1.1).
 
-Queue partagée `shared_default` : les sources upload n'ont pas de
-role_project, donc pas de clé SaaS utilisateur (même règle que les sources
-V2 scrapées).
+Queue partagée `shared_default` : en V2 aucune source n'est rattachée à un
+utilisateur, la transcription passe donc toujours par le pool partagé (même
+règle que les sources scrapées).
 """
 
 from __future__ import annotations

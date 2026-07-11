@@ -184,31 +184,15 @@ async def test_process_one_job_includes_cookies_in_env_when_set(
     assert "MINIO_ENDPOINT" in env
 
 
-def test_build_payload_prefix_uses_role_project_id_when_present() -> None:
-    """Source V1 (role_project_id renseigné) : comportement inchangé."""
-    from role_builder.services.scraper_orchestrator import ScraperOrchestrator
-
-    orch = ScraperOrchestrator(pool=object())
-    role_project_id = uuid4()
-    source_id = uuid4()
-    tenant_id = uuid4()
-    job = {"id": uuid4(), "tenant_id": tenant_id, "command": "discover"}
-    source = {"id": source_id, "url": "https://x", "role_project_id": role_project_id}
-
-    payload = orch._build_payload(job, source)
-
-    assert payload["output"]["prefix"] == f"{tenant_id}/{role_project_id}/{source_id}/"
-
-
-def test_build_payload_prefix_avoids_none_literal_when_role_project_id_null() -> None:
-    """Source V2 (façade MCP, role_project_id NULL) : pas de littéral 'None' dans le prefix MinIO."""
+def test_build_payload_prefix_is_tenant_scoped() -> None:
+    """Préfixe MinIO scopé tenant/v2/source (role_project retiré, migration 0011)."""
     from role_builder.services.scraper_orchestrator import ScraperOrchestrator
 
     orch = ScraperOrchestrator(pool=object())
     source_id = uuid4()
     tenant_id = uuid4()
     job = {"id": uuid4(), "tenant_id": tenant_id, "command": "discover"}
-    source = {"id": source_id, "url": "https://x", "role_project_id": None}
+    source = {"id": source_id, "url": "https://x"}
 
     payload = orch._build_payload(job, source)
 

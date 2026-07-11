@@ -60,7 +60,6 @@ async def seed_request_with_item(
 ) -> dict[str, Any]:
     """Crée requête + source + item ; retourne les ids utiles au test."""
     source_id = await sources_helper.insert_source(
-        role_project_id=None,
         tenant_id=TENANT_ID,
         platform="youtube",
         source_type="channel",

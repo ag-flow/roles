@@ -37,11 +37,9 @@ def calls_with_jobs() -> dict[str, list[dict[str, Any]]]:
 def patched(monkeypatch: pytest.MonkeyPatch, calls: dict[str, list[dict[str, Any]]]) -> Any:
     """Patch the db_helpers used by event_handlers with no-op recorders."""
     from role_builder.db_helpers import acquisition_requests as ar
-    from role_builder.db_helpers import role_projects as rp
     from role_builder.db_helpers import source_items as si
     from role_builder.db_helpers import sources as sm
     from role_builder.db_helpers import transcription_jobs as tj
-    from role_builder.db_helpers import transcription_keys as tk
     from role_builder.services.acquisition import auto_select
 
     async def fake_insert_bulk(items: list[dict[str, Any]], **kwargs: Any) -> int:
@@ -63,16 +61,6 @@ def patched(monkeypatch: pytest.MonkeyPatch, calls: dict[str, list[dict[str, Any
     async def fake_update_item_status(*args: Any, **kwargs: Any) -> None:
         calls["update_item_status"].append({"args": args, "kwargs": kwargs})
 
-    # Defaults for the item_done path : pas de primary key, source vide
-    async def fake_get_source(_: Any, *, pool: Any) -> dict[str, Any]:
-        return {"role_project_id": uuid4()}
-
-    async def fake_get_user_id(_: Any, *, pool: Any) -> Any:
-        return uuid4()
-
-    async def fake_get_primary(_: Any, *, pool: Any) -> dict[str, Any] | None:
-        return None  # par défaut : pas de primary key → shared_default
-
     async def fake_get_by_platform_id(
         _source_id: Any, _platform_item_id: str, *, pool: Any
     ) -> dict[str, Any]:
@@ -84,9 +72,6 @@ def patched(monkeypatch: pytest.MonkeyPatch, calls: dict[str, list[dict[str, Any
     monkeypatch.setattr(si, "insert_source_items_bulk", fake_insert_bulk)
     monkeypatch.setattr(sm, "update_source_status", fake_update_source_status)
     monkeypatch.setattr(si, "update_source_item_status", fake_update_item_status)
-    monkeypatch.setattr(sm, "get_source", fake_get_source)
-    monkeypatch.setattr(rp, "get_user_id_for_project", fake_get_user_id)
-    monkeypatch.setattr(tk, "get_primary_key", fake_get_primary)
     monkeypatch.setattr(si, "get_by_platform_id", fake_get_by_platform_id)
     monkeypatch.setattr(tj, "insert_job", fake_insert_job)
 
@@ -206,40 +191,16 @@ async def test_handle_item_done_marks_queued_transcription(
     assert call["kwargs"]["audio_s3_key"] == "tenant/role/source/vid-42.mp3"
 
 
-async def test_handle_item_done_creates_transcription_job_with_user_pool(
+async def test_handle_item_done_creates_transcription_job_shared_default(
     monkeypatch: pytest.MonkeyPatch, job: dict[str, Any]
 ) -> None:
-    """Avec une primary key active, transcription_jobs.insert_job est appelé
-    avec worker_pool_id='user_<user_id>'."""
-    from role_builder.db_helpers import role_projects as rp
+    """En V2 (plus de role_project → user), tout part en worker_pool='shared_default'."""
     from role_builder.db_helpers import source_items as si
-    from role_builder.db_helpers import sources as sm
     from role_builder.db_helpers import transcription_jobs as tj
-    from role_builder.db_helpers import transcription_keys as tk
     from role_builder.services import event_handlers
 
-    role_project_id = uuid4()
-    user_id = uuid4()
     item_uuid = uuid4()
-    primary_key = {
-        "id": uuid4(),
-        "user_id": user_id,
-        "provider": "openai-whisper",
-        "status": "active",
-        "is_primary": True,
-    }
     captured_insert: dict[str, Any] = {}
-
-    async def fake_get_source(_: Any, *, pool: Any) -> dict[str, Any]:
-        return {"role_project_id": role_project_id}
-
-    async def fake_get_user_id(rp_id: Any, *, pool: Any) -> Any:
-        assert rp_id == role_project_id
-        return user_id
-
-    async def fake_get_primary(uid: Any, *, pool: Any) -> dict[str, Any]:
-        assert uid == user_id
-        return primary_key
 
     async def fake_get_by_platform_id(
         _source_id: Any, _platform_item_id: str, *, pool: Any
@@ -253,68 +214,6 @@ async def test_handle_item_done_creates_transcription_job_with_user_pool(
     async def fake_update_item_status(*args: Any, **kwargs: Any) -> None:
         return None
 
-    monkeypatch.setattr(sm, "get_source", fake_get_source)
-    monkeypatch.setattr(rp, "get_user_id_for_project", fake_get_user_id)
-    monkeypatch.setattr(tk, "get_primary_key", fake_get_primary)
-    monkeypatch.setattr(si, "get_by_platform_id", fake_get_by_platform_id)
-    monkeypatch.setattr(tj, "insert_job", fake_insert_job)
-    monkeypatch.setattr(si, "update_source_item_status", fake_update_item_status)
-
-    pool = object()
-    await event_handlers.handle_scraper_event(
-        {
-            "type": "item_done",
-            "item_id": "vid-1",
-            "audio_s3_key": "tenant/role/src/vid-1.mp3",
-        },
-        job,
-        pool=pool,
-    )
-
-    assert captured_insert["worker_pool_id"] == f"user_{user_id}"
-    assert captured_insert["source_item_id"] == item_uuid
-    assert captured_insert["audio_s3_key"] == "tenant/role/src/vid-1.mp3"
-    assert captured_insert["tenant_id"] == job["tenant_id"]
-
-
-async def test_handle_item_done_creates_transcription_job_shared_default_when_no_key(
-    monkeypatch: pytest.MonkeyPatch, job: dict[str, Any]
-) -> None:
-    """Sans primary key active, worker_pool_id='shared_default'."""
-    from role_builder.db_helpers import role_projects as rp
-    from role_builder.db_helpers import source_items as si
-    from role_builder.db_helpers import sources as sm
-    from role_builder.db_helpers import transcription_jobs as tj
-    from role_builder.db_helpers import transcription_keys as tk
-    from role_builder.services import event_handlers
-
-    user_id = uuid4()
-    captured_insert: dict[str, Any] = {}
-
-    async def fake_get_source(_: Any, *, pool: Any) -> dict[str, Any]:
-        return {"role_project_id": uuid4()}
-
-    async def fake_get_user_id(_: Any, *, pool: Any) -> Any:
-        return user_id
-
-    async def fake_get_primary(_: Any, *, pool: Any) -> None:
-        return None
-
-    async def fake_get_by_platform_id(
-        _source_id: Any, _platform_item_id: str, *, pool: Any
-    ) -> dict[str, Any]:
-        return {"id": uuid4(), "tenant_id": job["tenant_id"]}
-
-    async def fake_insert_job(**kwargs: Any) -> Any:
-        captured_insert.update(kwargs)
-        return uuid4()
-
-    async def fake_update_item_status(*args: Any, **kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr(sm, "get_source", fake_get_source)
-    monkeypatch.setattr(rp, "get_user_id_for_project", fake_get_user_id)
-    monkeypatch.setattr(tk, "get_primary_key", fake_get_primary)
     monkeypatch.setattr(si, "get_by_platform_id", fake_get_by_platform_id)
     monkeypatch.setattr(tj, "insert_job", fake_insert_job)
     monkeypatch.setattr(si, "update_source_item_status", fake_update_item_status)
@@ -324,13 +223,16 @@ async def test_handle_item_done_creates_transcription_job_shared_default_when_no
         {
             "type": "item_done",
             "item_id": "vid-2",
-            "audio_s3_key": "tenant/role/src/vid-2.mp3",
+            "audio_s3_key": "tenant/v2/src/vid-2.mp3",
         },
         job,
         pool=pool,
     )
 
     assert captured_insert["worker_pool_id"] == "shared_default"
+    assert captured_insert["source_item_id"] == item_uuid
+    assert captured_insert["audio_s3_key"] == "tenant/v2/src/vid-2.mp3"
+    assert captured_insert["tenant_id"] == job["tenant_id"]
 
 
 async def test_handle_item_failed_marks_failed_with_error(

@@ -1,5 +1,18 @@
 # agflow.roles — Stack d'acquisition de corpus — Instructions Claude Code
 
+## mcp 
+Tu es connecté au mcp du protail devpod via le serveur claude-code
+
+## Backloag
+La gatway mcp propose une api pour se connecter à docflow
+docflow contient des workspace qui contiennent des blocs qui contiennent des documents.
+Allant sur le workspace=roles et bloc=planner tu as un backlog de tache à executer.
+
+Quand on te demande de traiter le backlog tu te connectes 
+Tu identifies les taches qui ne sont pas en status 'en review'
+Quand tu prends une tache tu passe le statusd 'en cours'
+Quand tu as finis tu passes le status de la tache 'en review'.
+
 ## Projet
 
 **Roles (ex-Role Builder)** est la **stack d'acquisition de corpus** de l'écosystème ag.flow V2 : elle scrape des sources vidéo (YouTube, Instagram, TikTok), transcrit l'audio, et **dépose les transcripts dans docflow**. C'est tout — la synthèse des rôles est faite par le pilote (Claude web), hors de cette stack.

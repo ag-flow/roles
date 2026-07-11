@@ -136,7 +136,6 @@ async def test_request_upload_slot_unknown_request(pool: asyncpg.Pool) -> None:
 async def test_request_upload_slot_rejects_scrape_request(pool: asyncpg.Pool) -> None:
     """Une requête kind=scrape n'est pas une requête d'upload."""
     source_id = await sources_helper.insert_source(
-        role_project_id=None,
         tenant_id=TENANT_ID,
         platform="youtube",
         source_type="channel",

@@ -49,7 +49,7 @@ async def test_submit_acquisition_discover_only_happy_path(pool: asyncpg.Pool) -
     source = await sources_helper.get_source(request["source_id"], pool=pool)
     assert source is not None
     assert source["platform"] == "youtube"
-    assert source["role_project_id"] is None
+    assert "role_project_id" not in source  # concept retiré (migration 0011)
 
     jobs = await scraping_jobs_helper.list_jobs(status="pending", pool=pool)
     discover_jobs = [j for j in jobs if j["source_id"] == source["id"] and j["command"] == "discover"]

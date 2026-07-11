@@ -83,26 +83,6 @@ async def get_by_id(item_id: UUID, *, pool: asyncpg.Pool) -> dict[str, Any] | No
     return dict(row) if not isinstance(row, dict) else row
 
 
-async def list_by_project(
-    role_project_id: UUID,
-    *,
-    limit: int = 50,
-    offset: int = 0,
-    pool: asyncpg.Pool,
-) -> list[dict[str, Any]]:
-    """List source_items d'un projet (toutes sources confondues), récents d'abord."""
-    query = (
-        "SELECT si.* FROM source_items si "
-        "JOIN sources s ON s.id = si.source_id "
-        "WHERE s.role_project_id = $1 "
-        "ORDER BY si.published_at DESC NULLS LAST, si.id ASC "
-        "LIMIT $2 OFFSET $3"
-    )
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(query, role_project_id, limit, offset)
-    return [dict(r) if not isinstance(r, dict) else r for r in rows]
-
-
 async def update_source_item_status(
     source_id: UUID,
     platform_item_id: str,
@@ -186,22 +166,6 @@ async def list_items_by_source(
     )
     async with pool.acquire() as conn:
         rows = await conn.fetch(query, *params)
-    return [dict(r) if not isinstance(r, dict) else r for r in rows]
-
-
-async def list_items_by_ids(
-    source_id: UUID, item_ids: list[UUID], *, pool: asyncpg.Pool
-) -> list[dict[str, Any]]:
-    """Items de `source_id` dont l'id est dans `item_ids` (validation d'appartenance).
-
-    Permet de rejeter les item_ids inconnus ou d'une autre source avant toute
-    écriture (pas de job download pour un item hors périmètre, pas de FK 500).
-    """
-    if not item_ids:
-        return []
-    query = "SELECT * FROM source_items WHERE source_id = $1 AND id = ANY($2::uuid[])"
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(query, source_id, item_ids)
     return [dict(r) if not isinstance(r, dict) else r for r in rows]
 
 

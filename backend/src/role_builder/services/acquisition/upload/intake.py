@@ -45,7 +45,6 @@ async def create_upload_request(
     sans URL (spec §4) ; `title` sert de hint lisible au request_key.
     """
     source_id = await sources_helper.insert_source(
-        role_project_id=None,
         tenant_id=tenant_id,
         platform="upload",
         source_type="upload",
