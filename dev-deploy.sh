@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Déploiement dev de roles — build local + docker compose + smoke test.
 # Geste opérateur harmonisé avec le modèle devpod : sudo ./dev-deploy.sh [BRANCH]
+#
+# Drapeaux :
+#   --bootstrap-deploy-key   génère/affiche la deploy key SSH de l'hôte, puis s'arrête
+#   --no-hangup-guard        désactive le filet SIGHUP (intégration continue, débogage)
+#   --force                  avec --bootstrap-deploy-key : régénère la clé existante
 set -euo pipefail
 
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -9,10 +14,79 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 REPO_URL="git@github.com:ag-flow/roles.git"
+DEPLOY_LOG="/var/log/roles-dev-deploy.log"
+PURGE_STAMP="/var/lib/roles-dev-deploy/last-prune"
+DEPLOY_KEY="/root/.ssh/id_ed25519_roles_deploy"
+
+BOOTSTRAP_KEY=0
+HANGUP_GUARD=1
+FORCE=0
+ARGS=()
+for arg in "$@"; do
+    case "$arg" in
+        --bootstrap-deploy-key) BOOTSTRAP_KEY=1 ;;
+        --no-hangup-guard)      HANGUP_GUARD=0 ;;
+        --force)                FORCE=1 ;;
+        *)                      ARGS+=("$arg") ;;
+    esac
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
+
+# --- 0) Survivre à la perte de la session ---
+# Ce script arrête la stack qu'il pilote. Lancé depuis une session HÉBERGÉE par
+# cette stack (terminal web, shell dans un conteneur du projet), il se coupe la
+# branche : la session meurt, SIGHUP tue le script entre le `down` et le `up`,
+# et la stack reste à moitié debout. Une connexion mobile qui tombe fait pareil.
+# On ignore donc SIGHUP et on duplique toute la sortie dans un fichier, pour que
+# le déploiement aille au bout ET reste diagnosticable sans le terminal.
+if [[ "$HANGUP_GUARD" -eq 1 ]]; then
+    trap '' HUP
+    mkdir -p "$(dirname "$DEPLOY_LOG")"
+    exec > >(tee -a "$DEPLOY_LOG") 2>&1
+    echo "=== dev-deploy $(date -Is) — journal : ${DEPLOY_LOG} ==="
+fi
+
+# --- 0 bis) Bootstrap de la deploy key (dépôt privé) ---
+# La clé est générée SUR L'HÔTE et jamais collée depuis ailleurs : une clé privée
+# ne doit transiter par aucun canal (chat, transcript, log), et un copier-coller
+# la casse typiquement en « error in libcrypto ». On n'affiche que la publique.
+if [[ "$BOOTSTRAP_KEY" -eq 1 ]]; then
+    mkdir -p /root/.ssh && chmod 700 /root/.ssh
+    if [[ -f "$DEPLOY_KEY" && "$FORCE" -eq 1 ]]; then
+        echo "--force : régénération de la deploy key existante."
+        rm -f "$DEPLOY_KEY" "${DEPLOY_KEY}.pub"
+    fi
+    if [[ ! -f "$DEPLOY_KEY" ]]; then
+        ssh-keygen -t ed25519 -N "" -C "roles-deploy@$(hostname)" -f "$DEPLOY_KEY" >/dev/null
+        echo "Deploy key générée : ${DEPLOY_KEY}"
+    else
+        # Idempotent : relancé sans --force, on réaffiche au lieu de régénérer —
+        # régénérer invaliderait la clé déjà enregistrée côté GitHub.
+        echo "Deploy key déjà présente : ${DEPLOY_KEY} (--force pour régénérer)"
+    fi
+    if ! grep -q "IdentityFile ${DEPLOY_KEY}" /root/.ssh/config 2>/dev/null; then
+        printf 'Host github.com\n  IdentityFile %s\n  IdentitiesOnly yes\n' "$DEPLOY_KEY" \
+            >> /root/.ssh/config
+        chmod 600 /root/.ssh/config
+        echo "SSH configuré pour github.com via cette clé."
+    fi
+    ssh-keyscan -H github.com >> /root/.ssh/known_hosts 2>/dev/null
+    sort -u -o /root/.ssh/known_hosts /root/.ssh/known_hosts
+    # Clé publique affichée EN DERNIER : c'est ce que l'opérateur doit copier.
+    echo
+    echo "=== Clé publique à enregistrer dans GitHub → Settings → Deploy keys (lecture seule) ==="
+    cat "${DEPLOY_KEY}.pub"
+    echo "========================================================================================"
+    echo "Enregistre-la, puis relance : sudo ./dev-deploy.sh <branche>"
+    exit 0
+fi
 
 # --- 1) Positionnement dans le repo (mode "dans le repo" ou "bootstrap clone") ---
-# git fetch + reset --hard (plutôt que pull --ff-only) : robuste quand ce
-# script se met à jour lui-même via le commit qu'on est en train de fetcher.
+# git fetch + reset --hard plutôt que pull --ff-only : on veut l'état exact de
+# la branche distante, modifications locales écrasées.
+# Réseau et accès au dépôt sont donc un PRÉREQUIS : il n'existe pas de mode
+# « déploie ce qui est déjà là ». Sur dépôt privé sans deploy key, lancer
+# d'abord `sudo ./dev-deploy.sh --bootstrap-deploy-key`.
 # Branche = argument $1, sinon branche courante détectée.
 if [ -d ".git" ]; then
   BRANCH="${1:-$(git branch --show-current)}"
@@ -25,7 +99,23 @@ if [ -d ".git" ]; then
     echo "ATTENTION : modifications locales non commitées, elles vont être écrasées :" >&2
     echo "$DIRTY" >&2
   fi
+  HEAD_BEFORE="$(git rev-parse HEAD)"
   git reset --hard "origin/${BRANCH}"
+  # Se ré-exécuter si le reset a changé quelque chose. Bash relit le fichier du
+  # script en cours de route : poursuivre après s'être réécrit soi-même exécute
+  # un mélange des deux versions. Et sans ré-exécution on déploierait du code
+  # neuf avec un script, un compose et un build.sh périmés — pannes
+  # incompréhensibles garanties. ROLES_REEXEC borne la récursion à un tour.
+  if [ "$HEAD_BEFORE" != "$(git rev-parse HEAD)" ] && [ -z "${ROLES_REEXEC:-}" ]; then
+    echo "Le dépôt a changé (${HEAD_BEFORE:0:8} -> $(git rev-parse --short HEAD))."
+    echo "Ré-exécution dans la version fraîchement récupérée..."
+    export ROLES_REEXEC=1
+    # --no-hangup-guard à la ré-exécution : le filet est DÉJÀ posé et survit à
+    # l'exec (un signal mis à SIG_IGN le reste à travers exec, et le tee est
+    # hérité par les descripteurs). Le repasser ouvrirait un second tee sur le
+    # même fichier, donc des lignes en double.
+    exec bash "$0" "$@" --no-hangup-guard
+  fi
 else
   APP_DIR="roles"
   if [ -d "$APP_DIR/.git" ]; then
@@ -168,3 +258,33 @@ until curl -sf "$HEALTH_URL" >/dev/null 2>&1; do
 done
 echo "OK : backend healthy (${SECONDS}s)."
 docker compose -f docker-compose-dev.yml logs --tail=50
+
+# --- 8) Récupération d'espace disque, au plus une fois par semaine ---
+# Chaque déploiement reconstruit les images : les couches précédentes sont
+# détaggées mais restent décompressées, et rien ne les récupère. Une machine qui
+# déploie plusieurs fois par jour sature son disque en quelques semaines — et
+# une machine sans espace n'arrive plus à relancer la stack qu'elle vient
+# d'arrêter, en plein déploiement.
+# Quatre bornes, toutes nécessaires :
+#  - fréquence : témoin horodaté, une purge par semaine au plus (purger à chaque
+#    passage ajoute des minutes, et finit par être désactivée « le temps de ») ;
+#  - position : APRÈS le contrôle de santé, pour ne pas retarder la mise à dispo ;
+#  - portée : cache de construction + images détaggées seulement. Jamais de purge
+#    globale (elle supprimerait les images de base) ni de volumes (données) ;
+#  - code de retour : un échec de purge ne fait jamais échouer le déploiement.
+mkdir -p "$(dirname "$PURGE_STAMP")"
+PURGE_DUE=1
+if [ -f "$PURGE_STAMP" ]; then
+    # -mtime +7 : plus vieux que 7 jours. Témoin absent => on purge, sans échouer.
+    [ -z "$(find "$PURGE_STAMP" -mtime +7 -print 2>/dev/null)" ] && PURGE_DUE=0
+fi
+if [ "$PURGE_DUE" -eq 1 ]; then
+    echo "Purge hebdomadaire (cache de construction + images détaggées)..."
+    {
+        docker builder prune -af
+        docker image prune -f
+    } 2>&1 | grep -iE "reclaimed|Total" || true
+    date -Is > "$PURGE_STAMP"
+else
+    echo "Purge disque : ignorée (dernière il y a moins de 7 jours)."
+fi

@@ -91,6 +91,9 @@ class VaultHttpClient:
         try:
             detail: Any = resp.json()
         except Exception:
+            # Repli VOLONTAIRE sur le texte brut : une erreur d'infra en amont
+            # (proxy, passerelle) renvoie du HTML, pas du JSON. Sans ce repli on
+            # masquerait le vrai code HTTP derrière une erreur de décodage.
             detail = resp.text
 
         if resp.status_code == 403:

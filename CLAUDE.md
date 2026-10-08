@@ -50,6 +50,15 @@ rôle ag.flow, signal/cluster/plan/run, prompt orchestrateur, export ZIP, chunk/
   figé** — exception assumée, **ne pas le modifier**.
 - Frontend Next.js 14 **en sursis** : ne rien y développer de nouveau sans décision de l'architecte.
 
+### ⚠ Divergences assumées
+- **Les migrations sont jouées au démarrage du backend** (lifespan FastAPI, `pg_advisory_lock`,
+  crash-loop du conteneur si échec), **pas** par `dev-deploy.sh` — à l'inverse de ce que décrit la
+  skill `test-machine-deployment`. C'est **délibéré et plus sûr** : le contrôle de santé ne peut
+  pas passer au vert sur un schéma en retard. N'ajoute pas d'étape de migration au script.
+- **Le frontend utilise SWR et n'a pas d'i18n**, là où la skill `typescript-frontend` impose
+  TanStack Query et l'i18n sur tous les libellés. Assumé : le frontend est en sursis (vue admin
+  minimale à cadrer). Ne lance pas de migration SWR → TanStack Query ni d'i18n sans décision.
+
 ## Backlog
 Le backlog des tâches est dans le workspace docflow `roles`, bloc `backlog`. C'est la source de
 vérité, jamais ta mémoire : le statut s'écrit à chaque tâche, à la prise et à la fin.
@@ -74,20 +83,22 @@ charge la skill AVANT d'écrire quoi que ce soit — pas après, pas « si ça s
 | déployer ou livrer sur une machine de test, y tester, y diagnostiquer, toucher `dev-deploy.sh` | la skill `test-machine-deployment` |
 | appeler, inviter ou répondre à un autre agent ; voir `[TCHAT] nouveau message` | la skill `agent-chat` |
 | corriger une erreur que l'utilisateur t'a signalée, ou une erreur qui se répète | la skill `self-improvement` |
-| écrire, modifier ou relire un `.py` (`backend/`, `docker/`) | la skill `python` + `docs/python-dev-rules.md` |
+| écrire, modifier ou relire un `.py` (`backend/`, `docker/`) | la skill `python` |
 | écrire, modifier ou relire un `.ts`/`.tsx` sous `frontend/` | la skill `typescript-frontend` |
 | écrire une migration `migrations/`, une requête SQL ou du code asyncpg | la skill `postgresql` |
-| écrire un test, corriger un bug, refactoriser, déclarer une tâche terminée | la skill `tests` + `docs/tests-python.md` |
+| écrire un test, corriger un bug, refactoriser, déclarer une tâche terminée | la skill `tests` |
 | écrire ou modifier un commentaire de code | la skill `code-comments` |
 | toucher un secret, `.env*`, un Dockerfile ou un compose | la skill `secrets` |
 | toucher login, rôles, routes protégées, cookie de session (`backend/src/role_builder/auth/`) | la skill `oidc-authentication` |
 | ajouter ou modifier un appel de journalisation, ou la collecte Alloy (`infra/alloy-agent/`) | la skill `observability-logs` |
 | ajouter ou modifier une route HTTP, un outil MCP `roles__*`, un schéma d'échange | la skill `interface-contracts` |
-| corriger un rapport d'analyse statique (SonarQube Cloud, à chaque push) | la skill `static-analysis` |
+| corriger un rapport d'analyse statique (SonarCloud, à chaque push) | la skill `static-analysis` |
 | ajouter ou modifier un service exposé, ou sa déclaration dans `dev-deploy.sh` | la skill `portal-exposed-service` |
 | choisir comment créer des objets, découpler des composants, poser une abstraction | la skill `design-patterns` |
 
 Une skill introuvable se **signale** ; on ne devine pas ce qu'elle contenait (voir « Repli »).
+**Analyse statique : mode `relax`** — l'utilisateur décide quand lancer une session de correction,
+tu n'en prends jamais l'initiative.
 
 ## Repli — skill absente
 Une skill de la table ci-dessus introuvable se **signale** : tu ne devines JAMAIS ce
@@ -112,8 +123,11 @@ fasse correctement la part qu'on prend, plutôt que tout faire à moitié.
 
 ## Sécurité (non négociable)
 Aucun secret en argument de construction, en variable d'image, en couche, en log ni dans le dépôt
-— ni en colonne claire ; référence `${vault://...}` (coffre `harpocrate`), déballage au seul point
-d'injection. **Fail closed** : une clef de configuration inconnue est refusée, jamais ignorée.
+— ni en colonne claire. Secrets d'infra : **générés par `dev-deploy.sh`** dans le `.env` de la
+cible (non versionné, jamais écrasé s'il existe). Secrets utilisateur : **chiffrés en base**
+(Fernet, `SECRET_ENCRYPTION_KEY`) via les wallets Harpocrate. L'indirection `${vault://...}` est
+**abandonnée** — un tel littéral dans un `.env` est régénéré, jamais résolu.
+**Fail closed** : une clef de configuration inconnue est refusée, jamais ignorée.
 Entrées utilisateur — URLs de sources comprises — validées avant tout usage en chemin, identifiant
 ou nom d'hôte. Ces gardes sont des **tests**, pas des intentions. Détail : skill `secrets`.
 

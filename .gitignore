@@ -15,6 +15,11 @@ out/
 dist/
 *.log
 
+# Rapports de couverture, produits avant chaque analyse statique
+coverage.xml
+.coverage
+htmlcov/
+
 # IDE
 .vscode/
 .idea/
@@ -47,3 +52,8 @@ archive/
 frontend/tsconfig.tsbuildinfo
 frontend/node_modules_locked_*/
 frontend/next-env.d.ts
+
+# Configuration MCP locale — porte un jeton d'API en clair. Protégée ici (et
+# pas seulement dans .git/info/exclude, qui ne suit pas le dépôt) : sans ça, un
+# autre clone committe le jeton au premier `git add .`.
+.mcp.json

@@ -26,6 +26,10 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    # Produit coverage.xml AVANT l'analyse statique : sans ce rapport, la
+    # couverture est lue à zéro et la quality gate échoue sans que le code y
+    # soit pour quelque chose.
+    "pytest-cov>=5.0",
     "ruff>=0.2",
     "mypy>=1.8",
 ]

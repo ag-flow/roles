@@ -65,3 +65,85 @@ def test_settings_sprint2_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.tiktok_cookies_b64 == "tt-cookies"
     assert s.max_concurrent_scrapers == 12
     assert s.scraper_image_tag == "sha-deadbeef"
+
+
+def _require_core(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pose les champs obligatoires, pour n'éprouver que le comportement testé."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
+    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000")
+    monkeypatch.setenv("MINIO_ACCESS_KEY", "key")
+    monkeypatch.setenv("MINIO_SECRET_KEY", "secret")
+
+
+def test_settings_unknown_env_file_key_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Une clef inconnue du .env fait échouer le démarrage (fail closed).
+
+    C'est la régression que extra="ignore" laissait passer : la clef était
+    avalée et le défaut s'appliquait, loin de la cause.
+    """
+    from pydantic import ValidationError
+
+    from role_builder.config import Settings
+
+    _require_core(monkeypatch)
+    env_file = tmp_path / ".env"
+    # Faute de frappe volontaire sur LOG_LEVEL — valeur discriminante.
+    env_file.write_text("LOG_LEVELL=DEBUG\n", encoding="utf-8")
+
+    with pytest.raises(ValidationError) as exc:
+        Settings(_env_file=str(env_file))  # type: ignore[call-arg]
+    assert any(e["type"] == "extra_forbidden" for e in exc.value.errors())
+
+
+def test_settings_accepts_compose_only_keys(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """Les clefs du .env qui appartiennent au compose ne bloquent pas le boot.
+
+    Sans leur déclaration dans Settings, extra="forbid" refuserait le fichier
+    entier — le .env de la cible est partagé entre compose et le backend.
+    """
+    from role_builder.config import Settings
+
+    _require_core(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "POSTGRES_USER=rb_abcd1234\n"
+        "POSTGRES_PASSWORD=s3cret-pg\n"
+        "POSTGRES_DB=role_builder\n"
+        "POSTGRES_PORT=5432\n"
+        "MINIO_ROOT_USER=minioadmin_ab12\n"
+        "MINIO_ROOT_PASSWORD=s3cret-minio\n"
+        "MINIO_API_PORT=9000\n"
+        "MINIO_CONSOLE_PORT=9001\n"
+        "BACKEND_PORT=8000\n"
+        "FRONTEND_PORT=3000\n"
+        "IMAGE_TAG=latest\n"
+        "HARPOCRATE_ALLOW_INSECURE=0\n"
+        "KEYCLOAK_CLIENT_SECRET=s3cret-kc\n"
+        "NEXTAUTH_SECRET=s3cret-na\n"
+        "NEXTAUTH_URL=http://localhost:3000\n"
+        "NEXT_PUBLIC_API_URL=http://localhost:8000\n",
+        encoding="utf-8",
+    )
+
+    s = Settings(_env_file=str(env_file))  # type: ignore[call-arg]
+
+    assert s.postgres_user == "rb_abcd1234"
+    assert s.backend_port == 8000
+
+
+def test_settings_compose_secrets_are_not_printable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Un secret du compose ne doit pas apparaître dans la repr du modèle."""
+    from role_builder.config import Settings
+
+    _require_core(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text("POSTGRES_PASSWORD=discriminant-pg-value\n", encoding="utf-8")
+
+    s = Settings(_env_file=str(env_file))  # type: ignore[call-arg]
+
+    assert "discriminant-pg-value" not in repr(s)
+    assert s.postgres_password.get_secret_value() == "discriminant-pg-value"

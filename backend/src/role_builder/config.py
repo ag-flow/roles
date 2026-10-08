@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # UUID stable du tenant unique en MVP mono-user. À retirer quand le multi-tenant
@@ -14,10 +15,17 @@ TENANT_ID_DEFAULT = UUID("00000000-0000-0000-0000-000000000001")
 class Settings(BaseSettings):
     """Settings loaded from environment variables / .env."""
 
+    # extra="forbid" : une clef inconnue du .env fait ÉCHOUER le démarrage.
+    # Alternative écartée : extra="ignore", qui laissait une clef mal
+    # orthographiée être avalée en silence — le défaut s'appliquait alors et le
+    # symptôme apparaissait loin de sa cause (fail closed, standard sécurité).
+    # Conséquence assumée : le .env de la cible est PARTAGÉ avec docker compose,
+    # donc les clefs purement compose doivent être déclarées ci-dessous, sinon
+    # le backend refuse de démarrer dès qu'il lit ce fichier.
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore",
+        extra="forbid",
     )
 
     database_url: str
@@ -128,6 +136,30 @@ class Settings(BaseSettings):
     local_admin_email: str = ""
     # Durée de vie du JWT local en secondes (défaut 12h).
     local_admin_token_ttl_s: int = 43200
+
+    # --- Clefs du .env partagé qui appartiennent à docker compose, pas au
+    # backend. Déclarées UNIQUEMENT pour que extra="forbid" ci-dessus puisse
+    # refuser une clef mal orthographiée sans refuser le fichier entier : le
+    # code ne les lit jamais ici. Les secrets prennent SecretStr pour ne pas
+    # apparaître dans une représentation textuelle du modèle.
+    # Y ajouter toute nouvelle variable du compose, sinon le backend ne démarre
+    # plus dès qu'un .env la porte.
+    postgres_user: str = ""
+    postgres_password: SecretStr = SecretStr("")
+    postgres_db: str = ""
+    postgres_port: int | None = None
+    minio_root_user: str = ""
+    minio_root_password: SecretStr = SecretStr("")
+    minio_api_port: int | None = None
+    minio_console_port: int | None = None
+    backend_port: int | None = None
+    frontend_port: int | None = None
+    image_tag: str = ""
+    harpocrate_allow_insecure: str = ""
+    keycloak_client_secret: SecretStr = SecretStr("")
+    nextauth_secret: SecretStr = SecretStr("")
+    nextauth_url: str = ""
+    next_public_api_url: str = ""
 
 
 settings = Settings()  # type: ignore[call-arg]

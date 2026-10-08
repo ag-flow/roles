@@ -1,0 +1,481 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "roles — façade MCP d'acquisition de corpus",
+    "version": "2.0.0",
+    "summary": "Contrat des tools roles__* exposés par la stack d'acquisition roles.",
+    "description": "Transport **MCP streamable-http**, pas REST : un seul endpoint HTTP (`POST /mcp`) porte le JSON-RPC MCP, et chaque tool `roles__*` est décrit ici par une paire de schémas `*Input` / `*Output` dans `components.schemas`. Ce sont CES schémas qui constituent le contrat ; le chemin HTTP n'est que le tunnel.\n\nInvariants qui ne changeront pas sans rupture annoncée :\n- `request_key` est un slug lisible et stable, clé de reprise conversationnelle ;\n- aucun tool ne retourne jamais le **contenu** d'un transcript — `roles__get_corpus` rend des références docflow, la lecture passe par `docflow__get_document` ;\n- toute erreur métier est rendue **dans la réponse** sous `{\"error\": {code, message, details}}`, jamais comme erreur de transport MCP : le code d'erreur fait partie du contrat ;\n- `roles__select_items` est idempotent et cumulable ; `roles__get_corpus` est appelable à tout moment, y compris requête inachevée.\n\nSource de vérité de l'intention : `docs/specs/v2/01-protocole-mcp.md`. Ce fichier décrit la forme implémentée dans `backend/src/role_builder/mcp_server/`.",
+    "license": { "name": "Non-commercial + commercial", "identifier": "LicenseRef-roles-dual" }
+  },
+  "servers": [
+    { "url": "https://wrk.yoops.org", "description": "Passerelle MCP (namespace roles__*)" },
+    { "url": "http://localhost:8000", "description": "Backend local" }
+  ],
+  "paths": {
+    "/mcp": {
+      "post": {
+        "operationId": "mcpStreamableHttp",
+        "summary": "Endpoint MCP streamable-http — porte tous les appels de tools roles__*",
+        "description": "Monté dans l'app FastAPI (`app.mount(\"/mcp\", …)`). La protection DNS-rebinding de FastMCP est désactivée : la façade est derrière la passerelle, en réseau privé, et protégée par un jeton machine. Le corps est du JSON-RPC MCP (`tools/list`, `tools/call`) — les schémas des tools sont dans `components.schemas`.",
+        "security": [{ "machineToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "description": "Enveloppe JSON-RPC du protocole MCP." } } }
+        },
+        "responses": {
+          "200": { "description": "Réponse JSON-RPC MCP.", "content": { "application/json": { "schema": { "type": "object" } } } },
+          "401": {
+            "description": "Jeton machine absent ou invalide. Aucun repli silencieux : un Bearer présent mais faux est refusé, il n'y a pas de mode anonyme quand le jeton est configuré.",
+            "headers": { "WWW-Authenticate": { "schema": { "type": "string", "const": "Bearer" } } },
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string", "const": "unauthorized" } }, "required": ["error"] } } }
+          }
+        }
+      }
+    },
+    "/health/": {
+      "get": {
+        "operationId": "health",
+        "summary": "Sonde de santé",
+        "description": "Ne renvoie **jamais** 5xx : une base indisponible donne `db: false` avec un 200, pour qu'un orchestrateur ne tue pas un conteneur dont seule la base est en panne.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Toujours 200.",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "type": "string", "const": "ok" }, "db": { "type": "boolean" } }, "required": ["status", "db"] } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "machineToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Jeton machine partagé avec la passerelle (`MCP_AUTH_TOKEN`). Vide en dev/test : le middleware passe alors en pass-through."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "description": "Enveloppe d'erreur uniforme — retournée en RÉSULTAT du tool, pas en erreur de transport.",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "$ref": "#/components/schemas/ErrorCode" },
+              "message": { "type": "string" },
+              "details": { "type": "object", "additionalProperties": true }
+            },
+            "required": ["code", "message", "details"]
+          }
+        },
+        "required": ["error"]
+      },
+      "ErrorCode": {
+        "type": "string",
+        "description": "Codes stables. Ajouter un code est compatible ; en retirer ou en changer le sens est une rupture.",
+        "enum": [
+          "INVALID_URL", "UNSUPPORTED_PLATFORM", "UNKNOWN_REQUEST", "INVALID_FILTERS",
+          "INVALID_CURSOR", "INVALID_LIMIT", "ALREADY_CANCELLED", "REQUEST_CLOSED",
+          "UNSUPPORTED_MEDIA", "INVALID_PUBLISHED_AT", "UPLOAD_EXPIRED", "UPLOAD_NOT_FOUND"
+        ]
+      },
+      "Platform": { "type": "string", "enum": ["youtube", "instagram", "tiktok"] },
+      "RequestKey": {
+        "type": "string",
+        "description": "Slug lisible identifiant une requête d'acquisition. Clé de reprise conversationnelle : stable pour la durée de vie de la requête.",
+        "examples": ["yt-marie-dupont-2026-10-08"]
+      },
+      "ItemStatus": {
+        "type": "string",
+        "description": "Pipeline par item. `awaiting_upload` / `pending_extraction` / `extracting_audio` ne concernent que le cycle upload.",
+        "enum": [
+          "pending_download", "downloading", "awaiting_upload", "pending_extraction",
+          "extracting_audio", "audio_ready", "queued_transcription", "transcribing",
+          "transcribed", "depositing", "deposited", "failed"
+        ]
+      },
+      "RequestDisplayStatus": {
+        "type": "string",
+        "description": "Statut EXPOSÉ d'une requête. `completed` et `partially_failed` sont recalculés à chaque lecture depuis l'état des items — jamais figés en base. Une requête entrée en acquisition avec 0 item sélectionné est `completed` (corpus vide mais terminé), pour qu'un pilote ne pull pas sans fin.",
+        "enum": ["discovering", "discovered", "open_for_upload", "acquiring", "completed", "partially_failed", "cancelled", "failed"]
+      },
+      "Counts": {
+        "type": "object",
+        "description": "Compteurs par étape. `discovered` est le total découvert ; les autres ne comptent que les items sélectionnés.",
+        "properties": {
+          "discovered": { "type": "integer" }, "selected": { "type": "integer" },
+          "pending": { "type": "integer" }, "downloaded": { "type": "integer" },
+          "transcribed": { "type": "integer" }, "deposited": { "type": "integer" },
+          "failed": { "type": "integer" }
+        },
+        "required": ["discovered", "selected", "pending", "downloaded", "transcribed", "deposited", "failed"]
+      },
+      "SelectionFilters": {
+        "type": "object",
+        "description": "Raccourci de sélection. Utilisé par `submit_acquisition` en `mode=auto` et par `select_items`.",
+        "properties": {
+          "max_items": { "type": "integer", "minimum": 1 },
+          "since": { "type": "string", "format": "date" },
+          "min_duration_s": { "type": "integer", "minimum": 0 },
+          "max_duration_s": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "DocflowTarget": {
+        "type": "object",
+        "description": "Où déposer les transcripts. Omis : destination par défaut de la stack.",
+        "properties": { "workspace": { "type": "string" }, "block": { "type": "string" } },
+        "additionalProperties": true
+      },
+
+      "SubmitAcquisitionInput": {
+        "type": "object",
+        "description": "roles__submit_acquisition — soumet une chaîne, playlist, compte ou vidéo unique.",
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "submitted_by": { "type": "string", "description": "Identité déclarée de l'appelant. Porte la vue multi-acteurs de list_requests." },
+          "platform": { "oneOf": [{ "$ref": "#/components/schemas/Platform" }, { "type": "null" }], "description": "Déduite de l'URL si omise." },
+          "mode": { "type": "string", "enum": ["discover_only", "auto"], "default": "discover_only", "description": "`discover_only` découvre et s'arrête (examen par le pilote) ; `auto` sélectionne selon `filters` puis télécharge." },
+          "filters": { "oneOf": [{ "$ref": "#/components/schemas/SelectionFilters" }, { "type": "null" }] },
+          "docflow_target": { "oneOf": [{ "$ref": "#/components/schemas/DocflowTarget" }, { "type": "null" }] },
+          "note": { "type": ["string", "null"] }
+        },
+        "required": ["url", "submitted_by"]
+      },
+      "SubmitAcquisitionOutput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "request_key": { "$ref": "#/components/schemas/RequestKey" },
+              "status": { "type": "string", "const": "discovering" },
+              "platform": { "$ref": "#/components/schemas/Platform" },
+              "url": { "type": "string", "format": "uri" }
+            },
+            "required": ["request_key", "status", "platform", "url"]
+          },
+          { "$ref": "#/components/schemas/Error" }
+        ]
+      },
+
+      "ListDiscoveredInput": {
+        "type": "object",
+        "description": "roles__list_discovered — liste enrichie des items découverts. Aucune thématisation : la stack ne juge pas le contenu.",
+        "properties": {
+          "request_key": { "$ref": "#/components/schemas/RequestKey" },
+          "cursor": { "type": ["string", "null"], "description": "Offset entier sous forme de chaîne, rendu par `next_cursor`." },
+          "limit": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "Borné à 200 côté serveur ; une valeur < 1 est refusée (INVALID_LIMIT)." }
+        },
+        "required": ["request_key"]
+      },
+      "ListDiscoveredOutput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "request_key": { "$ref": "#/components/schemas/RequestKey" },
+              "discovery_complete": { "type": "boolean", "description": "false = la découverte de la source est encore en cours, la liste est partielle." },
+              "items": { "type": "array", "items": { "$ref": "#/components/schemas/DiscoveredItem" } },
+              "next_cursor": { "type": ["string", "null"] }
+            },
+            "required": ["request_key", "discovery_complete", "items", "next_cursor"]
+          },
+          { "$ref": "#/components/schemas/Error" }
+        ]
+      },
+      "DiscoveredItem": {
+        "type": "object",
+        "properties": {
+          "item_id": { "type": "string", "format": "uuid" },
+          "title": { "type": ["string", "null"] },
+          "description_excerpt": { "type": ["string", "null"] },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "duration_s": { "type": ["integer", "null"] },
+          "published_at": { "type": ["string", "null"], "format": "date-time" },
+          "thumbnail_url": { "type": ["string", "null"] },
+          "already_selected": { "type": "boolean" }
+        },
+        "required": ["item_id", "title", "description_excerpt", "tags", "duration_s", "published_at", "thumbnail_url", "already_selected"]
+      },
+
+      "SelectItemsInput": {
+        "type": "object",
+        "description": "roles__select_items — idempotent et cumulable : rappeler avec d'autres items ajoute à la sélection. `item_ids` et `filters` sont alternatifs.",
+        "properties": {
+          "request_key": { "$ref": "#/components/schemas/RequestKey" },
+          "item_ids": { "type": ["array", "null"], "items": { "type": "string", "format": "uuid" } },
+          "filters": { "oneOf": [{ "$ref": "#/components/schemas/SelectionFilters" }, { "type": "null" }] }
+        },
+        "required": ["request_key"]
+      },
+      "SelectItemsOutput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "selected_count": { "type": "integer", "description": "Items marqués sélectionnés par cet appel." },
+              "queued_count": { "type": "integer", "description": "Items effectivement mis en file de téléchargement (un item déjà au-delà de pending_download n'est pas re-queué)." }
+            },
+            "required": ["selected_count", "queued_count"]
+          },
+          { "$ref": "#/components/schemas/Error" }
+        ]
+      },
+
+      "CreateUploadRequestInput": {
+        "type": "object",
+        "description": "roles__create_upload_request — ouvre une requête de type upload, pour les médias hors plateformes.",
+        "properties": {
+          "title": { "type": "string" },
+          "submitted_by": { "type": "string" },
+          "docflow_target": { "oneOf": [{ "$ref": "#/components/schemas/DocflowTarget" }, { "type": "null" }] },
+          "note": { "type": ["string", "null"] }
+        },
+        "required": ["title", "submitted_by"]
+      },
+      "CreateUploadRequestOutput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "request_key": { "$ref": "#/components/schemas/RequestKey" },
+              "status": { "type": "string", "const": "open_for_upload" }
+            },
+            "required": ["request_key", "status"]
+          },
+          { "$ref": "#/components/schemas/Error" }
+        ]
+      },
+
+      "RequestUploadSlotInput": {
+        "type": "object",
+        "description": "roles__request_upload_slot — crée un item et une URL présignée. **Le fichier ne transite JAMAIS par MCP** : le client fait un PUT direct sur `upload_url`.",
+        "properties": {
+          "request_key": { "$ref": "#/components/schemas/RequestKey" },
+          "filename": { "type": "string" },
+          "media_type": { "$ref": "#/components/schemas/UploadMediaType" },
+          "title": { "type": ["string", "null"] },
+          "published_at": { "type": ["string", "null"], "format": "date-time", "description": "ISO 8601. Une valeur non analysable est refusée (INVALID_PUBLISHED_AT)." },
+          "duration_s": { "type": ["integer", "null"] }
+        },
+        "required": ["request_key", "filename", "media_type"]
+      },
+      "UploadMediaType": {
+        "type": "string",
+        "description": "Liste blanche stricte. Un type absent est refusé (UNSUPPORTED_MEDIA), `details.supported` porte la liste. Les types `video/*` déclenchent une extraction audio ffmpeg au finalize.",
+        "enum": ["audio/flac", "audio/mp4", "audio/mpeg", "audio/ogg", "audio/wav", "video/mp4", "video/quicktime", "video/webm"]
+      },
+      "RequestUploadSlotOutput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "item_id": { "type": "string", "format": "uuid" },
+              "upload_url": { "type": "string", "format": "uri", "description": "URL présignée PUT MinIO. **Porte une signature : ne pas journaliser.**" },
+              "expires_at": { "type": "string", "format": "date-time", "description": "TTL 1 h. Passé ce délai, finalize rend UPLOAD_EXPIRED et l'item est nettoyé." }
+            },
+            "required": ["item_id", "upload_url", "expires_at"]
+          },
+          { "$ref": "#/components/schemas/Error" }
+        ]
+      },
+
+      "FinalizeUploadInput": {
+        "type": "object",
+        "description": "roles__finalize_upload — à appeler après un PUT réussi. Vérifie l'objet MinIO puis fait entrer l'item dans le pipeline standard. Idempotent : rappelé sur un item déjà avancé, rend son statut courant sans le rejouer.",
+        "properties": {
+          "request_key": { "$ref": "#/components/schemas/RequestKey" },
+          "item_id": { "type": "string", "format": "uuid" }
+        },
+        "required": ["request_key", "item_id"]
+      },
+      "FinalizeUploadOutput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "item_id": { "type": "string", "format": "uuid" },
+              "status": { "$ref": "#/components/schemas/ItemStatus" }
+            },
+            "required": ["item_id", "status"]
+          },
+          { "$ref": "#/components/schemas/Error" }
+        ]
+      },
+
+      "CloseUploadRequestInput": {
+        "type": "object",
+        "description": "roles__close_upload_request — ferme l'intake : plus aucun nouveau slot. Idempotent. Les items déjà en cours poursuivent leur pipeline ; la complétion de la requête les suit.",
+        "properties": { "request_key": { "$ref": "#/components/schemas/RequestKey" } },
+        "required": ["request_key"]
+      },
+      "CloseUploadRequestOutput": {
+        "oneOf": [
+          { "type": "object", "properties": { "request_key": { "$ref": "#/components/schemas/RequestKey" }, "status": { "$ref": "#/components/schemas/RequestDisplayStatus" } } },
+          { "$ref": "#/components/schemas/Error" }
+        ]
+      },
+
+      "RequestStatusInput": {
+        "type": "object",
+        "description": "roles__request_status — statut détaillé d'une requête.",
+        "properties": { "request_key": { "$ref": "#/components/schemas/RequestKey" } },
+        "required": ["request_key"]
+      },
+      "RequestStatusOutput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "request_key": { "$ref": "#/components/schemas/RequestKey" },
+              "kind": { "type": "string", "description": "Nature de la requête (source scrapée ou intake upload)." },
+              "status": { "$ref": "#/components/schemas/RequestDisplayStatus" },
+              "submitted_by": { "type": "string" },
+              "submitted_at": { "type": "string", "format": "date-time" },
+              "counts": { "$ref": "#/components/schemas/Counts" },
+              "items": { "type": "array", "items": { "$ref": "#/components/schemas/ItemSummary" } },
+              "cost": { "type": "object", "properties": { "transcription_usd": { "type": "number" } }, "required": ["transcription_usd"] },
+              "queue_position": { "type": "integer", "description": "Présent UNIQUEMENT quand la requête attend dans la file. Son absence n'est pas une erreur." }
+            },
+            "required": ["request_key", "kind", "status", "submitted_by", "submitted_at", "counts", "items", "cost"]
+          },
+          { "$ref": "#/components/schemas/Error" }
+        ]
+      },
+      "ItemSummary": {
+        "type": "object",
+        "properties": {
+          "item_id": { "type": "string", "format": "uuid" },
+          "title": { "type": ["string", "null"] },
+          "duration_s": { "type": ["integer", "null"] },
+          "status": { "$ref": "#/components/schemas/ItemStatus" },
+          "error": { "type": ["string", "null"] }
+        },
+        "required": ["item_id", "title", "duration_s", "status", "error"]
+      },
+
+      "ListRequestsInput": {
+        "type": "object",
+        "description": "roles__list_requests — reprise conversationnelle et vue multi-acteurs. Les deux filtres sont optionnels et se combinent.",
+        "properties": {
+          "status": { "type": ["string", "null"], "description": "Filtre sur le statut STOCKÉ de la requête, pas sur le statut dérivé." },
+          "submitted_by": { "type": ["string", "null"] }
+        }
+      },
+      "ListRequestsOutput": {
+        "type": "array",
+        "description": "Ce tool ne rend jamais l'enveloppe d'erreur : un filtre sans correspondance donne un tableau vide.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "request_key": { "$ref": "#/components/schemas/RequestKey" },
+            "kind": { "type": "string" },
+            "status": { "$ref": "#/components/schemas/RequestDisplayStatus" },
+            "url": { "type": ["string", "null"], "description": "null pour une requête de type upload." },
+            "counts_summary": { "$ref": "#/components/schemas/Counts" },
+            "submitted_by": { "type": "string" },
+            "submitted_at": { "type": "string", "format": "date-time" }
+          },
+          "required": ["request_key", "kind", "status", "url", "counts_summary", "submitted_by", "submitted_at"]
+        }
+      },
+
+      "GetCorpusInput": {
+        "type": "object",
+        "description": "roles__get_corpus — livraison INCRÉMENTALE : appelable à tout moment, y compris requête inachevée.",
+        "properties": {
+          "request_key": { "$ref": "#/components/schemas/RequestKey" },
+          "caller": { "type": ["string", "null"], "description": "Identité de l'appelant, qui porte son curseur `only_new`. Omise : curseur partagé `default` — deux pilotes différents se voleraient alors leurs nouveautés." },
+          "only_new": { "type": "boolean", "default": false, "description": "true : uniquement les items déposés depuis le dernier appel de CE `caller`. Avance le curseur serveur." },
+          "cursor": { "type": ["string", "null"], "format": "date-time", "description": "Alternative sans état (ISO 8601) : prioritaire sur le curseur serveur, et SANS effet sur lui." }
+        },
+        "required": ["request_key"]
+      },
+      "GetCorpusOutput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "request_key": { "$ref": "#/components/schemas/RequestKey" },
+              "complete": { "type": "boolean", "description": "true quand la requête est dans un état terminal (completed, partially_failed, cancelled) : plus rien n'arrivera." },
+              "documents": { "type": "array", "items": { "$ref": "#/components/schemas/CorpusDocument" } },
+              "failed_items": {
+                "type": "array",
+                "description": "Items qui n'aboutiront pas. Rendus avec le corpus pour qu'un pilote sache ce qui manque sans second appel.",
+                "items": { "type": "object", "properties": { "item_id": { "type": "string", "format": "uuid" }, "title": { "type": ["string", "null"] }, "error": { "type": ["string", "null"] } }, "required": ["item_id", "title", "error"] }
+              },
+              "next_cursor": { "type": ["string", "null"], "format": "date-time" }
+            },
+            "required": ["request_key", "complete", "documents", "failed_items", "next_cursor"]
+          },
+          { "$ref": "#/components/schemas/Error" }
+        ]
+      },
+      "CorpusDocument": {
+        "type": "object",
+        "description": "Référence docflow + métadonnées. **Jamais le texte du transcript** : le lire via `docflow__get_document`.",
+        "properties": {
+          "item_id": { "type": "string", "format": "uuid" },
+          "docflow": {
+            "type": "object",
+            "properties": { "doc_id": { "type": "string", "format": "uuid" }, "slug": { "type": "string" }, "title": { "type": ["string", "null"] } },
+            "required": ["doc_id", "slug", "title"]
+          },
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "platform": { "oneOf": [{ "$ref": "#/components/schemas/Platform" }, { "type": "null" }] },
+              "source_url": { "type": ["string", "null"], "description": "URL de la SOURCE d'origine, pas de l'item : les scrapers actuels ne conservent pas l'URL par item." },
+              "duration_s": { "type": ["integer", "null"] },
+              "published_at": { "type": ["string", "null"], "format": "date-time" },
+              "provider": { "type": ["string", "null"], "description": "Moteur de transcription réellement utilisé." }
+            },
+            "required": ["platform", "source_url", "duration_s", "published_at", "provider"]
+          }
+        },
+        "required": ["item_id", "docflow", "metadata"]
+      },
+
+      "CancelRequestInput": {
+        "type": "object",
+        "description": "roles__cancel_request — annule les jobs pending/claimed. Les items DÉJÀ déposés restent dans docflow : l'annulation ne rétracte rien de livré.",
+        "properties": {
+          "request_key": { "$ref": "#/components/schemas/RequestKey" },
+          "note": { "type": ["string", "null"] }
+        },
+        "required": ["request_key"]
+      },
+      "CancelRequestOutput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "cancelled_jobs": { "type": "integer", "description": "Jobs de scraping + transcription annulés." },
+              "deposited_kept": { "type": "integer", "description": "Documents docflow conservés malgré l'annulation." }
+            },
+            "required": ["cancelled_jobs", "deposited_kept"]
+          },
+          { "$ref": "#/components/schemas/Error" }
+        ]
+      },
+
+      "RetryFailedInput": {
+        "type": "object",
+        "description": "roles__retry_failed — re-queue les items `failed`. `item_ids` omis : tous les items en échec de la requête.",
+        "properties": {
+          "request_key": { "$ref": "#/components/schemas/RequestKey" },
+          "item_ids": { "type": ["array", "null"], "items": { "type": "string", "format": "uuid" } }
+        },
+        "required": ["request_key"]
+      },
+      "RetryFailedOutput": {
+        "oneOf": [
+          { "type": "object", "properties": { "retried_count": { "type": "integer" } }, "required": ["retried_count"] },
+          { "$ref": "#/components/schemas/Error" }
+        ]
+      }
+    }
+  }
+}
