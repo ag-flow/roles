@@ -69,3 +69,13 @@ extend-immutable-calls = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Le rapport de couverture est produit par pytest lui-même, pas par une étape
+# de CI. Raison : SonarCloud lit la couverture à ZÉRO si coverage.xml n'existe
+# pas au chemin déclaré dans sonar-project.properties, et la quality gate
+# échoue alors sans rapport avec la qualité du code. Le mettre ici plutôt que
+# dans .github/workflows/ garantit qu'un nouveau job de CI ne puisse pas
+# l'oublier — c'est la commande `pytest` qui porte la garantie, pas sa
+# configuration d'appel.
+# Chemin relatif à backend/ : ../coverage.xml = racine du dépôt, ce que
+# sonar.python.coverage.reportPaths attend. coverage.xml est gitignoré.
+addopts = "--cov=src --cov-report=xml:../coverage.xml --cov-report=term-missing"
