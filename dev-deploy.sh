@@ -16,6 +16,7 @@ fi
 REPO_URL="git@github.com:ag-flow/roles.git"
 DEPLOY_LOG="/var/log/roles-dev-deploy.log"
 PURGE_STAMP="/var/lib/roles-dev-deploy/last-prune"
+AUTO_PORTS="/var/lib/roles-dev-deploy/auto-ports"
 DEPLOY_KEY="/root/.ssh/id_ed25519_roles_deploy"
 
 BOOTSTRAP_KEY=0
@@ -271,33 +272,68 @@ _first_free_port() {
     return 1
 }
 
+# Mémoire des replis que LE SCRIPT a attribués. Sans elle, un port de repli
+# persisté dans .env est indiscernable d'un port choisi par un humain : au
+# déploiement suivant le script le respecterait et échouerait si entre-temps il
+# a été pris, au lieu de re-résoudre. On enregistre donc la VALEUR attribuée —
+# si .env porte encore exactement cette valeur, elle est à nous ; si elle
+# diffère, c'est qu'un humain est passé derrière, et elle prime.
+_auto_recorded() { grep -m1 "^${1}=" "$AUTO_PORTS" 2>/dev/null | cut -d= -f2- | tr -d '\r' || true; }
+_auto_record() {
+    mkdir -p "$(dirname "$AUTO_PORTS")"; touch "$AUTO_PORTS"
+    if grep -q "^${1}=" "$AUTO_PORTS"; then
+        sed -i "s|^${1}=.*|${1}=${2}|" "$AUTO_PORTS"
+    else
+        echo "${1}=${2}" >> "$AUTO_PORTS"
+    fi
+}
+_auto_forget() { [ -f "$AUTO_PORTS" ] && sed -i "/^${1}=/d" "$AUTO_PORTS" || true; }
+
 # $1 = nom de la variable, $2 = valeur par défaut du compose
 _resolve_port() {
-    local var="$1" default="$2" current resolved
+    local var="$1" default="$2" current recorded resolved
     current="$(_env_get "$var")"
+    recorded="$(_auto_recorded "$var")"
 
-    if [ -n "$current" ] && [ "$current" != "$default" ]; then
+    # Cas 1 — valeur posée par un humain (ni le défaut, ni un de nos replis).
+    if [ -n "$current" ] && [ "$current" != "$default" ] && [ "$current" != "$recorded" ]; then
         if _port_in_use "$current"; then
             echo "ÉCHEC : ${var}=${current} est imposé dans .env mais le port est occupé par :" >&2
             ss -ltnp 2>/dev/null | awk -v p=":${current}\$" '$4 ~ p' >&2
             echo "Choisir un autre port dans .env, ou libérer celui-ci." >&2
             exit 1
         fi
+        _auto_forget "$var"
         echo "  ${var}=${current} (imposé dans .env, libre)"
         return 0
     fi
 
+    # Cas 2 — un repli que nous avons attribué. On le GARDE tant qu'il est libre :
+    # faire revenir le port au défaut dès qu'il se libère déplacerait l'URL
+    # publiée sous les pieds de ce qui l'utilise. La stabilité prime.
+    if [ -n "$recorded" ] && [ "$current" = "$recorded" ]; then
+        if ! _port_in_use "$current"; then
+            echo "  ${var}=${current} (repli attribué précédemment, toujours libre)"
+            return 0
+        fi
+        echo "  ${var} : le repli ${current} est désormais occupé, nouvelle résolution..."
+    fi
+
+    # Cas 3 — le défaut est libre.
     if ! _port_in_use "$default"; then
         _env_set "$var" "$default"
+        _auto_forget "$var"
         echo "  ${var}=${default} (défaut, libre)"
         return 0
     fi
 
+    # Cas 4 — repli, persisté dans .env ET enregistré comme étant le nôtre.
     resolved="$(_first_free_port $(( default + 10000 )))" || {
         echo "ÉCHEC : aucun port libre trouvé pour ${var} à partir de $(( default + 10000 ))." >&2
         exit 1
     }
     _env_set "$var" "$resolved"
+    _auto_record "$var" "$resolved"
     echo "  ${var}=${resolved} (repli : ${default} est occupé, valeur persistée dans .env)"
 }
 
