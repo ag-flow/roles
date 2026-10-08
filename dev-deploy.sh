@@ -269,9 +269,19 @@ docker compose -f docker-compose-dev.yml logs --tail=50
 #  - fréquence : témoin horodaté, une purge par semaine au plus (purger à chaque
 #    passage ajoute des minutes, et finit par être désactivée « le temps de ») ;
 #  - position : APRÈS le contrôle de santé, pour ne pas retarder la mise à dispo ;
-#  - portée : cache de construction + images détaggées seulement. Jamais de purge
-#    globale (elle supprimerait les images de base) ni de volumes (données) ;
+#  - portée : cache de construction INUTILISÉ DEPUIS 7 JOURS + images détaggées
+#    seulement. Jamais de purge globale (elle supprimerait les images de base) ni
+#    de volumes (données) ;
 #  - code de retour : un échec de purge ne fait jamais échouer le déploiement.
+#
+# Pourquoi `--filter until=168h` et PAS `builder prune -af` : le cache de
+# construction est à l'échelle du démon Docker, pas du projet compose. Les
+# machines de test sont partagées — `test1` (host-test-23) porte le portail
+# devpod, harpocrate, Zulip et la stack d'observabilité, soit six projets
+# compose et 2,4 Go de cache commun. Un `-a` viderait le cache de TOUS ces
+# projets et ralentirait leur prochaine construction, pour un bénéfice qui ne
+# concerne que nous. Le filtre de date ne ramasse que ce que plus personne ne
+# réutilise, ce qui est exactement l'intention de la garde.
 mkdir -p "$(dirname "$PURGE_STAMP")"
 PURGE_DUE=1
 if [ -f "$PURGE_STAMP" ]; then
@@ -279,9 +289,9 @@ if [ -f "$PURGE_STAMP" ]; then
     [ -z "$(find "$PURGE_STAMP" -mtime +7 -print 2>/dev/null)" ] && PURGE_DUE=0
 fi
 if [ "$PURGE_DUE" -eq 1 ]; then
-    echo "Purge hebdomadaire (cache de construction + images détaggées)..."
+    echo "Purge hebdomadaire (cache inutilisé depuis 7j + images détaggées)..."
     {
-        docker builder prune -af
+        docker builder prune -f --filter until=168h
         docker image prune -f
     } 2>&1 | grep -iE "reclaimed|Total" || true
     date -Is > "$PURGE_STAMP"
