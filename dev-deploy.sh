@@ -236,6 +236,78 @@ chmod +x build.sh
 echo "Arrêt/cleanup du projet docker compose (incl. orphelins)..."
 docker compose -f docker-compose-dev.yml down --remove-orphans || true
 
+# --- 5 bis) Résolution des ports, APRÈS l'arrêt de la stack ---
+# L'ordre n'est pas négociable : sonder un port AVANT le `down` ferait détecter
+# notre propre service comme un conflit. Le repli s'appliquerait alors à tort,
+# se persisterait dans .env, et l'URL publiée pointerait dans le vide.
+#
+# Les machines de test sont partagées : host-test-23 porte six projets compose
+# (portail devpod, harpocrate, Zulip, observabilité, browserless) et 8000, 5432
+# et 3000 y sont déjà pris. Les ports doivent donc se paramétrer, pas se
+# supposer.
+#
+# Deux cas, et ils ne se traitent pas pareil :
+#  - l'opérateur a posé une valeur NON par défaut dans .env => elle est
+#    respectée, et si elle est occupée on ÉCHOUE. Déplacer en silence un port
+#    choisi casserait ce qui en dépend (reverse-proxy, exposition déclarée à
+#    l'annuaire du portail) ;
+#  - la valeur est celle par défaut (ou absente) => on sonde, et on bascule sur
+#    le premier port libre à partir de DEFAUT+10000, puis on le PERSISTE dans
+#    .env pour que le choix survive au redéploiement.
+
+# ss -H : pas d'en-tête. La colonne 4 porte l'adresse locale, donc on matche la
+# fin ":<port>" — un service lié à 127.0.0.1 est un conflit comme un autre pour
+# une publication sur 0.0.0.0.
+_port_in_use() {
+    ss -ltnH 2>/dev/null | awk -v p=":$1\$" '$4 ~ p { found = 1 } END { exit !found }'
+}
+
+_first_free_port() {
+    local candidate="$1" ceiling=$(( $1 + 200 ))
+    while [ "$candidate" -lt "$ceiling" ]; do
+        _port_in_use "$candidate" || { printf '%s' "$candidate"; return 0; }
+        candidate=$(( candidate + 1 ))
+    done
+    return 1
+}
+
+# $1 = nom de la variable, $2 = valeur par défaut du compose
+_resolve_port() {
+    local var="$1" default="$2" current resolved
+    current="$(_env_get "$var")"
+
+    if [ -n "$current" ] && [ "$current" != "$default" ]; then
+        if _port_in_use "$current"; then
+            echo "ÉCHEC : ${var}=${current} est imposé dans .env mais le port est occupé par :" >&2
+            ss -ltnp 2>/dev/null | awk -v p=":${current}\$" '$4 ~ p' >&2
+            echo "Choisir un autre port dans .env, ou libérer celui-ci." >&2
+            exit 1
+        fi
+        echo "  ${var}=${current} (imposé dans .env, libre)"
+        return 0
+    fi
+
+    if ! _port_in_use "$default"; then
+        _env_set "$var" "$default"
+        echo "  ${var}=${default} (défaut, libre)"
+        return 0
+    fi
+
+    resolved="$(_first_free_port $(( default + 10000 )))" || {
+        echo "ÉCHEC : aucun port libre trouvé pour ${var} à partir de $(( default + 10000 ))." >&2
+        exit 1
+    }
+    _env_set "$var" "$resolved"
+    echo "  ${var}=${resolved} (repli : ${default} est occupé, valeur persistée dans .env)"
+}
+
+echo "Résolution des ports (après arrêt de la stack)..."
+_resolve_port POSTGRES_PORT      5432
+_resolve_port MINIO_API_PORT     9000
+_resolve_port MINIO_CONSOLE_PORT 9001
+_resolve_port BACKEND_PORT       8000
+_resolve_port FRONTEND_PORT      3000
+
 # --- 6) Relance ---
 # --remove-orphans : supprime les orphelins détectés
 # --pull never : utilise les images locales buildées à l'étape 4

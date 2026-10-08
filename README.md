@@ -51,6 +51,12 @@ git push origin dev
 sudo ./dev-deploy.sh dev
 ```
 
+Les **ports publiés se paramètrent** dans le `.env` de la cible. Laissés aux défauts, ils sont
+résolus par le script après l'arrêt de la stack : un défaut occupé bascule sur le premier port
+libre à partir de défaut+10000, et le choix est persisté. Une valeur écrite explicitement est
+respectée, et le déploiement échoue si elle est occupée — plutôt que de déplacer en silence un
+port dont quelque chose dépend.
+
 `dev-deploy.sh` est le **seul** geste de livraison : il se met à jour depuis git, complète les
 secrets manquants du `.env` sans écraser l'existant, construit les images, relance la stack et
 vérifie `/health/`. Aucune construction ni `docker run` à la main, aucune retouche manuelle de
