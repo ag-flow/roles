@@ -1,6 +1,15 @@
 > ℹ️ **Conservée avec adaptations V2 (2026-07-04).** Journal historique des sprints 1-8 ; n'y ajouter désormais que des décisions V2.
 > Voir `docs/specs/v2/00-fondations-v2.md` et `docs/specs/v2/01-protocole-mcp.md`.
 
+> ⚠️ **Triage V2 du 2026-10-08.** Les 36 cases ouvertes des sections THÉMATIQUES ont été
+> triées : 12 mortes avec le périmètre abandonné, 7 suspendues avec le frontend, 17 vivantes
+> remontées en tickets (docflow `roles` / `backlog`, epic « Décisions ouvertes V2 à trancher »).
+> Les 36 cases des sections de JOURNAL (« Sprint N — … ») ne sont pas encore triées : ticket
+> « Trier les 36 observations non cochées des journaux de sprint ».
+> Détail du triage : article « Décisions ouvertes — triage V2 du 2026-10-08 » du bloc
+> `documentation`. **Ce fichier mélange du vivant et du mort : ne pas s'y fier sans lire le
+> triage.**
+
 # 12 — Décisions ouvertes (TODO consolidé)
 
 > Ce document agrège tous les TODO disséminés dans les autres blocs. Il

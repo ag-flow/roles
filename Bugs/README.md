@@ -1,3 +1,9 @@
+> ⚠️ **Les 10 bugs encore ouverts vivent désormais dans le backlog docflow** (workspace `roles`,
+> bloc `backlog`, epic « Bugs ouverts de l'audit 2026-07-05 ») — c'est là que leur statut
+> s'écrit, pas ici. Ce dossier reste l'archive des fiches détaillées.
+> Synthèse de l'audit : article « Audit de bugs 2026-07-05 — méthode et synthèse » du bloc
+> `documentation`. Remonté le 2026-10-08.
+
 # Recherche de bugs — agflow.roles (2026-07-05)
 
 Audit complet du dépôt par revue multi-agents (backend services, acquisition, façade MCP, routes/auth/config, secrets Harpocrate, frontend, infra). Chaque bug a son propre fichier avec problème, scénario d'échec concret, piste de résolution et estimation de difficulté de correction.
