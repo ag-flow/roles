@@ -344,6 +344,25 @@ _resolve_port MINIO_CONSOLE_PORT 9001
 _resolve_port BACKEND_PORT       8000
 _resolve_port FRONTEND_PORT      3000
 
+# --- 5 ter) Tirer les images TIERCES, avant le `up --pull never` ---
+# `--pull never` au `up` est volontaire : il garantit qu'on démarre exactement
+# les images que build.sh vient de construire, et jamais une homonyme tirée d'un
+# registre. Mais il bloque du même coup les images tierces — postgres, minio —
+# que personne ne construit ici : le `up` échoue alors sur
+# « No such image: minio/minio:latest ».
+#
+# Découvert au PREMIER déploiement réel (test1, 2026-10-08). Le défaut était
+# invisible jusque-là, et il l'était doublement : sur cet hôte partagé,
+# postgres:16-alpine se trouvait déjà présente — tirée par une autre stack — si
+# bien que seule minio manquait. Sur une machine vierge, les deux manqueraient.
+#
+# On tire donc explicitement, par NOM DE SERVICE compose et non par nom d'image,
+# pour que la version reste déclarée au seul endroit qui fait foi : le compose.
+# TOUTE nouvelle dépendance tierce doit être ajoutée à cette liste, sinon elle
+# reproduira exactement cette panne.
+echo "Tirage des images tierces (postgres, minio)..."
+docker compose -f docker-compose-dev.yml pull postgres minio
+
 # --- 6) Relance ---
 # --remove-orphans : supprime les orphelins détectés
 # --pull never : utilise les images locales buildées à l'étape 4
