@@ -222,6 +222,38 @@ if _env_needs_generation SECRET_ENCRYPTION_KEY; then
     echo "==> SECRET_ENCRYPTION_KEY générée"
 fi
 
+# Volume audio partagé scraper → worker → backend (balayeur + garde disque).
+# `docker-compose-dev.yml` l'utilise avec `${AUDIO_VOLUME_HOST_DIR:?}`, qui
+# échoue sur vide comme sur absent, et `.env.example` le livre VIDE : sans
+# cette complétion, le déploiement s'arrête sur un message lisible mais exige
+# d'éditer le .env à la main sur la cible — ce que la procédure du dépôt
+# proscrit (aucune retouche manuelle hors de ce script).
+#
+# ATTENTION — ceci ne désarme PAS les gardes fail-closed applicatives, et les
+# deux protections ne sont pas redondantes :
+#   * ce script pose la valeur sur la CIBLE DE DÉPLOIEMENT, où le répertoire
+#     existe réellement et est monté dans les conteneurs ;
+#   * les gardes de `scraper_orchestrator` / `worker_manager` / `audio_sweeper`
+#     protègent tous les AUTRES contextes — au premier chef un backend lancé
+#     hors compose (`uvicorn --reload` en local), où aucun montage n'existe et
+#     où l'audio irait dans le système de fichiers éphémère d'un conteneur qui
+#     disparaît avec lui (BUG-01).
+# Ne pas "simplifier" en retirant l'une des deux : elles couvrent des
+# situations disjointes.
+if _env_needs_generation AUDIO_VOLUME_HOST_DIR; then
+    # Sous le répertoire de déploiement : même cycle de vie que la stack, et
+    # pas de chemin absolu hors du projet qui demanderait les droits root.
+    _env_set AUDIO_VOLUME_HOST_DIR "$(pwd)/audio-volume"
+    echo "==> AUDIO_VOLUME_HOST_DIR posé à $(pwd)/audio-volume"
+fi
+# mkdir inconditionnel (pas seulement quand on vient de poser la valeur) : un
+# .env déjà renseigné peut pointer vers un répertoire supprimé depuis, et le
+# bind mount le recréerait alors en root:root, illisible par le backend.
+AUDIO_HOST_DIR="$(_env_get AUDIO_VOLUME_HOST_DIR)"
+if [ -n "$AUDIO_HOST_DIR" ]; then
+    mkdir -p "$AUDIO_HOST_DIR"
+fi
+
 unset -f _env_needs_generation
 
 # --- 4) Build images locales ---
