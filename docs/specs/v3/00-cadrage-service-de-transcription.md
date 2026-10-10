@@ -145,21 +145,47 @@ Il faut donc **ouvrir une portée système** : secrets d'infrastructure sans `us
 - jamais dans l'image, ni dans une couche, ni dans `docker inspect`, ni dans un journal ;
 - à l'usage, `ssh -i` veut un fichier : même motif que l'`env_file()` 0600 déjà en place.
 
+### 13. L'audio passe par un volume mappé sur un chemin local du host
+
+Le conteneur scraper écrit l'audio dans un **volume mappé vers un chemin local** du host de la VM
+dédiée. C'est le relais entre le téléchargement et l'envoi en transcription.
+
+Ça **simplifie** les scrapers au lieu de les compliquer : `download.py` télécharge déjà dans un
+`local_path` avant d'appeler `minio_uploader.upload_audio()`. Retirer MinIO retire l'étape
+d'upload.
+
+### 14. La transcription est TOUJOURS un service distant, choisi par l'utilisateur
+
+**Whisper n'est jamais sur la machine.** Le conteneur récupère l'audio, le pose sur le volume,
+puis l'audio est poussé vers un **service distant**. Toujours. Et c'est **l'utilisateur, dans son
+paramétrage, qui choisit le service**.
+
+Pourquoi c'était possible : le GPU n'apportait **ni qualité ni vitesse**. C'est le même modèle
+`large-v3` des deux côtés, et le local est plus *lent* (10-20 min contre 30 s pour 5 min d'audio
+en SaaS). Le GPU n'était là que pour ne pas payer — `docs/specs/04-transcription.md` l'écrit :
+« Coût : 0$ (juste l'électricité du GPU) ».
+
+Tombent avec cette décision : le provider `faster-whisper` local, l'image
+`agflow-transcription-worker-cuda`, `docker-compose.pve2.yml`, et la dépendance à pve2.
+
+**Effet de bord favorable : le garde-fou de coût revient.** Toute transcription est payante, et
+c'est la **clé de l'utilisateur** qui paie. Le quota et le crédit de cet utilisateur deviennent
+donc la limite naturelle — le dispositif `user_transcription_keys` / wallets / `credit_monitor`
+existant cesse d'être accessoire et devient central.
+
+Ordre de grandeur, pour mémoire : une chaîne de trois cents vidéos d'une heure coûte **~108 $**
+chez OpenAI Whisper, **~78 $** chez Deepgram.
+
 ---
 
 ## Tensions à lever avant de coder
 
-### A. Le relais de l'audio, maintenant que MinIO tombe
+### A. ~~Le relais de l'audio~~ — **tranchée** (décision 13)
 
-Le scraper télécharge l'audio ; le worker de transcription doit le lire. Aujourd'hui ce relais
-**est** MinIO (`corpus-audio`). Sans lui, il faut dire par où passe l'audio — un volume local
-partagé sur le host est possible puisque tous les conteneurs tournent désormais sur le même démon,
-mais rien n'est tranché.
+Volume mappé vers un chemin local du host. Et la décision 14 fait disparaître la frontière entre
+machines qui rendait ce relais difficile : plus de worker GPU sur pve2 à alimenter.
 
-**C'est le trou le plus structurant du cadrage : sans relais, la chaîne de traitement est
-coupée.**
-
-### B. Le bloc `output` du contrat scraper
+### B. Le bloc `output` du contrat scraper — **réduite, mais réelle**
 
 Le contrat **stdin JSON / stdout NDJSON** est déclaré figé, et son payload porte :
 
@@ -168,9 +194,19 @@ Le contrat **stdin JSON / stdout NDJSON** est déclaré figé, et son payload po
             "prefix":…, "access_key":…, "secret_key":… }
 ```
 
-Retirer MinIO **casse ce contrat**. Soit les scrapers changent — et c'est une rupture à annoncer
-avant d'être écrite — soit le bloc `output` reste de forme objet et pointe ailleurs. À trancher
-avec la tension A, dont il est la conséquence.
+Le champ `type` existe, mais **le scraper ne dispatche pas dessus** : `download.py:9` importe
+`minio_uploader` en dur. Ajouter `"type":"local"` n'est donc **pas** une extension compatible —
+il faut toucher aux trois images de scrapers. Rupture modeste, mais à annoncer avant d'être
+écrite.
+
+### D. Personne ne nettoie les fichiers audio
+
+MinIO avait un `keep_audio` ; un répertoire monté n'a **aucun cycle de vie**. La rétention
+paramétrée porte sur la **table de résultat partitionnée**, pas sur les fichiers.
+
+Une chaîne de trois cents vidéos représente plusieurs dizaines de Go d'audio sur le disque d'une
+VM dédiée. Il faut dire **qui supprime et quand**, et prévoir le cas **disque plein** — qui arrête
+tout sans prévenir.
 
 ### C. Simplification, ou nouveau module ?
 
@@ -196,7 +232,7 @@ La réponse change tout ce qui vient ensuite, y compris le sort des trois epics 
 | **Le veilleur** | après combien de temps un travail pris est-il déclaré mort, et le rejoue-t-on ou l'échoue-t-on ? |
 | **MCP et REST** | le même contrat exposé deux fois, ou deux surfaces distinctes ? Deux contrats à publier, deux modèles d'authentification |
 | **Le pooling polymorphe** | une seule API qui rend deux formes selon la nature de l'id est une source classique de bugs côté client : champ discriminant, ou deux routes ? |
-| **Le garde-fou de coût** | l'examen humain servait aussi à ça. « On prend tout » le retire : rien n'empêche plus de lancer 400 heures de transcription payante par mégarde |
+| **Le repli quand l'utilisateur n'a pas de clé** | toute transcription est payante depuis la décision 14. Le pool `shared_default` existait avec des clés admin — « pas de clés user = pas de coût ». Qui paie désormais : personne (pas de clé = pas de service), ou l'administrateur ? |
 | **Ce que contient le résultat** | texte brut, JSON pivot, segments horodatés ? C'est ce que l'appelant consomme, donc le cœur du contrat |
 
 ## Ce que ce cadrage ne décide pas

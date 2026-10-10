@@ -63,7 +63,12 @@ un document docflow par vidéo*.
 - **La consommation est une lecture simple**, répétable, **sans flag** : la donnée est disponible
   le temps du stockage, et pas une seconde de plus.
 - Scrapers : containers Docker one-shot (yt-dlp + ffmpeg), contrat **stdin JSON / stdout NDJSON**
-  — son bloc `output` est **à revoir** avec la chute de MinIO (voir le cadrage V3).
+  — son bloc `output` est **à revoir** avec la chute de MinIO (voir le cadrage V3). L'audio passe
+  par un **volume mappé sur un chemin local** du host.
+- **La transcription est TOUJOURS un service distant**, et c'est **l'utilisateur qui choisit
+  lequel** dans son paramétrage. Whisper n'est **jamais** sur la machine : plus de faster-whisper
+  local, plus de GPU, plus de pve2. Conséquence : tout est payant, et c'est la **clé de
+  l'utilisateur** qui paie — son quota est le garde-fou.
 - **Hébergement** : VM dédiée devpod. Le backend pilote le Docker **du host** en **`DOCKER_HOST=ssh://`**
   — pas de mTLS, pas de socket monté. Les conteneurs lancés reçoivent `--network <projet>_default`,
   sinon ils ne résolvent pas la base. La clé SSH est un **secret système** posé dans l'application
