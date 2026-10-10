@@ -9,12 +9,34 @@ from typing import Any
 
 from youtube.events import emit
 
+# --- I/O de fichier bloquant dans les coroutines de ce module : exception
+# VOLONTAIRE à la règle du dépôt (« jamais d'I/O bloquant dans un chemin
+# asynchrone »), marquée d'un `noqa: ASYNC240` à chaque point d'application.
+#
+# Pourquoi elle est tenable ICI : ce module est le point d'entrée d'un
+# conteneur one-shot (un `docker run` par job, cf. spec 03), dont la boucle
+# asyncio n'héberge QUE ce téléchargement, traité séquentiellement item par
+# item. Bloquer la boucle sur un `stat` ou un `mkdir` ne retarde donc rien
+# d'autre : il n'y a rien d'autre à retarder.
+#
+# Ce que la règle protège, et qui ne s'applique pas ici : les services
+# longue durée dont la boucle est PARTAGÉE entre requêtes ou jobs
+# concurrents (le backend FastAPI, les boucles `run_loop` des workers), où
+# un appel bloquant pénalise des traitements étrangers. Dans ces modules, la
+# règle reste inconditionnelle — cf. `audio_sweeper._file_sweep_orphans`,
+# déporté sur `asyncio.to_thread` pour exactement cette raison.
+#
+# L'alternative écartée : six `asyncio.to_thread` dans ce fichier. Elle
+# aurait un coût de lisibilité réel pour un bénéfice nul (aucune contention
+# à éviter). Le précédent de ce dépôt est `worker/main.py`
+# (`audio_path.unlink(missing_ok=True)`, même marqueur).
+
 
 class OutputConfigError(Exception):
     """Raised when output_cfg fails pre-flight validation (missing/unwritable dir)."""
 
 
-def validate_output(output_cfg: dict[str, Any]) -> Path:
+def validate_output(output_cfg: Any) -> Path:
     """Validate output.dir before any download is attempted.
 
     SCRAPER_IMAGE_TAG (spec 03) lets scraper images be pinned to a tag
@@ -24,14 +46,25 @@ def validate_output(output_cfg: dict[str, Any]) -> Path:
     can turn it into a readable 'error' event instead of an uncaught
     KeyError (missing key) or OSError (unwritable dir) surfacing mid-run.
     """
+    # Under the same version skew, 'output' can be a string or a list, not a
+    # dict -- .get() would then raise AttributeError, which escapes run()'s
+    # `except OutputConfigError` exactly like the KeyError this guard exists
+    # to forbid. Shape first, contents after.
+    if not isinstance(output_cfg, dict):
+        raise OutputConfigError(
+            f"output doit être un objet, reçu {type(output_cfg).__name__} "
+            "(contrat de payload incompatible)"
+        )
+
     dir_value = output_cfg.get("dir")
     if not dir_value:
         raise OutputConfigError("output.dir manquant (contrat de payload incompatible)")
 
     output_dir = Path(dir_value)
-    if not output_dir.is_dir():
+    # is_dir + os.access : I/O bloquant assumé, cf. en-tête de module.
+    if not output_dir.is_dir():  # noqa: ASYNC240
         raise OutputConfigError(f"output.dir introuvable ou n'est pas un répertoire : {output_dir}")
-    if not os.access(output_dir, os.W_OK):
+    if not os.access(output_dir, os.W_OK):  # noqa: ASYNC240
         raise OutputConfigError(f"output.dir non accessible en écriture : {output_dir}")
     return output_dir
 
@@ -72,7 +105,7 @@ async def _download_one(
     final_path = output_dir / f"{prefix}{item_id}.{audio_format}"
     # prefix encodes {tenant_id}/v2/{source_id}/ : the subtree may not exist
     # yet for a brand new source on this volume.
-    final_path.parent.mkdir(parents=True, exist_ok=True)
+    final_path.parent.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240
 
     # yt-dlp writes under a temp name in the SAME directory as final_path --
     # os.replace() is only atomic within one filesystem -- with a suffix
@@ -93,12 +126,12 @@ async def _download_one(
     if proc.returncode != 0 or not tmp_path.exists():
         # Drop the failed/partial temp file only -- never touch final_path,
         # which may still hold a valid file from an earlier successful pass.
-        tmp_path.unlink(missing_ok=True)
+        tmp_path.unlink(missing_ok=True)  # noqa: ASYNC240
         emit("item_failed", item_id=item_id, error=f"yt-dlp exited {proc.returncode}")
         return False
 
-    size = tmp_path.stat().st_size
-    os.replace(tmp_path, final_path)
+    size = tmp_path.stat().st_size  # noqa: ASYNC240
+    os.replace(tmp_path, final_path)  # noqa: ASYNC240
 
     emit(
         "item_done",

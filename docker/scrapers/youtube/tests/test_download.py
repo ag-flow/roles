@@ -107,6 +107,41 @@ async def test_output_without_dir_emits_error_event(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("bad_output", ["/srv/audio", ["/srv/audio"], 42])
+async def test_non_dict_output_emits_error_event(
+    monkeypatch: pytest.MonkeyPatch, bad_output: Any
+) -> None:
+    """Same version skew, one step worse : an 'output' block that is not a
+    mapping at all (string, list, number). `.get()` on it raises
+    AttributeError, which is NOT an OutputConfigError and would therefore
+    escape run()'s except clause and crash the container -- exactly the
+    failure mode the missing-'dir' guard exists to prevent. The shape must be
+    rejected as a payload contract error like any other.
+    """
+    buf = io.StringIO()
+    monkeypatch.setattr("sys.stdout", buf)
+
+    async def _factory(*args: Any, **kwargs: Any) -> _StubProcess:
+        raise AssertionError("yt-dlp must not be invoked when output has the wrong shape")
+
+    monkeypatch.setattr("asyncio.create_subprocess_exec", _factory)
+
+    from youtube import download
+
+    task: dict[str, Any] = {
+        "task_id": "t",
+        "items": [{"id": "v1", "url": "https://youtube.com/watch?v=v1"}],
+        "output": bad_output,
+    }
+    rc = await download.run(task)
+    assert rc != 0
+
+    events = [json.loads(line) for line in buf.getvalue().strip().split("\n")]
+    assert events[-1]["type"] == "error"
+    assert events[-1]["error"]
+
+
+@pytest.mark.asyncio
 async def test_output_dir_not_writable_fails_before_download(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A read-only output.dir must fail during pre-flight validation, before any yt-dlp invocation is attempted."""
     output_dir = tmp_path / "readonly"
