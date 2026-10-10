@@ -53,6 +53,17 @@ class _StubPool:
         return _StubAcquireCtx(self._conn)
 
 
+@pytest.fixture(autouse=True)
+def _default_audio_volume_host_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ces tests exercent spawn_worker au-delà du garde-fou host_dir (hors
+    sujet ici, défaut "" sinon) : leur poser une valeur évite de le dupliquer
+    partout. Refus et montage couverts à part, dans
+    test_worker_manager_audio_volume.py."""
+    from role_builder.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "audio_volume_host_dir", "/srv/audio-host", raising=False)
+
+
 @pytest.fixture()
 def stub_conn() -> _StubConn:
     return _StubConn()

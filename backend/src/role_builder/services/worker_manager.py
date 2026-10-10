@@ -88,6 +88,7 @@ class WorkerManager:
         instance_index: int,
     ) -> str:
         """`docker run -d` un worker user, l'enregistre en DB. Retourne container_id."""
+        docker_args = self._audio_volume_docker_args(user_id=user_id)
         provider = str(key["provider"])
         worker_pool_id = f"user_{user_id}"
         # Suffixe unique : le nom déterministe index-based entrait en collision
@@ -115,11 +116,8 @@ class WorkerManager:
         image = f"agflow-transcription-worker:{self._image_tag}"
 
         log.info(
-            "worker_manager.spawn",
-            user_id=str(user_id),
-            provider=provider,
-            instance_index=instance_index,
-            image=image,
+            "worker_manager.spawn", user_id=str(user_id), provider=provider,
+            instance_index=instance_index, image=image,
         )
 
         # env-file plutôt que -e K=V : la clé SaaS du user, DATABASE_URL et
@@ -128,7 +126,8 @@ class WorkerManager:
         # peut donc être supprimé immédiatement après.
         with env_file(env) as env_path:
             cmd = [
-                "docker", "run", "-d", "--name", worker_id, "--env-file", env_path, image,
+                "docker", "run", "-d", "--name", worker_id, "--env-file", env_path,
+                *docker_args, image,
             ]
             stdout, _stderr = await self._run_subprocess(cmd)
         container_id = stdout.decode("utf-8", errors="replace").strip()
@@ -208,6 +207,19 @@ class WorkerManager:
         log.info("worker_manager.loop_stop")
 
     # --- Internals ------------------------------------------------------
+
+    def _audio_volume_docker_args(self, *, user_id: UUID) -> list[str]:
+        """Option `-v` du montage audio ; refuse si `audio_volume_host_dir` est vide."""
+        # Fail closed, symétrique à scraper_orchestrator.py : sans ce réglage,
+        # le worker démarrerait sans voir l'audio du scraper et échouerait
+        # tous ses jobs avec un message trompeur (fichier manquant, pas config absente).
+        if not settings.audio_volume_host_dir:
+            log.error("worker_manager.audio_volume_host_dir_missing", user_id=str(user_id))
+            raise RuntimeError(
+                "audio_volume_host_dir non configuré : refus de démarrer le "
+                "worker (relais audio volume local) — il échouerait sur chaque job"
+            )
+        return ["-v", f"{settings.audio_volume_host_dir}:{settings.audio_volume_dir}"]
 
     async def _count_active_workers(self, user_id: UUID, provider: str) -> int:
         async with self._pool.acquire() as conn:
