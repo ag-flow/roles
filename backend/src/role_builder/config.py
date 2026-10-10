@@ -82,15 +82,6 @@ class Settings(BaseSettings):
     deposit_poll_interval_s: float = 2.0
     disable_deposit_worker: bool = False
 
-    # V2 lot upload — Extraction audio asynchrone (pending_extraction →
-    # extracting_audio → audio_ready). Le ffmpeg d'un upload vidéo ne bloque
-    # plus l'appel MCP finalize_upload : il tourne dans un worker de fond,
-    # même modèle que le DepositWorker (cf. upload/extraction_worker.py).
-    extraction_max_attempts: int = 3
-    extraction_backoff_base_s: float = 1.0
-    extraction_poll_interval_s: float = 2.0
-    disable_extraction_worker: bool = False
-
     # CORS — origines autorisées (liste séparée par des virgules). Défaut « * »
     # pour le dev ; à restreindre en prod. `allow_credentials` reste désactivé
     # (auth Bearer, pas de cookie) — wildcard + credentials est interdit par la

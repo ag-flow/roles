@@ -10,10 +10,6 @@ EXPECTED_TOOL_NAMES = {
     "roles__submit_acquisition",
     "roles__list_discovered",
     "roles__select_items",
-    "roles__create_upload_request",
-    "roles__request_upload_slot",
-    "roles__finalize_upload",
-    "roles__close_upload_request",
     "roles__request_status",
     "roles__list_requests",
     "roles__get_corpus",
@@ -39,3 +35,13 @@ async def test_submit_acquisition_tool_schema_requires_url_and_submitted_by() ->
 
     required = set(submit.inputSchema.get("required", []))
     assert {"url", "submitted_by"} <= required
+
+
+async def test_mcp_server_exposes_no_upload_tools() -> None:
+    """Le cycle d'upload direct est retiré (lot 5) : plus aucun tool `*upload*`."""
+    from role_builder.mcp_server.server import mcp
+
+    tools = await mcp.list_tools()
+    names = {tool.name for tool in tools}
+
+    assert not [name for name in names if "upload" in name]

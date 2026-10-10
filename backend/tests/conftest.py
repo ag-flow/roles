@@ -62,7 +62,6 @@ def client(stubbed_env: None, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(_settings, "disable_ws_relay", True, raising=False)
     monkeypatch.setattr(_settings, "disable_worker_manager", True, raising=False)
     monkeypatch.setattr(_settings, "disable_deposit_worker", True, raising=False)
-    monkeypatch.setattr(_settings, "disable_extraction_worker", True, raising=False)
     monkeypatch.setattr(_settings, "disable_scheduler", True, raising=False)
     monkeypatch.setattr(_settings, "disable_auth", True, raising=False)
     monkeypatch.setattr(_settings, "disable_migrations", True, raising=False)

@@ -10,10 +10,9 @@ from typing import Any
 _DOWNLOADED_STATUSES = {"audio_ready", "queued_transcription", "transcribing", "transcribed",
                         "depositing", "deposited"}
 _TRANSCRIBED_STATUSES = {"transcribed", "depositing", "deposited"}
-_PENDING_STATUSES = {"pending_download", "downloading", "awaiting_upload",
-                     "pending_extraction", "extracting_audio"}
+_PENDING_STATUSES = {"pending_download", "downloading"}
 
-_DISCOVERY_STAGES = {"discovering", "discovered", "open_for_upload"}
+_DISCOVERY_STAGES = {"discovering", "discovered"}
 
 
 def fold_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
@@ -57,8 +56,8 @@ def derive_display_status(stored_status: str, counts: dict[str, int], *, selecte
         return stored_status
 
     # Requête entrée en acquisition mais 0 item sélectionné (mode=auto sans
-    # match, ou upload fermé sans slot) : corpus vide mais terminé — sinon le
-    # ticket resterait `acquiring` à jamais et le pilote pull sans fin (BUG-14).
+    # match) : corpus vide mais terminé — sinon le ticket resterait
+    # `acquiring` à jamais et le pilote pull sans fin (BUG-14).
     if selected_total == 0:
         return "completed"
 

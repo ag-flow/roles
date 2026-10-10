@@ -19,7 +19,6 @@ _PLATFORM_PREFIXES = {
     "youtube": "yt",
     "instagram": "ig",
     "tiktok": "tt",
-    "upload": "up",
 }
 
 _MAX_HINT_LEN = 30

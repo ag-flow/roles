@@ -1,9 +1,9 @@
 """Middleware ASGI d'authentification de la façade MCP `roles__*` (BUG-34).
 
-Le mount `/mcp` expose des tools sensibles (submit_acquisition, slots d'upload
-MinIO présignés, cancel_request…) : contrairement à l'API REST, il n'a aucune
-dépendance d'auth. Ce middleware exige un jeton machine (Bearer) partagé avec
-la passerelle. Désactivé si `token` est vide (dev/test) — pass-through.
+Le mount `/mcp` expose des tools sensibles (submit_acquisition, cancel_request,
+retry_failed…) : contrairement à l'API REST, il n'a aucune dépendance d'auth.
+Ce middleware exige un jeton machine (Bearer) partagé avec la passerelle.
+Désactivé si `token` est vide (dev/test) — pass-through.
 
 Le protocole streamable-http rend malaisée l'injection d'une dépendance
 FastAPI classique ; un middleware ASGI sur le mount est la voie simple. Les

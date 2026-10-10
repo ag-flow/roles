@@ -5,7 +5,7 @@ insert_job` et `source_items.update_source_item_status` avec des doublures
 `fake_*(**kwargs)` qui avalent n'importe quel nom d'argument : un renommage de
 paramètre (ex. `audio_s3_key` -> `audio_path`, migration 0012) ne les ferait
 jamais échouer. Ce fichier appelle les VRAIES fonctions contre une base
-éphémère migrée 0001..0012, pour qu'un futur renommage de signature fasse
+éphémère migrée 0001..0013, pour qu'un futur renommage de signature fasse
 rougir un test.
 
 Même pattern que test_migration_0012.py : Postgres réel éphémère, skip
@@ -47,6 +47,7 @@ ALL_MIGRATIONS = (
     "0010_drop_vault_secret_name.sql",
     "0011_drop_role_projects.sql",
     "0012_audio_path.sql",
+    "0013_drop_upload_intake.sql",
 )
 
 

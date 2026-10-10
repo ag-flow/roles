@@ -53,10 +53,10 @@ def test_scheduler_instantiation(monkeypatch: pytest.MonkeyPatch, stubbed_env: N
 # ---------------------------------------------------------------------------
 
 
-def test_scheduler_start_schedules_five_jobs(
+def test_scheduler_start_schedules_four_jobs(
     monkeypatch: pytest.MonkeyPatch, stubbed_env: None
 ) -> None:
-    """Après start(), 5 jobs enregistrés avec les ids attendus."""
+    """Après start(), 4 jobs enregistrés avec les ids attendus."""
     monkeypatch.setattr(
         "role_builder.services.scheduler.AsyncIOScheduler",
         _FakeAsyncIOScheduler,
@@ -72,7 +72,6 @@ def test_scheduler_start_schedules_five_jobs(
         "poll_credit_balances",
         "reset_monthly_spend",
         "cleanup_revoked_secrets",
-        "cleanup_upload_slots",
         "reconcile_dead_transcriptions",
     }
     assert rbs._started is True
@@ -96,7 +95,7 @@ def test_scheduler_start_idempotent(monkeypatch: pytest.MonkeyPatch, stubbed_env
     rbs.start()  # deuxième appel — no-op
 
     jobs = rbs.scheduler.get_jobs()
-    assert len(jobs) == 5
+    assert len(jobs) == 4
 
 
 # ---------------------------------------------------------------------------

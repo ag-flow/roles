@@ -32,7 +32,6 @@ from role_builder.routes import (
 from role_builder.routes import (
     version as version_route,
 )
-from role_builder.services.acquisition.upload.extraction_worker import AudioExtractionWorker
 from role_builder.services.deposit.factory import build_depositor
 from role_builder.services.deposit.worker import DepositWorker
 from role_builder.services.scheduler import RoleBuilderScheduler
@@ -148,19 +147,6 @@ async def _lifespan_body(app: FastAPI) -> AsyncIterator[None]:
         )
         log.info("deposit_worker.started", backend=settings.deposit_backend)
 
-    extraction_worker_task: asyncio.Task[None] | None = None
-    if not settings.disable_extraction_worker:
-        extraction_worker = AudioExtractionWorker(
-            pool=db_pool.pool,
-            max_attempts=settings.extraction_max_attempts,
-            backoff_base_s=settings.extraction_backoff_base_s,
-            poll_interval_s=settings.extraction_poll_interval_s,
-        )
-        extraction_worker_task = asyncio.create_task(
-            extraction_worker.run_loop(stop), name="audio-extraction-worker"
-        )
-        log.info("extraction_worker.started")
-
     scheduler: RoleBuilderScheduler | None = None
     if not settings.disable_scheduler:
         scheduler = RoleBuilderScheduler(pool=db_pool.pool)
@@ -190,11 +176,6 @@ async def _lifespan_body(app: FastAPI) -> AsyncIterator[None]:
                 await deposit_worker_task
             except Exception:  # noqa: BLE001 — shutdown best-effort
                 log.exception("deposit_worker.shutdown_error")
-        if extraction_worker_task is not None:
-            try:
-                await extraction_worker_task
-            except Exception:  # noqa: BLE001 — shutdown best-effort
-                log.exception("extraction_worker.shutdown_error")
         if not settings.disable_ws_relay:
             try:
                 await ws_relay.stop()

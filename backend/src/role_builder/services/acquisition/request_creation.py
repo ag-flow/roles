@@ -1,9 +1,8 @@
 """Insertion d'une acquisition_request avec unicité du request_key garantie.
 
-Partagé entre la soumission scrape (§2.1) et l'ouverture d'une requête
-upload (§2.2) : `acquisition_requests.insert_request` propage
-`asyncpg.UniqueViolationError` sur collision, ici levée par retry avec un
-suffixe aléatoire (cf. `request_key.with_random_suffix`).
+`acquisition_requests.insert_request` propage `asyncpg.UniqueViolationError`
+sur collision, ici levée par retry avec un suffixe aléatoire (cf.
+`request_key.with_random_suffix`).
 """
 
 from __future__ import annotations

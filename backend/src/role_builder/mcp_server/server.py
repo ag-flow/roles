@@ -16,7 +16,7 @@ from __future__ import annotations
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
-from role_builder.mcp_server.tools import admin, corpus, discovery, status, submission, upload
+from role_builder.mcp_server.tools import admin, corpus, discovery, status, submission
 
 # streamable_http_path="/" : monté sur /mcp (main.py), l'endpoint réel est
 # alors /mcp — sans ça FastMCP ajoute son propre /mcp et le tout serait servi
@@ -47,32 +47,6 @@ mcp.add_tool(
     discovery.select_items,
     name="roles__select_items",
     description="Sélectionne les items à télécharger/transcrire (idempotent, cumulable).",
-)
-mcp.add_tool(
-    upload.create_upload_request,
-    name="roles__create_upload_request",
-    description="Ouvre une requête d'acquisition de type upload (médias hors plateformes).",
-)
-mcp.add_tool(
-    upload.request_upload_slot,
-    name="roles__request_upload_slot",
-    description=(
-        "Crée un item et un slot d'upload : URL présignée PUT MinIO (TTL 1 h), "
-        "liste blanche media_type ; le fichier ne transite jamais par MCP."
-    ),
-)
-mcp.add_tool(
-    upload.finalize_upload,
-    name="roles__finalize_upload",
-    description=(
-        "Après le PUT : vérifie l'objet MinIO, extrait l'audio si vidéo, et met "
-        "l'item en pipeline standard (transcription → dépôt docflow)."
-    ),
-)
-mcp.add_tool(
-    upload.close_upload_request,
-    name="roles__close_upload_request",
-    description="Ferme l'intake (plus de nouveaux slots) ; la complétion suit les items en cours.",
 )
 mcp.add_tool(
     status.request_status,

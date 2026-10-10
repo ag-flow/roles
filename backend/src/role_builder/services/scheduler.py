@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import asyncpg
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -12,7 +10,6 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from role_builder.db_helpers import transcription_jobs as transcription_jobs_helper
 from role_builder.db_helpers import transcription_keys as keys_helper
-from role_builder.services.acquisition.upload.cleanup import cleanup_expired_slots
 from role_builder.services.credit_monitor import poll_all_balances
 
 log = structlog.get_logger(__name__)
@@ -20,12 +17,11 @@ log = structlog.get_logger(__name__)
 _BALANCE_POLL_INTERVAL_HOURS = 1
 _RESET_SPEND_DAY = 1
 _CLEANUP_HOUR = 3
-_UPLOAD_SLOT_CLEANUP_INTERVAL_MIN = 15
 _TRANSCRIPTION_RECONCILE_INTERVAL_MIN = 2
 
 
 class RoleBuilderScheduler:
-    """Wrapper léger autour d'AsyncIOScheduler : jobs Sprint 6 + slots upload."""
+    """Wrapper léger autour d'AsyncIOScheduler : jobs Sprint 6 (poll balance, reset, cleanup)."""
 
     def __init__(self, *, pool: asyncpg.Pool) -> None:
         self._pool = pool
@@ -58,12 +54,6 @@ class RoleBuilderScheduler:
             replace_existing=True,
         )
         self._scheduler.add_job(
-            self._cleanup_upload_slots,
-            IntervalTrigger(minutes=_UPLOAD_SLOT_CLEANUP_INTERVAL_MIN),
-            id="cleanup_upload_slots",
-            replace_existing=True,
-        )
-        self._scheduler.add_job(
             self._reconcile_dead_transcriptions,
             IntervalTrigger(minutes=_TRANSCRIPTION_RECONCILE_INTERVAL_MIN),
             id="reconcile_dead_transcriptions",
@@ -92,15 +82,6 @@ class RoleBuilderScheduler:
             log.info("scheduler.reset_monthly_spend_completed", reset_count=count)
         except Exception:
             log.exception("scheduler.reset_monthly_spend_failed")
-
-    async def _cleanup_upload_slots(self) -> None:
-        """Nettoyage des slots d'upload présignés expirés (spec v2/01 §5.5)."""
-        try:
-            removed = await cleanup_expired_slots(now=datetime.now(UTC), pool=self._pool)
-            if removed:
-                log.info("scheduler.upload_slots_cleaned", removed=removed)
-        except Exception:
-            log.exception("scheduler.cleanup_upload_slots_failed")
 
     async def _reconcile_dead_transcriptions(self) -> None:
         """Bascule `failed` les items dont le job de transcription a échoué
