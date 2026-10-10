@@ -165,8 +165,14 @@ Pourquoi c'était possible : le GPU n'apportait **ni qualité ni vitesse**. C'es
 en SaaS). Le GPU n'était là que pour ne pas payer — `docs/specs/04-transcription.md` l'écrit :
 « Coût : 0$ (juste l'électricité du GPU) ».
 
-Tombent avec cette décision : le provider `faster-whisper` local, l'image
-`agflow-transcription-worker-cuda`, `docker-compose.pve2.yml`, et la dépendance à pve2.
+**Amendement du 2026-10-10 : le provider n'est PAS retiré.** Son code reste dans le worker ; il
+n'est simplement pas utilisable sur une VM dédiée sans GPU (`large-v3` sur 4 vCPU transcrit plus
+lentement que le temps réel). Ce qui tombe en pratique est la **dépendance** à pve2 dans le flux :
+l'audio passe par un volume local (décision 13), qui n'atteint pas une autre machine.
+
+⚠️ Si faster-whisper devait un jour tourner ailleurs que sur la VM dédiée, **la tension A se
+rouvre** : un volume monté sur un host est invisible depuis un autre. C'est précisément ce que
+MinIO franchissait.
 
 **Effet de bord favorable : le garde-fou de coût revient.** Toute transcription est payante, et
 c'est la **clé de l'utilisateur** qui paie. Le quota et le crédit de cet utilisateur deviennent
