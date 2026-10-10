@@ -67,15 +67,17 @@ JSON unique passé sur stdin au démarrage du container :
     "sleep_interval_max": 10
   },
   "output": {
-    "type": "minio",
-    "endpoint": "https://...",
-    "bucket": "corpus-audio",
-    "prefix": "{tenant_id}/{role_id}/{source_id}/",
-    "access_key": "...",
-    "secret_key": "..."
+    "dir": "/mnt/corpus-audio",
+    "prefix": "{tenant_id}/v2/{source_id}/",
+    "format": "mp3"
   }
 }
 ```
+
+`output.dir` est un répertoire monté depuis le host (volume partagé avec le
+worker de transcription) ; le scraper y écrit l'audio directement, il n'y a
+plus d'upload intermédiaire vers MinIO. `prefix` est construit par le
+backend — le scraper le reçoit tel quel, sans jamais le réécrire.
 
 ### Format des events NDJSON sur stdout
 
@@ -85,7 +87,7 @@ Un event = une ligne JSON. À émettre dans cet ordre :
 {"type": "started", "task_id": "..."}
 {"type": "discovered", "total": 42, "items": [{"id": "...", "title": "...", "duration_s": 812, "published_at": "...", "thumbnail_url": "..."}]}
 {"type": "progress", "item_id": "...", "phase": "downloading", "percent": 34}
-{"type": "item_done", "item_id": "...", "audio_s3_key": "...", "metadata": {"size_bytes": 14523412, "format": "mp3"}}
+{"type": "item_done", "item_id": "...", "audio_path": "...", "metadata": {"size_bytes": 14523412, "format": "mp3"}}
 {"type": "item_failed", "item_id": "...", "error": "geo-restricted"}
 {"type": "complete", "downloaded": 40, "failed": 2}
 ```
@@ -97,11 +99,6 @@ Un event = une ligne JSON. À émettre dans cet ordre :
 YOUTUBE_COOKIES_B64=...
 INSTAGRAM_COOKIES_B64=...
 TIKTOK_COOKIES_B64=...
-
-# MinIO
-MINIO_ENDPOINT=http://...
-MINIO_ACCESS_KEY=...
-MINIO_SECRET_KEY=...
 
 # Configuration
 LOG_LEVEL=info
@@ -140,7 +137,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 ```
 yt-dlp>=2025.1.0
-minio>=7.2
 pydantic>=2.5
 structlog>=24.1
 ```
@@ -152,8 +148,7 @@ docker/scrapers/youtube/
 ├── Dockerfile
 ├── entrypoint.py          # point d'entrée, parse stdin et dispatch
 ├── discover.py            # logique de discover (channel/playlist)
-├── download.py            # logique de download (audio extraction)
-├── minio_uploader.py      # upload vers MinIO
+├── download.py            # logique de download (audio extraction, écrite dans le volume monté)
 └── events.py              # helpers pour émettre les events NDJSON
 ```
 
@@ -286,12 +281,9 @@ async def execute_scraping_job(job: ScrapingJob) -> None:
         "url": job.source.url,
         "options": {...},
         "output": {
-            "type": "minio",
-            "endpoint": settings.minio_endpoint,
-            "bucket": "corpus-audio",
-            "prefix": f"{job.tenant_id}/{job.source.role_project_id}/{job.source.id}/",
-            "access_key": settings.minio_access_key,
-            "secret_key": settings.minio_secret_key,
+            "dir": settings.scraper_output_dir,
+            "prefix": f"{job.tenant_id}/v2/{job.source.id}/",
+            "format": "mp3",
         },
     }
 
@@ -356,7 +348,7 @@ async def handle_scraper_event(job: ScrapingJob, event: dict) -> None:
             source_id=job.source_id,
             platform_item_id=event["item_id"],
             status="audio_ready",
-            audio_s3_key=event["audio_s3_key"],
+            audio_path=event["audio_path"],
         )
         # Créer un transcription_job (cf. § 04)
         await db.insert_transcription_job(...)

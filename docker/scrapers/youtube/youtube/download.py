@@ -1,21 +1,42 @@
-"""Download command : extract audio of selected items via yt-dlp + upload to MinIO."""
+"""Download command : extract audio of selected items via yt-dlp into the mounted output directory."""
 from __future__ import annotations
 
 import asyncio
-import tempfile
+import os
+import uuid
 from pathlib import Path
 from typing import Any
 
-from youtube import minio_uploader
 from youtube.events import emit
 
 
-def _tmp_dir() -> Path:
-    """Return the temp dir used for intermediate audio files (overridable in tests)."""
-    return Path(tempfile.gettempdir())
+class OutputConfigError(Exception):
+    """Raised when output_cfg fails pre-flight validation (missing/unwritable dir)."""
 
 
-def _build_yt_dlp_cmd(item_url: str, item_id: str, output_path: Path, options: dict[str, Any]) -> list[str]:
+def validate_output(output_cfg: dict[str, Any]) -> Path:
+    """Validate output.dir before any download is attempted.
+
+    SCRAPER_IMAGE_TAG (spec 03) lets scraper images be pinned to a tag
+    independent from the backend, so a payload shaped by a mismatched
+    contract version -- e.g. an 'output' block missing 'dir' -- is an
+    expected failure mode, not a bug. Raise a typed error here so the caller
+    can turn it into a readable 'error' event instead of an uncaught
+    KeyError (missing key) or OSError (unwritable dir) surfacing mid-run.
+    """
+    dir_value = output_cfg.get("dir")
+    if not dir_value:
+        raise OutputConfigError("output.dir manquant (contrat de payload incompatible)")
+
+    output_dir = Path(dir_value)
+    if not output_dir.is_dir():
+        raise OutputConfigError(f"output.dir introuvable ou n'est pas un répertoire : {output_dir}")
+    if not os.access(output_dir, os.W_OK):
+        raise OutputConfigError(f"output.dir non accessible en écriture : {output_dir}")
+    return output_dir
+
+
+def _build_yt_dlp_cmd(item_url: str, output_path: Path, options: dict[str, Any]) -> list[str]:
     audio_format = options.get("audio_format", "mp3")
     audio_quality = str(options.get("audio_quality", 9))
     audio_args = options.get("audio_args", "-ac 1 -ar 16000 -b:a 32k")
@@ -34,13 +55,28 @@ def _build_yt_dlp_cmd(item_url: str, item_id: str, output_path: Path, options: d
     ]
 
 
-async def _download_one(item: dict[str, Any], output_cfg: dict[str, Any], options: dict[str, Any]) -> bool:
-    """Download one item, upload, emit events. Returns True on success."""
+async def _download_one(
+    item: dict[str, Any],
+    output_dir: Path,
+    prefix: str,
+    audio_format: str,
+    options: dict[str, Any],
+) -> bool:
+    """Download one item straight into the mounted volume. Returns True on success."""
     item_id = item["id"]
     item_url = item["url"]
-    local_path = _tmp_dir() / f"{item_id}.mp3"
+    final_path = output_dir / f"{prefix}{item_id}.{audio_format}"
+    # prefix encodes {tenant_id}/v2/{source_id}/ : the subtree may not exist
+    # yet for a brand new source on this volume.
+    final_path.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = _build_yt_dlp_cmd(item_url, item_id, local_path, options)
+    # yt-dlp writes under a temp name in the SAME directory as final_path --
+    # os.replace() is only atomic within one filesystem -- with a suffix
+    # unique per attempt so a replay of this item_id can never collide with
+    # (or clobber in place) a previous pass's file while writing.
+    tmp_path = final_path.with_name(f"{final_path.name}.tmp-{uuid.uuid4().hex}")
+
+    cmd = _build_yt_dlp_cmd(item_url, tmp_path, options)
 
     emit("progress", item_id=item_id, phase="downloading", percent=0)
     proc = await asyncio.create_subprocess_exec(
@@ -50,19 +86,21 @@ async def _download_one(item: dict[str, Any], output_cfg: dict[str, Any], option
     )
     await proc.communicate()
 
-    if proc.returncode != 0 or not local_path.exists():
+    if proc.returncode != 0 or not tmp_path.exists():
+        # Drop the failed/partial temp file only -- never touch final_path,
+        # which may still hold a valid file from an earlier successful pass.
+        tmp_path.unlink(missing_ok=True)
         emit("item_failed", item_id=item_id, error=f"yt-dlp exited {proc.returncode}")
         return False
 
-    s3_key = minio_uploader.upload_audio(local_path, output_cfg, item_id)
-    size = local_path.stat().st_size
-    local_path.unlink(missing_ok=True)
+    size = tmp_path.stat().st_size
+    os.replace(tmp_path, final_path)
 
     emit(
         "item_done",
         item_id=item_id,
-        audio_s3_key=s3_key,
-        metadata={"size_bytes": size, "format": output_cfg.get("format", "mp3")},
+        audio_path=str(final_path),
+        metadata={"size_bytes": size, "format": audio_format},
     )
     return True
 
@@ -71,12 +109,25 @@ async def run(task: dict[str, Any]) -> int:
     """Download every item in task['items']. Returns exit code per spec § Codes de sortie."""
     items = task.get("items", [])
     options = task.get("options", {})
-    output_cfg = task["output"]
+    # .get(), not task["output"] : under a SCRAPER_IMAGE_TAG version skew the
+    # whole 'output' block can be absent, not just its 'dir' field -- that
+    # must fall into the same validate_output error path, never a bare
+    # KeyError from task["output"].
+    output_cfg = task.get("output", {})
+
+    try:
+        output_dir = validate_output(output_cfg)
+    except OutputConfigError as exc:
+        emit("error", error=str(exc))
+        return 1
+
+    prefix = output_cfg.get("prefix", "")
+    audio_format = output_cfg.get("format", "mp3")
 
     downloaded = 0
     failed = 0
     for item in items:
-        ok = await _download_one(item, output_cfg, options)
+        ok = await _download_one(item, output_dir, prefix, audio_format, options)
         if ok:
             downloaded += 1
         else:
