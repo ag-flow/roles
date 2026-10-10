@@ -16,6 +16,8 @@ Consommation via la passerelle MCP, namespace `roles__*`, en **ticket asynchrone
 
 ## Documentation
 
+- **Cadrage V3 (en cours)** : `docs/specs/v3/00-cadrage-service-de-transcription.md` — le module
+  devient un service de transcription ; **à lire avant les specs V2**, qui décrivent l'état antérieur
 - **Fondations V2** : `docs/specs/v2/00-fondations-v2.md` (vision, architecture, frontière des données)
 - **Protocole MCP** : `docs/specs/v2/01-protocole-mcp.md` (tools `roles__*`, cycle de vie, modèle de données)
 - **Contrat de la façade** : `docs/contracts/roles-mcp.openapi.json` (OpenAPI 3.1) + article

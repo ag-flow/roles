@@ -25,29 +25,49 @@
 Tu es connecté au MCP du portail devpod (`dev.yoops.org`) via le serveur `claude-code`.
 
 ## Projet
-Acquisition et livraison de **corpus référencé** : scraping (YouTube, Instagram, TikTok) →
-transcription → **un document docflow par vidéo**. Piloté par Claude web via la passerelle MCP,
-namespace `roles__*`, en **ticket asynchrone** (`submit_acquisition` → `select_items` →
-`request_status` → `get_corpus` incrémental). Specs fondatrices, à lire en premier et à traiter
-comme des **exigences, pas des conseils** : `docs/specs/v2/00-fondations-v2.md`,
-`docs/specs/v2/01-protocole-mcp.md` ; état des specs V1 dans `docs/specs/OBSOLETE.md`.
+> ⚠️ **Refonte V3 en cours (cadrée le 2026-10-10).** Le module devient un **service de
+> transcription** : on lui soumet du travail, il rend un résultat que l'appelant vient chercher.
+> Les décisions acquises sont ci-dessous ; **ce qui reste ouvert est dans
+> `docs/specs/v3/00-cadrage-service-de-transcription.md`** — à lire avant de coder sur le sujet.
+> Les specs V2 (`docs/specs/v2/`) décrivent l'état **antérieur** : encore utiles pour comprendre
+> le code en place, plus pour décider.
 
-**Hors périmètre, couplages interdits** : aucune synthèse, aucune notion de rôle, et **jamais** de
-proxy du contenu des transcripts (lecture via `docflow__*`). Abandonnés en V2 : synthèse, export
-ag.flow, publication GitHub, chunking/pgvector — vocabulaire V1 à ne plus employer (`role_project`,
-rôle ag.flow, signal/cluster/plan/run, prompt orchestrateur, export ZIP, chunk/embedding).
+Soumission d'un travail (URL de **chaîne** ou de **vidéo**) → transcription → résultat **stocké
+dans le service** et consommé par l'appelant, en **MCP ou en REST**. Deux points d'entrée là où
+la façade `roles__*` en expose douze.
+
+**Hors périmètre, couplages interdits** : aucune synthèse, aucune notion de rôle. Abandonnés —
+**ne pas les rouvrir, ne pas employer leur vocabulaire** : synthèse Mistral, export ag.flow,
+publication GitHub, chunking/pgvector (`role_project`, rôle ag.flow, signal/cluster/plan/run,
+prompt orchestrateur, export ZIP, chunk/embedding) ; et depuis la V3 : **dépôt docflow**,
+`get_corpus` et ses curseurs, **sélection en deux temps** (`discover_only` / `select_items`,
+filtres), **cycle d'upload** (slots présignés), **MinIO**, et le vocabulaire *corpus / dépôt /
+un document docflow par vidéo*.
 
 ## Architecture — décisions non rediscutables
 - Python 3.12 + FastAPI + **asyncpg direct** (`fetch_one`/`fetch_all`/`execute`) ; **pas de
   SQLAlchemy, pas d'ORM, pas d'Alembic**. Pydantic v2, structlog JSON.
-- **Où vit l'état** : PostgreSQL 16 (`uuid-ossp`, `pgcrypto` ; **pgvector retiré en V2**),
-  migrations SQL numérotées et immuables dans `migrations/`, `tenant_id` partout, queues en
-  `FOR UPDATE SKIP LOCKED`. Un incident en cours d'écriture ne doit **jamais** corrompre
-  l'existant, et ça se teste.
-- MinIO pour les objets (`corpus-audio`, `corpus-transcripts` en pivot JSON) — **aucun binaire
-  côté docflow**. Transcription faster-whisper GPU (pve2) + SaaS (OpenAI Whisper).
-- Scrapers : containers Docker one-shot (yt-dlp + ffmpeg), contrat **stdin JSON / stdout NDJSON
-  figé** — exception assumée, **ne pas le modifier**.
+- **Où vit l'état** : PostgreSQL 16 (`uuid-ossp`, `pgcrypto`), migrations SQL numérotées et
+  immuables dans `migrations/`, `tenant_id` partout, queues en `FOR UPDATE SKIP LOCKED`. Un
+  incident en cours d'écriture ne doit **jamais** corrompre l'existant, et ça se teste.
+  **Plus de MinIO, plus de pgvector.**
+- **Trois couches, à ne pas mélanger.** *Réception* : le travail est stocké, rien n'est traité, le
+  retour porte un **id de transaction**. *Traitement* : des workers le prennent dans l'ordre
+  d'arrivée, **le nombre de workers par source est un paramètre**, le claim est **horodaté**, et le
+  résultat va dans une **table partitionnée à la journée** dont la **rétention est un paramètre**.
+  *Restitution* : webhook rejoué **jusqu'au HTTP 200** (backoff 1-2-4…256 min).
+- **Un travail, un statut** : `en cours` / `réussi` / `terminé avec des échecs` / `échoué`, même
+  sémantique sur tout id. Une chaîne rend un id **maître** qui est un **index** : son pooling rend
+  la liste des ids, **pas** leurs résultats — un id présent dans la liste ne dit rien de son
+  avancement. `échoué` sur un maître = le maître a échoué, pas une vidéo.
+- **La consommation est une lecture simple**, répétable, **sans flag** : la donnée est disponible
+  le temps du stockage, et pas une seconde de plus.
+- Scrapers : containers Docker one-shot (yt-dlp + ffmpeg), contrat **stdin JSON / stdout NDJSON**
+  — son bloc `output` est **à revoir** avec la chute de MinIO (voir le cadrage V3).
+- **Hébergement** : VM dédiée devpod. Le backend pilote le Docker **du host** en **`DOCKER_HOST=ssh://`**
+  — pas de mTLS, pas de socket monté. Les conteneurs lancés reçoivent `--network <projet>_default`,
+  sinon ils ne résolvent pas la base. La clé SSH est un **secret système** posé dans l'application
+  (portée sans `user_id`, administrateur seulement, **écriture seule**).
 - Frontend Next.js 14 **en sursis** : ne rien y développer de nouveau sans décision de l'architecte.
 
 ### ⚠ Divergences assumées
