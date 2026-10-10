@@ -40,13 +40,13 @@ async def enter_transcription_pipeline(
     """
     await source_items_helper.update_source_item_status(
         item["source_id"], item["platform_item_id"], "audio_ready",
-        audio_s3_key=audio_key, pool=pool,
+        audio_path=audio_key, pool=pool,
     )
     if not await transcription_jobs_helper.has_job_for_item(item["id"], pool=pool):
         await transcription_jobs_helper.insert_job(
             source_item_id=item["id"],
             tenant_id=item["tenant_id"],
-            audio_s3_key=audio_key,
+            audio_path=audio_key,
             worker_pool_id="shared_default",
             pool=pool,
         )

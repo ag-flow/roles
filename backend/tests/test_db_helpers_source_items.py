@@ -147,7 +147,7 @@ async def test_update_source_item_status_executes_update(
         source_id,
         "vid-1",
         "audio_ready",
-        audio_s3_key="bucket/path.mp3",
+        audio_path="bucket/path.mp3",
         pool=stub_pool,
     )
 

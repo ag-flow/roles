@@ -75,7 +75,7 @@ async def test_insert_job_returns_uuid(stub_conn: _StubConn, stub_pool: Any) -> 
     result = await transcription_jobs.insert_job(
         source_item_id=source_item_id,
         tenant_id=tenant_id,
-        audio_s3_key="bucket/audio.mp3",
+        audio_path="bucket/audio.mp3",
         language="fr",
         worker_pool_id="user_abc",
         priority=2,

@@ -82,7 +82,7 @@ async def claim_finalize_slot(
     item_id: UUID,
     *,
     new_status: str,
-    audio_s3_key: str | None = None,
+    audio_path: str | None = None,
     pool: asyncpg.Pool,
 ) -> dict[str, Any] | None:
     """Sort atomiquement un slot de `awaiting_upload` vers `new_status`.
@@ -96,13 +96,13 @@ async def claim_finalize_slot(
     query = """
         UPDATE source_items
         SET status = $2,
-            audio_s3_key = COALESCE($3, audio_s3_key),
+            audio_path = COALESCE($3, audio_path),
             updated_at = now()
         WHERE id = $1 AND status = 'awaiting_upload'
         RETURNING *
     """
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(query, item_id, new_status, audio_s3_key)
+        row = await conn.fetchrow(query, item_id, new_status, audio_path)
     if row is None:
         return None
     return dict(row) if not isinstance(row, dict) else row

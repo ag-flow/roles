@@ -88,16 +88,16 @@ async def update_source_item_status(
     platform_item_id: str,
     status: str,
     *,
-    audio_s3_key: str | None = None,
+    audio_path: str | None = None,
     transcript_s3_key: str | None = None,
     error: str | None = None,
     pool: asyncpg.Pool,
 ) -> None:
-    """Update status (+ optional s3 keys / error) for a (source_id, platform_item_id)."""
+    """Update status (+ optional audio path / transcript key / error) for a (source_id, platform_item_id)."""
     query = """
         UPDATE source_items
         SET status = $1,
-            audio_s3_key = COALESCE($2, audio_s3_key),
+            audio_path = COALESCE($2, audio_path),
             transcript_s3_key = COALESCE($3, transcript_s3_key),
             error = COALESCE($4, error),
             updated_at = now()
@@ -105,7 +105,7 @@ async def update_source_item_status(
     """
     async with pool.acquire() as conn:
         await conn.execute(
-            query, status, audio_s3_key, transcript_s3_key, error, source_id, platform_item_id
+            query, status, audio_path, transcript_s3_key, error, source_id, platform_item_id
         )
 
 

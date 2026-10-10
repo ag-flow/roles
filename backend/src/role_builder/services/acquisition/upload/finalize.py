@@ -122,14 +122,14 @@ async def _enter_pipeline_direct(
 ) -> dict[str, Any]:
     """Média audio : claime le slot puis met l'item en queue de transcription."""
     claimed = await siu.claim_finalize_slot(
-        item["id"], new_status="audio_ready", audio_s3_key=upload_key, pool=pool
+        item["id"], new_status="audio_ready", audio_path=upload_key, pool=pool
     )
     if claimed is None:  # finalize concurrent : le slot a déjà été claimé.
         current = await source_items_helper.get_by_id(item["id"], pool=pool)
         return {"item_id": item["id"], "status": current["status"] if current else "unknown"}
     await enter_transcription_pipeline(claimed, audio_key=upload_key, pool=pool, minio=minio)
     log.info("upload.finalized", request_key=request_key, item_id=str(item["id"]),
-             audio_s3_key=upload_key)
+             audio_path=upload_key)
     return {"item_id": item["id"], "status": "queued_transcription"}
 
 

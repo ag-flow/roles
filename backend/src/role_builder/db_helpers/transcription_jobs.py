@@ -19,7 +19,7 @@ import asyncpg
 
 _INSERT_SQL = """
     INSERT INTO transcription_jobs
-        (source_item_id, tenant_id, audio_s3_key, language,
+        (source_item_id, tenant_id, audio_path, language,
          worker_pool_id, status, priority)
     VALUES ($1, $2, $3, $4, $5, 'pending', $6)
     RETURNING id
@@ -30,7 +30,7 @@ async def insert_job(
     *,
     source_item_id: UUID,
     tenant_id: UUID,
-    audio_s3_key: str,
+    audio_path: str,
     language: str | None = None,
     worker_pool_id: str,
     priority: int = 0,
@@ -42,7 +42,7 @@ async def insert_job(
             _INSERT_SQL,
             source_item_id,
             tenant_id,
-            audio_s3_key,
+            audio_path,
             language,
             worker_pool_id,
             priority,
@@ -186,7 +186,7 @@ async def list_jobs(
         where = "WHERE " + " AND ".join(clauses) + " "
 
     query = (
-        "SELECT id, source_item_id, tenant_id, audio_s3_key, language, "
+        "SELECT id, source_item_id, tenant_id, audio_path, language, "
         "worker_pool_id, status, priority, attempts, error, "
         "created_at, started_at, completed_at "
         "FROM transcription_jobs "

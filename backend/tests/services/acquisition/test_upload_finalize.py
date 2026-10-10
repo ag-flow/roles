@@ -80,11 +80,11 @@ async def test_finalize_audio_nominal(pool: asyncpg.Pool) -> None:
 
     item = await source_items_helper.get_by_id(ctx["item_id"], pool=pool)
     assert item["status"] == "queued_transcription"
-    assert item["audio_s3_key"] == ctx["upload_s3_key"]
+    assert item["audio_path"] == ctx["upload_s3_key"]
 
     jobs = await _transcription_jobs_for(pool, ctx["item_id"])
     assert len(jobs) == 1
-    assert jobs[0]["audio_s3_key"] == ctx["upload_s3_key"]
+    assert jobs[0]["audio_path"] == ctx["upload_s3_key"]
     assert jobs[0]["worker_pool_id"] == "shared_default"
     assert jobs[0]["status"] == "pending"
 

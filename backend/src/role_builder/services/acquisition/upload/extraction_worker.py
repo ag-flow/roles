@@ -120,7 +120,7 @@ class AudioExtractionWorker:
                     item, audio_key=audio_key, pool=self._pool,
                     minio=self._minio, remove_raw_key=upload_key,
                 )
-                log.info("extraction.item_ready", item_id=str(item_id), audio_s3_key=audio_key)
+                log.info("extraction.item_ready", item_id=str(item_id), audio_path=audio_key)
                 return
 
         message = str(last_error) or "AudioExtractionError"

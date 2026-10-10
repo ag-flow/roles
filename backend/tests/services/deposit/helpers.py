@@ -112,7 +112,7 @@ async def insert_item(
             """
             INSERT INTO source_items
                 (source_id, tenant_id, platform_item_id, title, duration_s,
-                 published_at, status, selected, audio_s3_key, transcript_s3_key)
+                 published_at, status, selected, audio_path, transcript_s3_key)
             VALUES ($1, $2, $3, $4, 913,
                     '2025-11-02T00:00:00+00:00', $5, $6, 'a/vid.mp3', $7)
             RETURNING id

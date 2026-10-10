@@ -78,14 +78,14 @@ async def test_worker_extracts_and_enters_pipeline(
 
     item = await source_items_helper.get_by_id(ctx["item_id"], pool=pool)
     assert item["status"] == "queued_transcription"
-    assert item["audio_s3_key"] == expected_audio_key
+    assert item["audio_path"] == expected_audio_key
     # Le brut vidéo est supprimé, seul l'audio extrait reste.
     assert (AUDIO_BUCKET, ctx["upload_s3_key"]) not in store.objects
     assert (AUDIO_BUCKET, expected_audio_key) in store.objects
 
     jobs = await _transcription_jobs_for(pool, ctx["item_id"])
     assert len(jobs) == 1
-    assert jobs[0]["audio_s3_key"] == expected_audio_key
+    assert jobs[0]["audio_path"] == expected_audio_key
     assert jobs[0]["worker_pool_id"] == "shared_default"
 
 

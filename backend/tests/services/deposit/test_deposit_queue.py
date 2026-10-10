@@ -98,7 +98,7 @@ async def test_list_deposited_for_source_with_since_and_provider(pool: asyncpg.P
     seeded = await seed_request_with_item(pool)
     async with pool.acquire() as conn:
         await conn.execute(
-            "INSERT INTO transcription_jobs (source_item_id, tenant_id, audio_s3_key, "
+            "INSERT INTO transcription_jobs (source_item_id, tenant_id, audio_path, "
             "worker_pool_id, status, provider_used, completed_at) "
             "VALUES ($1, $2, 'a/vid.mp3', 'shared_default', 'done', 'faster-whisper', now())",
             seeded["item_id"],

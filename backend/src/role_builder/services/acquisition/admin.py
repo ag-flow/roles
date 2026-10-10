@@ -121,15 +121,15 @@ async def _retry_upload_item(row: dict, *, pool: asyncpg.Pool) -> None:
             row["source_id"], row["platform_item_id"], "pending_extraction", pool=pool
         )
         return
-    audio_key = row.get("audio_s3_key") or row["upload_s3_key"]
+    audio_key = row.get("audio_path") or row["upload_s3_key"]
     await source_items_helper.update_source_item_status(
         row["source_id"], row["platform_item_id"], "audio_ready",
-        audio_s3_key=audio_key, pool=pool,
+        audio_path=audio_key, pool=pool,
     )
     await transcription_jobs_helper.insert_job(
         source_item_id=row["id"],
         tenant_id=row["tenant_id"],
-        audio_s3_key=audio_key,
+        audio_path=audio_key,
         worker_pool_id="shared_default",
         pool=pool,
     )
