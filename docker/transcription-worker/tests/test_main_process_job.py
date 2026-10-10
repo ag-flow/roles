@@ -221,8 +221,15 @@ async def test_unreadable_audio_file_fails_job_with_path_and_perms(
 async def test_process_job_computes_transcript_key_from_source_item_id(
     tmp_path: Path, patched_calls: dict[str, list[Any]],
 ) -> None:
-    """transcript_s3_key = corpus-transcripts/<source_item_id>.json — plus de
-    dérivation depuis la clef audio, qui n'est plus une clef S3."""
+    """transcript_s3_key = <source_item_id>.json — plus de dérivation depuis la
+    clef audio, qui n'est plus une clef S3.
+
+    La clef ne porte PAS le nom du bucket : `upload_transcript` la pose déjà
+    dans `corpus-transcripts`, et la préfixer produisait l'objet
+    `corpus-transcripts/corpus-transcripts/<id>.json`. La même valeur est
+    écrite en base (`result_s3_key`, `transcript_s3_key`) et relue telle quelle
+    par le worker de dépôt côté backend, qui la résout dans ce même bucket —
+    les trois assertions ci-dessous verrouillent cette cohérence."""
     from worker import main as wm
 
     audio_file = _write_audio(tmp_path)
@@ -237,7 +244,8 @@ async def test_process_job_computes_transcript_key_from_source_item_id(
 
     await wm.process_job(job, provider, pool=object(), settings=wm.settings)
 
-    expected_key = f"corpus-transcripts/{source_item_id}.json"
+    expected_key = f"{source_item_id}.json"
+    assert not expected_key.startswith("corpus-transcripts/")
     upload_key, _payload = patched_calls["upload"][0]
     assert upload_key == expected_key
     assert patched_calls["mark_done"][0]["result_s3_key"] == expected_key

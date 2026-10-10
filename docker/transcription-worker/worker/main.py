@@ -60,7 +60,8 @@ def build_provider(name: str, s: Settings) -> TranscriptionProvider:
 
 
 def _build_transcript_s3_key(source_item_id: Any) -> str:
-    """Clef du transcript dans `corpus-transcripts`, dérivée de `source_item_id`.
+    """Clef du transcript DANS le bucket `corpus-transcripts`, dérivée de
+    `source_item_id`.
 
     L'ancienne dérivation remplaçait `corpus-audio/` par `corpus-transcripts/`
     dans la clef S3 de l'audio — elle n'a plus de sens : `job["audio_path"]`
@@ -68,8 +69,15 @@ def _build_transcript_s3_key(source_item_id: Any) -> str:
     et ne porte plus aucune structure `corpus-audio/...` à transformer.
     `source_item_id` est stable et unique, et déjà remonté par le SELECT du
     job (cf. `worker/db.py::_SELECT_NEXT_JOB_SQL`).
+
+    PAS de préfixe `corpus-transcripts/` ici : `upload_transcript` pose déjà
+    cette clef DANS le bucket `corpus-transcripts`, et la préfixer produisait
+    l'objet `corpus-transcripts/corpus-transcripts/<id>.json`. Le nom du
+    bucket n'appartient pas à la clef — l'ancienne clef audio ne le portait
+    pas davantage (c'est pourquoi le `.replace("corpus-audio/", ...)` était
+    un no-op).
     """
-    return f"corpus-transcripts/{source_item_id}.json"
+    return f"{source_item_id}.json"
 
 
 def _ensure_audio_readable(audio_path: Path) -> None:
