@@ -59,12 +59,16 @@ async def _download_one(
     item: dict[str, Any],
     output_dir: Path,
     prefix: str,
-    audio_format: str,
     options: dict[str, Any],
 ) -> bool:
     """Download one item straight into the mounted volume. Returns True on success."""
     item_id = item["id"]
     item_url = item["url"]
+    # The extension comes from options.audio_format, not from output : that
+    # field already drives yt-dlp's --audio-format below, and the actual
+    # bytes written are whatever yt-dlp produced -- two fields naming the
+    # same decision always drift apart, so output stays {dir, prefix} only.
+    audio_format = options.get("audio_format", "mp3")
     final_path = output_dir / f"{prefix}{item_id}.{audio_format}"
     # prefix encodes {tenant_id}/v2/{source_id}/ : the subtree may not exist
     # yet for a brand new source on this volume.
@@ -122,12 +126,11 @@ async def run(task: dict[str, Any]) -> int:
         return 1
 
     prefix = output_cfg.get("prefix", "")
-    audio_format = output_cfg.get("format", "mp3")
 
     downloaded = 0
     failed = 0
     for item in items:
-        ok = await _download_one(item, output_dir, prefix, audio_format, options)
+        ok = await _download_one(item, output_dir, prefix, options)
         if ok:
             downloaded += 1
         else:

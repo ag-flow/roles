@@ -39,7 +39,7 @@ def _base_task(output_dir: Path, item_id: str = "v1", prefix: str = "tenant/v2/s
         "task_id": "t",
         "items": [{"id": item_id, "url": f"https://youtube.com/watch?v={item_id}"}],
         "options": {"audio_format": "mp3"},
-        "output": {"dir": str(output_dir), "prefix": prefix, "format": "mp3"},
+        "output": {"dir": str(output_dir), "prefix": prefix},
     }
 
 
@@ -96,7 +96,7 @@ async def test_output_without_dir_emits_error_event(monkeypatch: pytest.MonkeyPa
     task: dict[str, Any] = {
         "task_id": "t",
         "items": [{"id": "v1", "url": "https://youtube.com/watch?v=v1"}],
-        "output": {"prefix": "tenant/v2/source/", "format": "mp3"},  # no 'dir'
+        "output": {"prefix": "tenant/v2/source/"},  # no 'dir'
     }
     rc = await download.run(task)
     assert rc != 0
@@ -211,7 +211,7 @@ async def test_download_emits_complete_with_downloaded_and_failed_counts(
             {"id": "v2", "url": "u2"},
             {"id": "v3", "url": "u3"},
         ],
-        "output": {"dir": str(output_dir), "prefix": "p/", "format": "mp3"},
+        "output": {"dir": str(output_dir), "prefix": "p/"},
     }
     rc = await download.run(task)
     assert rc == 3  # partial failure

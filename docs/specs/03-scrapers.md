@@ -68,8 +68,7 @@ JSON unique passé sur stdin au démarrage du container :
   },
   "output": {
     "dir": "/mnt/corpus-audio",
-    "prefix": "{tenant_id}/v2/{source_id}/",
-    "format": "mp3"
+    "prefix": "{tenant_id}/v2/{source_id}/"
   }
 }
 ```
@@ -77,7 +76,10 @@ JSON unique passé sur stdin au démarrage du container :
 `output.dir` est un répertoire monté depuis le host (volume partagé avec le
 worker de transcription) ; le scraper y écrit l'audio directement, il n'y a
 plus d'upload intermédiaire vers MinIO. `prefix` est construit par le
-backend — le scraper le reçoit tel quel, sans jamais le réécrire.
+backend — le scraper le reçoit tel quel, sans jamais le réécrire. `output`
+ne porte pas de champ `format` : l'extension du fichier écrit se déduit de
+`options.audio_format`, qui pilote déjà `yt-dlp --audio-format` — un second
+champ portant la même décision ne ferait que diverger de lui avec le temps.
 
 ### Format des events NDJSON sur stdout
 
@@ -283,7 +285,6 @@ async def execute_scraping_job(job: ScrapingJob) -> None:
         "output": {
             "dir": settings.scraper_output_dir,
             "prefix": f"{job.tenant_id}/v2/{job.source.id}/",
-            "format": "mp3",
         },
     }
 
