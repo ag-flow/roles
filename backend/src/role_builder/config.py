@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     # sans toucher .env tant que l'infra n'a pas posé sa propre valeur — pas
     # de valeur sans défaut ici, sinon tout Settings() existant casse.
     audio_volume_dir: str = "/mnt/corpus-audio"
+    # Chemin CÔTÉ HOST du même volume (l'autre face du bind mount `-v
+    # host:conteneur`) : distinct de audio_volume_dir, qui est le chemin DANS
+    # le conteneur scraper. Vide par défaut, volontairement : orchestrator.py
+    # refuse tout job tant qu'il n'est pas posé (fail closed, cf. commentaire
+    # au point d'application), plutôt que de lancer un scraper dont l'écriture
+    # audio serait perdue avec son système de fichiers éphémère.
+    audio_volume_host_dir: str = ""
 
     # Sprint 3 — Transcription (clés API SaaS, vides = fallback shared)
     openai_api_key: str = ""

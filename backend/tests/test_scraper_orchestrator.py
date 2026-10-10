@@ -8,6 +8,16 @@ from uuid import uuid4
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _default_audio_volume_host_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ces tests exercent process_one_job au-delà du garde-fou host_dir (hors
+    sujet ici, défaut "" sinon) : leur poser une valeur évite de le dupliquer
+    partout. Refus couvert à part, dans test_scraper_orchestrator_audio_volume.py."""
+    from role_builder.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "audio_volume_host_dir", "/srv/audio-host", raising=False)
+
+
 @pytest.fixture()
 def calls() -> dict[str, list[Any]]:
     return {
@@ -16,7 +26,6 @@ def calls() -> dict[str, list[Any]]:
         "mark_failed": [],
         "get_source": [],
         "handle_event": [],
-        "run_container": [],
     }
 
 
@@ -285,3 +294,7 @@ async def test_process_one_job_resolves_credential_cookies(
 
     env = runner.last_env  # type: ignore[attr-defined]
     assert env.get("YOUTUBE_COOKIES_B64") == "b64-user-cookies"
+
+
+# -v et le refus fail-closed sans audio_volume_host_dir : voir
+# test_scraper_orchestrator_audio_volume.py.

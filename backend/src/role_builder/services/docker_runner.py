@@ -59,11 +59,12 @@ async def run_container(
     `{"type": "_invalid_line", "raw": str}`.
 
     `docker_args` et `extra_args` ne sont PAS interchangeables : `docker_args`
-    porte des options du CLI `docker` (ex. `-v`, `--network`) et doit précéder
-    le nom de l'image, sinon `docker run` les interprète comme la commande à
-    exécuter *dans* le conteneur. `extra_args` reste après l'image : c'est
-    bien la commande/les arguments du conteneur, un usage distinct qui existait
-    avant ce paramètre — on ne le réutilise pas pour ne pas confondre les deux.
+    porte des options du CLI `docker` (ex. `-v host:conteneur` pour monter un
+    volume) et doit précéder le nom de l'image, sinon `docker run` les
+    interprète comme la commande à exécuter *dans* le conteneur. `extra_args`
+    reste après l'image : c'est bien la commande/les arguments du conteneur,
+    un usage distinct qui existait avant ce paramètre — on ne le réutilise pas
+    pour ne pas confondre les deux.
     """
     extras = extra_args or []
     docker_opts = docker_args or []

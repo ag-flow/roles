@@ -54,6 +54,24 @@ class ScraperOrchestrator:
 
         await sj.mark_job_processing(job_id, pool=self._pool)
 
+        # Fail closed, bruyamment : sans audio_volume_host_dir, le `-v` n'a
+        # rien à monter côté host — le scraper écrirait l'audio dans le
+        # système de fichiers éphémère de SON PROPRE conteneur, qui disparaît
+        # avec lui en fin de job. Le job sortirait quand même en succès
+        # (returncode 0) : c'est exactement la panne silencieuse de BUG-01 que
+        # ce lot doit éliminer. Refuser le job, plutôt qu'un défaut de
+        # configuration invisible jusqu'à l'usage — ne pas "assouplir" ce
+        # refus en traitant un host_dir vide comme un no-op.
+        if not settings.audio_volume_host_dir:
+            err = (
+                "audio_volume_host_dir non configuré : refus de lancer le scraper, "
+                "l'audio écrit serait perdu avec le conteneur éphémère (BUG-01)"
+            )
+            log.error("orchestrator.audio_volume_host_dir_missing", job_id=str(job_id))
+            await sj.mark_job_failed(job_id, err, pool=self._pool)
+            await self._propagate_discover_failure(job, err)
+            return
+
         source = await sm.get_source(source_id, pool=self._pool)
         if source is None:
             err = f"source {source_id} not found"
@@ -66,6 +84,12 @@ class ScraperOrchestrator:
         env = await self._build_env(platform, source)
         payload = self._build_payload(job, source)
         image = f"agflow-scraper-{platform}:{settings.scraper_image_tag}"
+        # -v doit précéder l'image dans la commande docker (cf. docker_runner.
+        # run_container, paramètre docker_args) : --network n'est PAS ajouté
+        # ici — le scraper n'appelle plus aucun service interne (ni MinIO ni
+        # autre) depuis le retrait des credentials MinIO de _build_env, le
+        # bridge par défaut lui suffit pour Internet.
+        docker_args = ["-v", f"{settings.audio_volume_host_dir}:{settings.audio_volume_dir}"]
 
         log.info(
             "orchestrator.process_start",
@@ -77,7 +101,7 @@ class ScraperOrchestrator:
 
         returncode: int | None = None
         try:
-            async for event in run_container(image, env, payload):
+            async for event in run_container(image, env, payload, docker_args=docker_args):
                 if event.get("type") == "_exit":
                     returncode = int(event.get("returncode", -1))
                     continue

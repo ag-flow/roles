@@ -159,9 +159,10 @@ async def test_run_container_passes_env_args_to_docker_run(
 async def test_run_container_docker_args_precede_image_extra_args_follow(
     patch_subprocess: dict[str, Any],
 ) -> None:
-    """`docker_args` (options docker, ex. -v/--network) doivent précéder l'image ;
-    `extra_args` (commande du conteneur) doivent la suivre — les confondre fait
-    interpréter une option docker comme un argument du conteneur (ou l'inverse)."""
+    """`docker_args` (options docker, ex. `-v` pour monter un volume) doivent
+    précéder l'image ; `extra_args` (commande du conteneur) doivent la
+    suivre — les confondre fait interpréter une option docker comme un
+    argument du conteneur (ou l'inverse)."""
     from role_builder.services import docker_runner
 
     patch_subprocess["proc"] = _StubProc([], returncode=0)
@@ -172,7 +173,7 @@ async def test_run_container_docker_args_precede_image_extra_args_follow(
             "agflow-scraper-youtube:latest",
             env={},
             stdin_payload={},
-            docker_args=["-v", "/host/audio:/mnt/corpus-audio", "--network", "roles_default"],
+            docker_args=["-v", "/host/audio:/mnt/corpus-audio"],
             extra_args=["--verbose"],
         )
     ]
@@ -180,9 +181,7 @@ async def test_run_container_docker_args_precede_image_extra_args_follow(
     args = patch_subprocess["args"]
     image_idx = args.index("agflow-scraper-youtube:latest")
     v_idx = args.index("-v")
-    network_idx = args.index("--network")
     verbose_idx = args.index("--verbose")
 
     assert v_idx < image_idx
-    assert network_idx < image_idx
     assert verbose_idx > image_idx
