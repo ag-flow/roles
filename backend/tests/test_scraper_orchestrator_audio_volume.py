@@ -53,7 +53,6 @@ def patched(monkeypatch: pytest.MonkeyPatch, calls: dict[str, list[Any]]) -> Any
             "id": source_id,
             "platform": "youtube",
             "url": "https://www.youtube.com/@example",
-            "role_project_id": uuid4(),
         }
 
     async def fake_handle_event(event: dict[str, Any], job: dict[str, Any], **kw: Any) -> None:

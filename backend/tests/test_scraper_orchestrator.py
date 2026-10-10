@@ -17,6 +17,17 @@ def _default_audio_volume_host_dir(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(_settings, "audio_volume_host_dir", "/srv/audio-host", raising=False)
     monkeypatch.setattr(_settings, "audio_volume_dir", ".", raising=False)  # tâche 6
+    # `audio_volume_dir="."` fait mesurer à `shutil.disk_usage` le disque RÉEL
+    # de la machine de test ; avec le défaut `audio_min_free_gb=5`, ces tests
+    # échoueraient dès que ce disque passe sous 5 Go libres — pour une raison
+    # étrangère à leur sujet (ils exercent le pipeline, pas la garde). Hypothèse
+    # explicite : la machine de dev est partagée entre plusieurs projets et son
+    # disque est à 86 % (16 Go libres sur 109, mesuré le 2026-10-10), donc la
+    # marge est réelle mais pas infinie. Seuil à 0 ⇒ garde toujours franchie.
+    # La garde elle-même garde toute sa valeur et est couverte à part, dans
+    # tests/services/test_audio_sweeper.py (refus sous le seuil, et refus quand
+    # le répertoire est injoignable) : ne pas y reporter ce monkeypatch.
+    monkeypatch.setattr(_settings, "audio_min_free_gb", 0, raising=False)
 
 
 @pytest.fixture()
@@ -52,7 +63,6 @@ def patched(monkeypatch: pytest.MonkeyPatch, calls: dict[str, list[Any]]) -> Any
             "id": source_id,
             "platform": "youtube",
             "url": "https://www.youtube.com/@example",
-            "role_project_id": uuid4(),
         }
 
     async def fake_handle_event(event: dict[str, Any], job: dict[str, Any], **kw: Any) -> None:
@@ -263,7 +273,6 @@ async def test_process_one_job_resolves_credential_cookies(
             "id": source_id,
             "platform": "youtube",
             "url": "https://www.youtube.com/@example",
-            "role_project_id": None,
             "credentials_id": cred_id,
         }
 

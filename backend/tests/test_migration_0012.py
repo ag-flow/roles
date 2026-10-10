@@ -69,6 +69,14 @@ async def pool(request: pytest.FixtureRequest) -> AsyncIterator[asyncpg.Connecti
     db_name = f"rb_migtest_{uuid.uuid4().hex[:12]}"
     admin_conn = await asyncpg.connect(dsn=ADMIN_DSN)
     try:
+        # f-string en DDL : exception NÉCESSAIRE et VOLONTAIRE (ruling de
+        # l'architecte). asyncpg ne sait pas paramétrer un identifiant SQL —
+        # `CREATE DATABASE $1` est invalide côté Postgres, pas seulement côté
+        # pilote — et `db_name` n'est pas une entrée externe : il est construit
+        # juste au-dessus à partir d'un UUID4 local, donc `[0-9a-f]{12}` après
+        # un préfixe fixe. Ne pas "corriger" en requête paramétrée : ça ne
+        # compile pas. L'identifiant reste entre guillemets doubles pour que
+        # Postgres le traite comme un identifiant littéral.
         await admin_conn.execute(f'CREATE DATABASE "{db_name}"')
     finally:
         await admin_conn.close()
@@ -84,6 +92,8 @@ async def pool(request: pytest.FixtureRequest) -> AsyncIterator[asyncpg.Connecti
         await conn.close()
         admin_conn = await asyncpg.connect(dsn=ADMIN_DSN)
         try:
+            # Même exception volontaire qu'au CREATE ci-dessus : un identifiant
+            # de base ne se paramètre pas, et db_name reste le même UUID local.
             await admin_conn.execute(f'DROP DATABASE IF EXISTS "{db_name}" WITH (FORCE)')
         finally:
             await admin_conn.close()
