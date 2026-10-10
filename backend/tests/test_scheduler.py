@@ -79,6 +79,27 @@ def test_scheduler_start_schedules_five_jobs(
     assert rbs._started is True
 
 
+def test_scheduler_sweep_orphan_audio_uses_configured_interval(
+    monkeypatch: pytest.MonkeyPatch, stubbed_env: None
+) -> None:
+    """La période du job sweep_orphan_audio vient de settings.audio_sweep_interval_min,
+    pas d'une constante codée en dur — sinon ce réglage n'aurait aucun effet."""
+    monkeypatch.setattr(
+        "role_builder.services.scheduler.AsyncIOScheduler",
+        _FakeAsyncIOScheduler,
+    )
+    from role_builder.config import settings
+    from role_builder.services.scheduler import RoleBuilderScheduler
+
+    monkeypatch.setattr(settings, "audio_sweep_interval_min", 17, raising=False)
+
+    rbs = RoleBuilderScheduler(pool=_StubPool())
+    rbs.start()
+
+    trigger = rbs.scheduler._jobs["sweep_orphan_audio"]["trigger"]  # type: ignore[attr-defined]
+    assert trigger.interval.total_seconds() == 17 * 60
+
+
 # ---------------------------------------------------------------------------
 # Test 3 — start() idempotent
 # ---------------------------------------------------------------------------

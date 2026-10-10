@@ -10,6 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+from role_builder.config import settings
 from role_builder.db_helpers import transcription_jobs as transcription_jobs_helper
 from role_builder.db_helpers import transcription_keys as keys_helper
 from role_builder.services.audio_sweeper import sweep_orphan_audio
@@ -21,11 +22,6 @@ _BALANCE_POLL_INTERVAL_HOURS = 1
 _RESET_SPEND_DAY = 1
 _CLEANUP_HOUR = 3
 _TRANSCRIPTION_RECONCILE_INTERVAL_MIN = 2
-# Horaire plutôt qu'alignée sur la rétention (48h par défaut) : un balayage
-# fréquent coûte peu (un parcours de répertoire + une requête indexée) et
-# raccourcit la fenêtre où le disque continue de se remplir après un pic
-# d'arrivées, sans attendre un cycle entier de rétention.
-_AUDIO_SWEEP_INTERVAL_MIN = 60
 
 
 class RoleBuilderScheduler:
@@ -69,7 +65,7 @@ class RoleBuilderScheduler:
         )
         self._scheduler.add_job(
             self._sweep_orphan_audio,
-            IntervalTrigger(minutes=_AUDIO_SWEEP_INTERVAL_MIN),
+            IntervalTrigger(minutes=settings.audio_sweep_interval_min),
             id="sweep_orphan_audio",
             replace_existing=True,
         )

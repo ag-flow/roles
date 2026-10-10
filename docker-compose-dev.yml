@@ -53,6 +53,18 @@ services:
       TIKTOK_COOKIES_B64: ${TIKTOK_COOKIES_B64:-}
       MAX_CONCURRENT_SCRAPERS: ${MAX_CONCURRENT_SCRAPERS:-5}
       SCRAPER_IMAGE_TAG: ${SCRAPER_IMAGE_TAG:-${IMAGE_TAG:-latest}}
+      # Relais audio volume local (tâches 3/4/6) : le backend balaie les
+      # orphelins et mesure l'espace libre sur CE répertoire — il doit donc
+      # voir le MÊME volume que les conteneurs scraper/worker qu'il lance.
+      # AUDIO_VOLUME_DIR a un défaut (aligné sur celui de Settings) ; pas
+      # AUDIO_VOLUME_HOST_DIR : une valeur par défaut rendrait le réglage non
+      # vide et désarmerait DÉFINITIVEMENT les gardes fail-closed des tâches
+      # 3/4/6 (audio_volume_host_dir vide, répertoire introuvable) — elles ne
+      # pourraient plus jamais se déclencher. `:?` fait échouer CE compose
+      # avec un message lisible ; les gardes applicatives restent le filet
+      # pour un backend lancé hors compose (ex. `uvicorn --reload` en local).
+      AUDIO_VOLUME_DIR: ${AUDIO_VOLUME_DIR:-/mnt/corpus-audio}
+      AUDIO_VOLUME_HOST_DIR: ${AUDIO_VOLUME_HOST_DIR:?AUDIO_VOLUME_HOST_DIR doit être posé dans .env (chemin HOST du volume audio partagé scraper/worker/backend, cf. .env.example) — ne JAMAIS lui donner de défaut, voir commentaire ci-dessus}
       # Clés SaaS de transcription
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
@@ -78,6 +90,10 @@ services:
     volumes:
       # Cross-app launcher menu — éditable côté CT sans rebuild
       - ./apps.json:/app/apps.json:ro
+      # Même volume audio que les conteneurs scraper/worker (cf. commentaire
+      # sur AUDIO_VOLUME_HOST_DIR ci-dessus) : le balayeur d'orphelins et la
+      # garde disque du backend en ont besoin pour voir les mêmes fichiers.
+      - ${AUDIO_VOLUME_HOST_DIR:?AUDIO_VOLUME_HOST_DIR doit être posé dans .env — voir .env.example}:${AUDIO_VOLUME_DIR:-/mnt/corpus-audio}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
 

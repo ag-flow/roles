@@ -71,6 +71,11 @@ class Settings(BaseSettings):
     # remplir le disque en silence — même discipline fail closed que
     # audio_volume_host_dir vide (BUG-01).
     audio_min_free_gb: int = 5
+    # Période du job périodique de balayage (scheduler.py). Paramétré comme
+    # worker_auto_stop_period_s plutôt que codé en dur : une période
+    # arbitraire à côté de périodes paramétrées inviterait un « pourquoi
+    # celle-ci est différente » que personne ne pourrait trancher.
+    audio_sweep_interval_min: int = 60
 
     # Sprint 3 — Transcription (clés API SaaS, vides = fallback shared)
     openai_api_key: str = ""
