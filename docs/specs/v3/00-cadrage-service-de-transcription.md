@@ -185,19 +185,47 @@ chez OpenAI Whisper, **~78 $** chez Deepgram.
 Volume mappé vers un chemin local du host. Et la décision 14 fait disparaître la frontière entre
 machines qui rendait ce relais difficile : plus de worker GPU sur pve2 à alimenter.
 
-### B. Le bloc `output` du contrat scraper — **réduite, mais réelle**
+### B. ~~Le bloc `output` du contrat scraper~~ — **tranchée** (décision 15)
 
-Le contrat **stdin JSON / stdout NDJSON** est déclaré figé, et son payload porte :
+Le champ `type` est **supprimé**. Il n'avait qu'une valeur (`"minio"`), personne ne le validait,
+personne ne branchait dessus : il donnait l'illusion d'un point d'extension sans en être un.
 
-```json
-"output": { "type":"minio", "endpoint":…, "bucket":"corpus-audio",
-            "prefix":…, "access_key":…, "secret_key":… }
-```
+La garantie que le dispatch devait apporter est obtenue autrement : le scraper **valide son
+entrée à l'arrivée** et émet un event `error` explicite si `output` n'a pas la forme attendue.
+Sans ça, un backend neuf face à une image périmée meurt sur `KeyError: 'endpoint'` dans un
+uploader MinIO — on débogue au mauvais endroit alors que la cause est un écart de version
+(`SCRAPER_IMAGE_TAG` permet d'épingler les scrapers à un tag différent du backend).
 
-Le champ `type` existe, mais **le scraper ne dispatche pas dessus** : `download.py:9` importe
-`minio_uploader` en dur. Ajouter `"type":"local"` n'est donc **pas** une extension compatible —
-il faut toucher aux trois images de scrapers. Rupture modeste, mais à annoncer avant d'être
-écrite.
+### 15. Le contrat scraper : `output` perd son `type`, l'audio reste sur place
+
+Le changement est une **suppression**, pas une réécriture :
+
+| Fichier | Ce qui change |
+|---|---|
+| `download.py` | `local_path` pointe dans le répertoire monté ; l'upload disparaît ; **on cesse de supprimer le fichier** ; l'event émet `audio_path` au lieu de `audio_s3_key` |
+| `minio_uploader.py` | **supprimé** (45 lignes) |
+| `base/requirements.txt` | `minio>=7.2` retiré — allège les **trois** images |
+| `scraper_orchestrator._build_payload` | nouveau bloc `output`, et le consommateur d'events lit le nouveau champ |
+| `docs/specs/03-scrapers.md` | révisé **dans le même changement** — le contrat y est spécifié ligne 69 (`output`) et ligne 88 (`item_done`) |
+
+`audio_s3_key` est **renommé** `audio_path`, pas réutilisé : un champ nommé `s3_key` contenant un
+chemin de fichier induirait en erreur pendant des années.
+
+Trois constats ont rendu ce changement bien plus petit qu'annoncé :
+
+- **instagram et tiktok sont des stubs** (31 et 26 lignes d'`entrypoint`, aucune logique de
+  téléchargement) : seul le scraper youtube a du vrai code à modifier ;
+- `_tmp_dir()` renvoie déjà `tempfile.gettempdir()` et son docstring le dit « overridable » : le
+  scraper **écrivait déjà** dans un chemin local ;
+- `minio` est dans l'image de **base**, donc son retrait profite aux trois.
+
+Au passage, la spec 03 était déjà en retard : son `prefix` documenté est
+`"{tenant_id}/{role_id}/{source_id}/"` avec un `role_id` retiré par la migration 0011, alors que
+le code construit `{tenant_id}/v2/{source_id}/`.
+
+---
+
+## Tensions à lever avant de coder
 
 ### D. Personne ne nettoie les fichiers audio
 
@@ -207,6 +235,14 @@ paramétrée porte sur la **table de résultat partitionnée**, pas sur les fich
 Une chaîne de trois cents vidéos représente plusieurs dizaines de Go d'audio sur le disque d'une
 VM dédiée. Il faut dire **qui supprime et quand**, et prévoir le cas **disque plein** — qui arrête
 tout sans prévenir.
+
+**Cette tension n'est plus reportable** : c'est la ligne `local_path.unlink(missing_ok=True)` de
+`download.py` qui empêchait aujourd'hui le disque de se remplir, et la décision 15 la retire. La
+question « qui supprime l'audio » fait donc partie de ce changement, pas d'un suivant.
+
+Un piège qui va avec, et qui ne se voit qu'à l'exécution : **les droits sur le montage**. Le
+scraper écrit avec l'utilisateur de son conteneur ; ce qui pousse l'audio vers le service distant
+doit pouvoir le **lire**.
 
 ### C. Simplification, ou nouveau module ?
 
