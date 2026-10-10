@@ -66,7 +66,7 @@ un document docflow par vidéo*.
   — son bloc `output` est **à revoir** avec la chute de MinIO (voir le cadrage V3). L'audio passe
   par un **volume mappé sur un chemin local** du host — plus de MinIO, plus d'upload, pour
   l'audio : `audio_volume_dir`/`audio_volume_host_dir` (chemins conteneur/host du montage) et la
-  garde `audio_orphan_retention_h`/`audio_min_free_gb` (balayeur d'orphelins, `audio_sweeper.py`).
+  garde `audio_orphan_retention_h`/`audio_min_free_gb`/`audio_sweep_interval_min` (balayeur d'orphelins, `audio_sweeper.py`).
 - **La transcription est TOUJOURS un service distant**, et c'est **l'utilisateur qui choisit
   lequel** dans son paramétrage. Whisper n'est **jamais** sur la machine : plus de faster-whisper
   local, plus de GPU, plus de pve2. Conséquence : tout est payant, et c'est la **clé de

@@ -11,7 +11,6 @@ Cap simultané : `settings.max_concurrent_scrapers` via `asyncio.Semaphore`.
 from __future__ import annotations
 
 import asyncio
-import shutil
 from typing import Any
 
 import asyncpg
@@ -22,6 +21,7 @@ from role_builder.db_helpers import acquisition_requests as ar
 from role_builder.db_helpers import scraping_jobs as sj
 from role_builder.db_helpers import sources as sm
 from role_builder.db_helpers.credentials import get_cookies_b64, get_credential_by_id
+from role_builder.services.audio_sweeper import check_disk_guard
 from role_builder.services.docker_runner import run_container
 from role_builder.services.event_handlers import handle_scraper_event
 from role_builder.services.secret_store import (
@@ -29,8 +29,6 @@ from role_builder.services.secret_store import (
 )
 
 log = structlog.get_logger(__name__)
-
-_BYTES_PER_GB = 1024**3
 
 # Defaults applied to the stdin payload when not overridden at the job level.
 _DEFAULT_OPTIONS = {
@@ -58,73 +56,37 @@ class ScraperOrchestrator:
         await sj.mark_job_processing(job_id, pool=self._pool)
 
         # Fail closed, bruyamment : sans audio_volume_host_dir, le `-v` n'a
-        # rien à monter côté host — le scraper écrirait l'audio dans le
-        # système de fichiers éphémère de SON PROPRE conteneur, qui disparaît
-        # avec lui en fin de job. Le job sortirait quand même en succès
-        # (returncode 0) : c'est exactement la panne silencieuse de BUG-01 que
-        # ce lot doit éliminer. Refuser le job, plutôt qu'un défaut de
-        # configuration invisible jusqu'à l'usage — ne pas "assouplir" ce
-        # refus en traitant un host_dir vide comme un no-op.
+        # rien à monter côté host — l'audio écrit disparaîtrait avec le
+        # conteneur éphémère, en succès silencieux (BUG-01). Ne pas traiter
+        # un host_dir vide comme un no-op.
         if not settings.audio_volume_host_dir:
-            err = (
+            await self._fail_job(
+                job,
+                job_id,
                 "audio_volume_host_dir non configuré : refus de lancer le scraper, "
-                "l'audio écrit serait perdu avec le conteneur éphémère (BUG-01)"
+                "l'audio écrit serait perdu avec le conteneur éphémère (BUG-01)",
+                "orchestrator.audio_volume_host_dir_missing",
             )
-            log.error("orchestrator.audio_volume_host_dir_missing", job_id=str(job_id))
-            await sj.mark_job_failed(job_id, err, pool=self._pool)
-            await self._propagate_discover_failure(job, err)
             return
 
-        # Garde disque (tâche 6) : un répertoire monté n'a aucun cycle de vie
-        # propre (le balayeur d'orphelins ratisse ce que la rétention laisse
-        # passer, mais un pic d'arrivées peut remplir le disque plus vite
-        # qu'elle ne le vide). shutil.disk_usage fait un appel système
-        # bloquant (statvfs) : jamais en direct dans cette coroutine — d'où
-        # l'asyncio.to_thread, pas une justification de confort.
-        try:
-            free_gb = await asyncio.to_thread(self._free_disk_gb)
-        except OSError as exc:
-            # audio_volume_dir illisible ou absent DEPUIS CE PROCESSUS (hors
-            # de son contrôle : droits, montage manquant) — on ne sait donc
-            # pas s'il reste de la place. Refuser plutôt que de laisser le
-            # job avancer sur une garde qu'on ne peut pas vérifier : même
-            # discipline fail closed que audio_volume_host_dir vide
-            # ci-dessus, pas un relâchement pour ce cas-ci.
-            err = (
-                f"garde disque indisponible : {settings.audio_volume_dir} "
-                f"inaccessible depuis l'orchestrateur ({exc}) — refus du job "
-                "plutôt que de tourner sans visibilité sur l'espace restant"
-            )
-            log.error(
-                "orchestrator.disk_guard_unavailable",
-                job_id=str(job_id),
-                audio_volume_dir=settings.audio_volume_dir,
-            )
-            await sj.mark_job_failed(job_id, err, pool=self._pool)
-            await self._propagate_discover_failure(job, err)
-            return
-        if free_gb < settings.audio_min_free_gb:
-            err = (
-                f"espace disque insuffisant sur {settings.audio_volume_dir} : "
-                f"{free_gb:.1f} Go libres < {settings.audio_min_free_gb} Go requis "
-                "(fail closed : refus du job plutôt que de remplir le disque en silence)"
-            )
-            log.error(
-                "orchestrator.disk_space_low",
-                job_id=str(job_id),
-                free_gb=round(free_gb, 1),
-                min_free_gb=settings.audio_min_free_gb,
-            )
-            await sj.mark_job_failed(job_id, err, pool=self._pool)
-            await self._propagate_discover_failure(job, err)
+        # Garde disque (tâche 6) : déléguée à audio_sweeper.py, qui porte déjà
+        # les préoccupations disque de ce volume (balayage d'orphelins) —
+        # pas une responsabilité de cet orchestrateur.
+        guard = await check_disk_guard()
+        if guard is not None:
+            err, log_fields = guard
+            await self._fail_job(job, job_id, err, "orchestrator.disk_guard_refused", **log_fields)
             return
 
         source = await sm.get_source(source_id, pool=self._pool)
         if source is None:
-            err = f"source {source_id} not found"
-            log.error("orchestrator.source_missing", job_id=str(job_id), source_id=str(source_id))
-            await sj.mark_job_failed(job_id, err, pool=self._pool)
-            await self._propagate_discover_failure(job, err)
+            await self._fail_job(
+                job,
+                job_id,
+                f"source {source_id} not found",
+                "orchestrator.source_missing",
+                source_id=str(source_id),
+            )
             return
 
         platform = source["platform"]
@@ -154,17 +116,24 @@ class ScraperOrchestrator:
                     continue
                 await handle_scraper_event(event, job, pool=self._pool)
         except Exception as exc:  # noqa: BLE001 — orchestrator must keep running
-            log.exception("orchestrator.process_error", job_id=str(job_id))
-            await sj.mark_job_failed(job_id, f"orchestrator error: {exc}", pool=self._pool)
-            await self._propagate_discover_failure(job, f"orchestrator error: {exc}")
+            await self._fail_job(
+                job,
+                job_id,
+                f"orchestrator error: {exc}",
+                "orchestrator.process_error",
+                exc_info=True,
+            )
             return
 
         if returncode == 0:
             await sj.mark_job_done(job_id, pool=self._pool)
         else:
-            err = f"scraper exited with returncode {returncode}"
-            await sj.mark_job_failed(job_id, err, pool=self._pool)
-            await self._propagate_discover_failure(job, err)
+            await self._fail_job(
+                job,
+                job_id,
+                f"scraper exited with returncode {returncode}",
+                "orchestrator.returncode_nonzero",
+            )
 
     async def run_loop(self, stop_event: asyncio.Event) -> None:
         """Long-lived worker loop. Pulls pending jobs and dispatches them.
@@ -223,11 +192,28 @@ class ScraperOrchestrator:
 
     # --- internals -------------------------------------------------------
 
-    def _free_disk_gb(self) -> float:
-        """Go libres sur le volume audio. Bloquant (statvfs) : à appeler via
-        `asyncio.to_thread`, jamais directement depuis une coroutine."""
-        usage = shutil.disk_usage(settings.audio_volume_dir)
-        return usage.free / _BYTES_PER_GB
+    async def _fail_job(
+        self,
+        job: dict[str, Any],
+        job_id: Any,
+        err: str,
+        event: str,
+        *,
+        exc_info: bool = False,
+        **log_fields: Any,
+    ) -> None:
+        """Factorise log + mark_job_failed + propagation, répétés à chaque
+        sortie en échec de `process_one_job`. L'appelant garde le `return`.
+        `exc_info=True` (le seul site avec une exception inattendue) bascule
+        sur `log.exception` pour capturer la trace ; les autres refus sont
+        des décisions attendues (`log.error` suffit).
+        """
+        if exc_info:
+            log.exception(event, job_id=str(job_id), **log_fields)
+        else:
+            log.error(event, job_id=str(job_id), **log_fields)
+        await sj.mark_job_failed(job_id, err, pool=self._pool)
+        await self._propagate_discover_failure(job, err)
 
     async def _propagate_discover_failure(self, job: dict[str, Any], reason: str) -> None:
         """Un job `discover` échoué doit sortir la requête de `discovering`.
