@@ -99,7 +99,7 @@ async def test_claim_next_job_select_for_update_skip_locked_then_update(
     job_row = {
         "id": job_id,
         "source_item_id": uuid4(),
-        "audio_s3_key": "corpus-audio/x.mp3",
+        "audio_path": "/mnt/corpus-audio/tenant/v2/src/x.mp3",
         "language": "fr",
         "worker_pool_id": "shared_default",
         "attempts": 0,
@@ -118,6 +118,10 @@ async def test_claim_next_job_select_for_update_skip_locked_then_update(
     assert "SKIP LOCKED" in select_query
     assert "pending" in select_query
     assert "shared_default" in select_args
+    # Colonne renommée par la migration 0012 — la SELECT doit suivre le
+    # schéma réel (`audio_s3_key` n'existe plus sur transcription_jobs).
+    assert "audio_path" in select_query
+    assert "audio_s3_key" not in select_query
     # UPDATE → status='claimed', worker assigné, attempts incremente
     update_query, update_args = stub_conn.calls[1][1], stub_conn.calls[1][2]
     assert "UPDATE transcription_jobs" in update_query

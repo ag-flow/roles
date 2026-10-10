@@ -6,16 +6,18 @@ Cycle (cf. spec 04 § Architecture du worker) :
         update_worker_status(idle, last_activity_at)
     update_worker_status(stopped) + close pool
 
-`process_job` télécharge l'audio MinIO, le passe au provider, upload le pivot,
-et propage le statut au source_item. `handle_error` classifie l'exception et
-trace dans `error_history`.
+`process_job` lit l'audio depuis le volume local partagé avec le scraper
+(plus de téléchargement MinIO, cf. migration 0012 / lot "relais audio volume
+local"), le passe au provider, upload le pivot, et propage le statut au
+source_item. `handle_error` classifie l'exception et trace dans `error_history`.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
-import tempfile
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -34,7 +36,7 @@ from worker.db import (
     update_worker_status,
 )
 from worker.error_classifier import classify_error
-from worker.minio_client import download_audio, upload_transcript
+from worker.minio_client import upload_transcript
 from worker.providers.base import TranscriptionProvider
 
 log = structlog.get_logger(__name__)
@@ -57,11 +59,44 @@ def build_provider(name: str, s: Settings) -> TranscriptionProvider:
     raise ValueError(f"Unknown provider: {name}")
 
 
-def _build_transcript_s3_key(audio_s3_key: str) -> str:
-    """Convention : corpus-audio/<path>.mp3 → corpus-transcripts/<path>.json."""
-    base = audio_s3_key.replace("corpus-audio/", "corpus-transcripts/", 1)
-    head, _, _ext = base.rpartition(".")
-    return f"{head}.json" if head else f"{base}.json"
+def _build_transcript_s3_key(source_item_id: Any) -> str:
+    """Clef du transcript dans `corpus-transcripts`, dérivée de `source_item_id`.
+
+    L'ancienne dérivation remplaçait `corpus-audio/` par `corpus-transcripts/`
+    dans la clef S3 de l'audio — elle n'a plus de sens : `job["audio_path"]`
+    est désormais un chemin de fichier sur le volume local, pas une clef S3,
+    et ne porte plus aucune structure `corpus-audio/...` à transformer.
+    `source_item_id` est stable et unique, et déjà remonté par le SELECT du
+    job (cf. `worker/db.py::_SELECT_NEXT_JOB_SQL`).
+    """
+    return f"corpus-transcripts/{source_item_id}.json"
+
+
+def _ensure_audio_readable(audio_path: Path) -> None:
+    """Vérifie, avant toute tentative de transcription, que l'audio écrit par
+    le scraper est lisible par ce worker.
+
+    Le scraper et ce worker tournent dans des conteneurs distincts qui
+    partagent un même bind mount (volume local, plus de relais MinIO) : rien
+    ne garantit que leurs uid/gid côté host concordent. Un message générique
+    ("échec de lecture") enverrait déboguer côté provider de transcription au
+    lieu du bind mount — on nomme donc explicitement le chemin ET les droits
+    actuels du fichier (axe de revue dédié de ce lot).
+    """
+    if not audio_path.exists():
+        raise FileNotFoundError(
+            f"Audio introuvable sur le volume partagé : {audio_path}"
+        )
+    if not os.access(audio_path, os.R_OK):
+        st = audio_path.stat()
+        mode = stat.filemode(st.st_mode)
+        raise PermissionError(
+            f"Audio illisible par le worker : {audio_path} "
+            f"(droits actuels {mode}, uid={st.st_uid}, gid={st.st_gid}) — "
+            "l'utilisateur du conteneur worker n'a pas accès en lecture à ce "
+            "fichier sur le bind mount partagé avec le scraper (uid/gid "
+            "potentiellement différents entre les deux conteneurs)."
+        )
 
 
 async def process_job(
@@ -70,34 +105,43 @@ async def process_job(
     pool: asyncpg.Pool,
     settings: Settings,
 ) -> None:
-    """Traite un job claimé : download → transcribe → upload → mark_done."""
-    audio_path = Path(tempfile.gettempdir()) / f"{job['id']}.audio"
-    download_audio(job["audio_s3_key"], audio_path)
-    try:
-        pivot = await provider.transcribe(
-            str(audio_path), language=job.get("language"),
-        )
-        cost = provider.estimate_cost(pivot.duration_s)
-        pivot.metadata["cost_estimate_usd"] = cost
+    """Traite un job claimé : lit l'audio sur disque → transcribe → upload → mark_done."""
+    audio_path = Path(job["audio_path"])
+    _ensure_audio_readable(audio_path)
 
-        transcript_key = _build_transcript_s3_key(job["audio_s3_key"])
-        upload_transcript(transcript_key, pivot.to_dict())
+    pivot = await provider.transcribe(
+        str(audio_path), language=job.get("language"),
+    )
+    cost = provider.estimate_cost(pivot.duration_s)
+    pivot.metadata["cost_estimate_usd"] = cost
 
-        await mark_job_done(
-            job["id"],
-            provider_used=provider.name,
-            cost_estimate_usd=cost,
-            cost_actual_usd=None,
-            result_s3_key=transcript_key,
-            pool=pool,
-        )
-        await update_source_item_to_transcribed(
-            job["source_item_id"], transcript_key, pool=pool,
-        )
-        # V2 : le pipeline s'arrête à `transcribed` → dépôt docflow (côté
-        # backend). Le chunking/indexation pgvector (Sprint 4) est abandonné.
-    finally:
-        audio_path.unlink(missing_ok=True)
+    transcript_key = _build_transcript_s3_key(job["source_item_id"])
+    upload_transcript(transcript_key, pivot.to_dict())
+
+    await mark_job_done(
+        job["id"],
+        provider_used=provider.name,
+        cost_estimate_usd=cost,
+        cost_actual_usd=None,
+        result_s3_key=transcript_key,
+        pool=pool,
+    )
+    await update_source_item_to_transcribed(
+        job["source_item_id"], transcript_key, pool=pool,
+    )
+    # V2 : le pipeline s'arrête à `transcribed` → dépôt docflow (côté
+    # backend). Le chunking/indexation pgvector (Sprint 4) est abandonné.
+
+    # Suppression DÉLIBÉRÉMENT après coup, jamais dans un `finally` : si
+    # transcribe/upload/mark_done échoue plus haut, l'exception interrompt
+    # cette fonction avant d'arriver ici et l'audio reste sur le disque — un
+    # retry doit retrouver quelque chose à transcrire (décision actée par
+    # l'architecte, lot "relais audio volume local"). Ne pas "nettoyer" ceci
+    # dans un `finally` de bonne foi : ça supprimerait aussi sur échec.
+    # Appel synchrone acceptable (même convention que la lecture audio de
+    # openai_whisper.py) : simple unlink d'un fichier déjà traité, une seule
+    # fois par job — pas de dépendance anyio/trio pour ça.
+    audio_path.unlink(missing_ok=True)  # noqa: ASYNC240
 
 
 async def handle_error(

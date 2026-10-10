@@ -1,9 +1,13 @@
-"""Tests pour worker.minio_client — wrappers download_audio + upload_transcript."""
+"""Tests pour worker.minio_client — wrapper upload_transcript.
+
+L'audio n'est plus un objet MinIO (cf. migration 0012 / lot "relais audio
+volume local") : il est lu directement sur un volume local partagé par
+`worker.main.process_job`. Seul le pivot JSON de sortie reste ici.
+"""
 from __future__ import annotations
 
 import json
 from io import BytesIO
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -13,13 +17,7 @@ class _StubMinio:
     """Stub minimal de minio.Minio pour les tests."""
 
     def __init__(self) -> None:
-        self.fget_calls: list[tuple[str, str, str]] = []
         self.put_calls: list[tuple[str, str, bytes, str | None]] = []
-
-    def fget_object(self, bucket: str, key: str, dest: str) -> None:
-        self.fget_calls.append((bucket, key, dest))
-        # Simule l'écriture du fichier en local pour permettre les vérifs aval.
-        Path(dest).write_bytes(b"fake-audio")
 
     def put_object(
         self,
@@ -44,22 +42,6 @@ def stub_minio(monkeypatch: pytest.MonkeyPatch) -> _StubMinio:
     # Force la recréation du client cached
     monkeypatch.setattr(minio_client, "_client", None, raising=False)
     return stub
-
-
-def test_download_audio_uses_corpus_audio_bucket_and_writes_dest(
-    tmp_path: Path, stub_minio: _StubMinio
-) -> None:
-    """download_audio appelle fget_object('corpus-audio', s3_key, dest_path)."""
-    from worker.minio_client import download_audio
-
-    dest = tmp_path / "x.mp3"
-    download_audio("corpus-audio/foo/bar.mp3", dest)
-
-    assert stub_minio.fget_calls == [
-        ("corpus-audio", "corpus-audio/foo/bar.mp3", str(dest)),
-    ]
-    assert dest.exists()
-    assert dest.read_bytes() == b"fake-audio"
 
 
 def test_upload_transcript_writes_json_to_corpus_transcripts(

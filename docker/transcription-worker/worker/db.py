@@ -21,7 +21,7 @@ import asyncpg
 # ─── Jobs ────────────────────────────────────────────────────────────────────
 
 _SELECT_NEXT_JOB_SQL = """
-    SELECT id, source_item_id, audio_s3_key, language,
+    SELECT id, source_item_id, audio_path, language,
            worker_pool_id, attempts
     FROM transcription_jobs
     WHERE status = 'pending'

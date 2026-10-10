@@ -1,7 +1,11 @@
-"""Tests pour worker.main — process_job, handle_error, build_provider."""
+"""Tests pour worker.main — handle_error, build_provider.
+
+Les tests de `process_job` (lecture de l'audio sur le volume local,
+suppression après succès) vivent dans test_main_process_job.py — scindé pour
+rester sous la limite de 300 lignes par fichier.
+"""
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -46,118 +50,16 @@ class _StubProvider:
 
 @pytest.fixture()
 def patched_calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
-    """Patch download_audio, upload_transcript et helpers db dans worker.main.
-
-    Retourne un dict 'calls' qui collecte tous les appels pour vérif aval.
-    """
+    """Patch mark_job_failed dans worker.main pour les tests de handle_error."""
     from worker import main as wm
 
-    calls: dict[str, list[Any]] = {
-        "download": [], "upload": [], "mark_done": [],
-        "mark_failed": [], "update_item": [],
-    }
-
-    def fake_download(s3_key: str, dest: Path) -> None:
-        calls["download"].append((s3_key, dest))
-        Path(dest).write_bytes(b"fake-audio")
-
-    def fake_upload(s3_key: str, payload: dict[str, Any]) -> None:
-        calls["upload"].append((s3_key, payload))
-
-    async def fake_mark_done(job_id: Any, **kwargs: Any) -> None:
-        calls["mark_done"].append({"job_id": job_id, **kwargs})
+    calls: dict[str, list[Any]] = {"mark_failed": []}
 
     async def fake_mark_failed(job_id: Any, **kwargs: Any) -> None:
         calls["mark_failed"].append({"job_id": job_id, **kwargs})
 
-    async def fake_update_item(item_id: Any, key: str, **kwargs: Any) -> None:
-        calls["update_item"].append({"item_id": item_id, "key": key})
-
-    monkeypatch.setattr(wm, "download_audio", fake_download)
-    monkeypatch.setattr(wm, "upload_transcript", fake_upload)
-    monkeypatch.setattr(wm, "mark_job_done", fake_mark_done)
     monkeypatch.setattr(wm, "mark_job_failed", fake_mark_failed)
-    monkeypatch.setattr(wm, "update_source_item_to_transcribed", fake_update_item)
     return calls
-
-
-async def test_process_job_chains_download_transcribe_upload_mark_done(
-    patched_calls: dict[str, list[Any]],
-) -> None:
-    """process_job exécute download → transcribe → upload → mark_done → update_item."""
-    from worker import main as wm
-
-    job = {
-        "id": uuid4(),
-        "source_item_id": uuid4(),
-        "audio_s3_key": "corpus-audio/podcast/abc.mp3",
-        "language": "fr",
-    }
-    provider = _StubProvider()
-
-    await wm.process_job(job, provider, pool=object(), settings=wm.settings)
-
-    # Download appelé une fois avec le bon s3_key
-    assert len(patched_calls["download"]) == 1
-    assert patched_calls["download"][0][0] == "corpus-audio/podcast/abc.mp3"
-    # Transcribe appelé avec le path local et le language du job
-    assert len(provider.transcribe_calls) == 1
-    assert provider.transcribe_calls[0]["language"] == "fr"
-    # Upload appelé une fois
-    assert len(patched_calls["upload"]) == 1
-    # mark_job_done appelé une fois
-    assert len(patched_calls["mark_done"]) == 1
-    assert patched_calls["mark_done"][0]["provider_used"] == "openai-whisper"
-    # update_source_item_to_transcribed appelé une fois
-    assert len(patched_calls["update_item"]) == 1
-    assert patched_calls["update_item"][0]["item_id"] == job["source_item_id"]
-
-
-async def test_process_job_computes_transcript_s3_key(
-    patched_calls: dict[str, list[Any]],
-) -> None:
-    """transcript_s3_key = audio_s3_key avec corpus-audio→corpus-transcripts + .json."""
-    from worker import main as wm
-
-    job = {
-        "id": uuid4(),
-        "source_item_id": uuid4(),
-        "audio_s3_key": "corpus-audio/yt/2026/abc.mp3",
-        "language": None,
-    }
-    provider = _StubProvider()
-
-    await wm.process_job(job, provider, pool=object(), settings=wm.settings)
-
-    expected_key = "corpus-transcripts/yt/2026/abc.json"
-    upload_key, _payload = patched_calls["upload"][0]
-    assert upload_key == expected_key
-    assert patched_calls["mark_done"][0]["result_s3_key"] == expected_key
-    assert patched_calls["update_item"][0]["key"] == expected_key
-
-
-async def test_process_job_injects_cost_estimate_in_metadata(
-    patched_calls: dict[str, list[Any]],
-) -> None:
-    """process_job ajoute cost_estimate_usd dans pivot.metadata avant l'upload."""
-    from worker import main as wm
-
-    job = {
-        "id": uuid4(),
-        "source_item_id": uuid4(),
-        "audio_s3_key": "corpus-audio/x.mp3",
-        "language": None,
-    }
-    provider = _StubProvider()
-
-    await wm.process_job(job, provider, pool=object(), settings=wm.settings)
-
-    _key, payload = patched_calls["upload"][0]
-    # 120s * 0.006/60 = 0.012
-    assert payload["metadata"]["cost_estimate_usd"] == pytest.approx(0.012)
-    assert "transcribed_at" in payload["metadata"]
-    # mark_job_done reçoit la même valeur
-    assert patched_calls["mark_done"][0]["cost_estimate_usd"] == pytest.approx(0.012)
 
 
 async def test_handle_error_402_classifies_exhausted_and_marks_failed(
@@ -170,7 +72,7 @@ async def test_handle_error_402_classifies_exhausted_and_marks_failed(
     job = {
         "id": uuid4(),
         "source_item_id": uuid4(),
-        "audio_s3_key": "corpus-audio/x.mp3",
+        "audio_path": "/mnt/corpus-audio/x.mp3",
         "language": None,
         "worker_pool_id": "user_abc",
     }
@@ -203,7 +105,7 @@ async def test_handle_error_generic_exception_marks_failed_unknown_or_transient(
     job = {
         "id": uuid4(),
         "source_item_id": uuid4(),
-        "audio_s3_key": "corpus-audio/x.mp3",
+        "audio_path": "/mnt/corpus-audio/x.mp3",
         "language": None,
         "worker_pool_id": "shared_default",
     }

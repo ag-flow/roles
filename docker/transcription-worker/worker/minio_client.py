@@ -1,14 +1,17 @@
-"""Wrappers MinIO pour le worker (download audio + upload transcript JSON).
+"""Wrapper MinIO pour le worker (upload du transcript JSON uniquement).
 
-Buckets (cf. spec 04 § Process d'un job) :
-- corpus-audio       : input audio (.mp3, .wav…) téléchargé via fget_object
+Bucket (cf. spec 04 § Process d'un job) :
 - corpus-transcripts : output transcript JSON (format pivot) uploadé via put_object
+
+L'audio d'entrée ne transite plus par MinIO (cf. migration 0012 / lot "relais
+audio volume local") : le scraper l'écrit directement sur un volume local
+partagé, et `worker.main.process_job` le lit sur disque via `job["audio_path"]`.
+Le bucket `corpus-audio` et le téléchargement associé n'ont donc plus d'objet.
 """
 from __future__ import annotations
 
 import json
 from io import BytesIO
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -16,7 +19,6 @@ from minio import Minio
 
 from worker.config import settings
 
-AUDIO_BUCKET = "corpus-audio"
 TRANSCRIPT_BUCKET = "corpus-transcripts"
 
 _client: Minio | None = None
@@ -40,11 +42,6 @@ def _get_client() -> Minio:
     if _client is None:
         _client = _build_minio_client()
     return _client
-
-
-def download_audio(s3_key: str, dest_path: Path) -> None:
-    """Télécharge l'objet `s3_key` du bucket `corpus-audio` vers `dest_path` local."""
-    _get_client().fget_object(AUDIO_BUCKET, s3_key, str(dest_path))
 
 
 def upload_transcript(s3_key: str, payload: dict[str, Any]) -> None:

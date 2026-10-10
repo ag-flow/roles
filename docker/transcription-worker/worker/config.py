@@ -19,7 +19,10 @@ class Settings(BaseSettings):
     # Connexion DB partagée avec le backend
     database_url: str
 
-    # MinIO
+    # MinIO — uniquement pour le pivot JSON de sortie (`corpus-transcripts`).
+    # L'audio d'entrée n'y passe plus (cf. migration 0012 / lot "relais audio
+    # volume local") : il est lu directement sur le volume monté, via
+    # `job["audio_path"]` (worker/main.py::process_job).
     minio_endpoint: str
     minio_access_key: str
     minio_secret_key: str
