@@ -120,7 +120,8 @@ async def test_process_one_job_discover_runs_runner_and_marks_done(
     assert payload["command"] == "discover"
     assert payload["url"] == "https://www.youtube.com/@example"
     assert payload["task_id"] == str(job_id)
-    assert payload["output"]["type"] == "minio"
+    assert payload["output"]["dir"]
+    assert "type" not in payload["output"]
 
 
 async def test_process_one_job_marks_failed_on_nonzero_returncode(
@@ -181,7 +182,11 @@ async def test_process_one_job_includes_cookies_in_env_when_set(
 
     env = runner.last_env  # type: ignore[attr-defined]
     assert env.get("YOUTUBE_COOKIES_B64") == "b64-cookies"
-    assert "MINIO_ENDPOINT" in env
+    # Plus de credentials MinIO envoyés au scraper : il n'uploade plus rien,
+    # l'audio est écrit directement sur le volume monté (output.dir).
+    assert "MINIO_ENDPOINT" not in env
+    assert "MINIO_ACCESS_KEY" not in env
+    assert "MINIO_SECRET_KEY" not in env
 
 
 def test_build_payload_prefix_is_tenant_scoped() -> None:
@@ -198,6 +203,37 @@ def test_build_payload_prefix_is_tenant_scoped() -> None:
 
     assert "None" not in payload["output"]["prefix"]
     assert payload["output"]["prefix"] == f"{tenant_id}/v2/{source_id}/"
+
+
+def test_build_payload_output_has_dir_and_no_type() -> None:
+    """output = {dir, prefix} : pas de 'type' (le contrat scraper l'a retiré)."""
+    from role_builder.services.scraper_orchestrator import ScraperOrchestrator
+
+    orch = ScraperOrchestrator(pool=object())
+    job = {"id": uuid4(), "tenant_id": uuid4(), "command": "download"}
+    source = {"id": uuid4(), "url": "https://x"}
+
+    payload = orch._build_payload(job, source)
+
+    assert payload["output"]["dir"]
+    assert "type" not in payload["output"]
+    assert "format" not in payload["output"]
+
+
+def test_build_payload_output_carries_no_credentials() -> None:
+    """output ne porte plus d'identifiants MinIO : ils n'ont plus d'objet."""
+    from role_builder.services.scraper_orchestrator import ScraperOrchestrator
+
+    orch = ScraperOrchestrator(pool=object())
+    job = {"id": uuid4(), "tenant_id": uuid4(), "command": "download"}
+    source = {"id": uuid4(), "url": "https://x"}
+
+    payload = orch._build_payload(job, source)
+
+    assert "access_key" not in payload["output"]
+    assert "secret_key" not in payload["output"]
+    assert "endpoint" not in payload["output"]
+    assert "bucket" not in payload["output"]
 
 
 async def test_process_one_job_resolves_credential_cookies(

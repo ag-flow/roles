@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     disable_orchestrator: bool = False
     disable_ws_relay: bool = False
 
+    # V3 — relais audio par volume local (remplace l'upload MinIO du scraper,
+    # cf. docs/specs/03-scrapers.md). Chemin DANS le conteneur scraper, monté
+    # depuis le host par le compose/portail devpod (hors scope backend).
+    # Défaut aligné sur le contrat documenté : permet au backend de démarrer
+    # sans toucher .env tant que l'infra n'a pas posé sa propre valeur — pas
+    # de valeur sans défaut ici, sinon tout Settings() existant casse.
+    audio_volume_dir: str = "/mnt/corpus-audio"
+
     # Sprint 3 — Transcription (clés API SaaS, vides = fallback shared)
     openai_api_key: str = ""
     deepgram_api_key: str = ""

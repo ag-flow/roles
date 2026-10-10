@@ -176,10 +176,11 @@ class ScraperOrchestrator:
             log.exception("orchestrator.propagate_failure_error", source_id=str(source_id))
 
     async def _build_env(self, platform: str, source: dict[str, Any]) -> dict[str, str]:
+        # Plus de credentials MinIO ici : le scraper écrit l'audio sur le
+        # volume monté (output.dir), il n'uploade plus rien (tâche 1 a retiré
+        # minio_uploader). Les envoyer encore exposerait des secrets sans
+        # usage côté conteneur.
         env: dict[str, str] = {
-            "MINIO_ENDPOINT": settings.minio_endpoint,
-            "MINIO_ACCESS_KEY": settings.minio_access_key,
-            "MINIO_SECRET_KEY": settings.minio_secret_key,
             "LOG_LEVEL": settings.log_level,
         }
         cookies = await self._resolve_cookies(platform, source)
@@ -208,20 +209,22 @@ class ScraperOrchestrator:
         return get_cookies_b64(platform)
 
     def _build_payload(self, job: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
-        # Préfixe MinIO scopé au tenant/source (le concept role_project est
-        # retiré, migration 0011) ; "v2" garde la structure de clé stable.
+        # Préfixe scopé au tenant/source (le concept role_project est retiré,
+        # migration 0011) ; "v2" garde la structure de chemin stable. Ce n'est
+        # plus un préfixe de clé S3 : c'est un sous-répertoire du volume local.
         prefix = f"{job['tenant_id']}/v2/{source['id']}/"
         return {
             "task_id": str(job["id"]),
             "command": job["command"],
             "url": source["url"],
             "options": dict(_DEFAULT_OPTIONS),
+            # output = {dir, prefix} seulement : plus de "type" (discriminant à
+            # valeur unique), plus de "format" (dérivé de options.audio_format,
+            # seule source de vérité), plus d'identifiants MinIO (l'audio
+            # n'est plus uploadé — il est écrit directement sur le volume
+            # monté). Cf. docs/specs/03-scrapers.md.
             "output": {
-                "type": "minio",
-                "endpoint": settings.minio_endpoint,
-                "bucket": "corpus-audio",
+                "dir": settings.audio_volume_dir,
                 "prefix": prefix,
-                "access_key": settings.minio_access_key,
-                "secret_key": settings.minio_secret_key,
             },
         }

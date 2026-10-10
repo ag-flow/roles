@@ -161,7 +161,9 @@ async def _handle_item_done(
     pool user (`user_<id>`) était un mécanisme V1 (role_project → user).
     """
     platform_item_id = event["item_id"]
-    audio_s3_key = event.get("audio_s3_key")
+    # audio_path : chemin de fichier sur le volume local (tâche 1/V3), plus
+    # une clef S3 — colonne et paramètre renommés par la migration 0012.
+    audio_path = event.get("audio_path")
     worker_pool_id = "shared_default"
 
     item_row = await si.get_by_platform_id(job["source_id"], platform_item_id, pool=pool)
@@ -177,7 +179,7 @@ async def _handle_item_done(
     # Sans audio, aucun worker de transcription ne prendra l'item : le passer
     # `queued_transcription` le bloquerait à jamais (requête jamais completed,
     # invisible pour retry_failed). On le marque `failed` explicitement.
-    if not audio_s3_key:
+    if not audio_path:
         log.error(
             "scraper.item_done_without_audio",
             job_id=str(job["id"]),
@@ -187,7 +189,7 @@ async def _handle_item_done(
             job["source_id"],
             platform_item_id,
             "failed",
-            error="ITEM_DONE_WITHOUT_AUDIO: scraper reported item_done without audio_s3_key",
+            error="ITEM_DONE_WITHOUT_AUDIO: scraper reported item_done without audio_path",
             pool=pool,
         )
         return
@@ -195,7 +197,7 @@ async def _handle_item_done(
     await tj.insert_job(
         source_item_id=item_row["id"],
         tenant_id=item_row.get("tenant_id") or job["tenant_id"],
-        audio_s3_key=audio_s3_key,
+        audio_path=audio_path,
         language=event.get("language"),
         worker_pool_id=worker_pool_id,
         priority=int(event.get("priority", 0) or 0),
@@ -211,6 +213,6 @@ async def _handle_item_done(
         job["source_id"],
         platform_item_id,
         "queued_transcription",
-        audio_s3_key=audio_s3_key,
+        audio_path=audio_path,
         pool=pool,
     )

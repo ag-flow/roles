@@ -50,20 +50,39 @@ async def run_container(
     stdin_payload: dict[str, Any],
     *,
     extra_args: list[str] | None = None,
+    docker_args: list[str] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Run `docker run --rm -i image`, write JSON payload to stdin, stream NDJSON events.
 
     Yields each parsed event dict, then a terminal `{"type": "_exit",
     "returncode": int}`. Invalid JSON lines are yielded as
     `{"type": "_invalid_line", "raw": str}`.
+
+    `docker_args` et `extra_args` ne sont PAS interchangeables : `docker_args`
+    porte des options du CLI `docker` (ex. `-v`, `--network`) et doit précéder
+    le nom de l'image, sinon `docker run` les interprète comme la commande à
+    exécuter *dans* le conteneur. `extra_args` reste après l'image : c'est
+    bien la commande/les arguments du conteneur, un usage distinct qui existait
+    avant ce paramètre — on ne le réutilise pas pour ne pas confondre les deux.
     """
     extras = extra_args or []
+    docker_opts = docker_args or []
 
     log.info("docker_runner.start", image=image, env_keys=list(env.keys()))
 
     # env-file plutôt que -e K=V : les secrets ne transitent pas par l'argv.
     with env_file(env) as env_path:
-        cmd = ["docker", "run", "--rm", "-i", "--env-file", env_path, image, *extras]
+        cmd = [
+            "docker",
+            "run",
+            "--rm",
+            "-i",
+            "--env-file",
+            env_path,
+            *docker_opts,
+            image,
+            *extras,
+        ]
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,

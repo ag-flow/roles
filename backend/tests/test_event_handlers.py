@@ -169,7 +169,7 @@ async def test_handle_discovered_calls_on_discovery_complete_when_request_exists
 async def test_handle_item_done_marks_queued_transcription(
     patched: Any, job: dict[str, Any], calls: dict[str, list[dict[str, Any]]]
 ) -> None:
-    """'item_done' marque source_item 'queued_transcription' (avec audio_s3_key)."""
+    """'item_done' marque source_item 'queued_transcription' (avec audio_path)."""
     from role_builder.services import event_handlers
 
     pool = object()
@@ -177,18 +177,18 @@ async def test_handle_item_done_marks_queued_transcription(
         {
             "type": "item_done",
             "item_id": "vid-42",
-            "audio_s3_key": "tenant/role/source/vid-42.mp3",
+            "audio_path": "/mnt/corpus-audio/tenant/v2/source/vid-42.mp3",
         },
         job,
         pool=pool,
     )
     assert len(calls["update_item_status"]) == 1
     call = calls["update_item_status"][0]
-    # update_source_item_status(source_id, platform_item_id, status, *, audio_s3_key, ...)
+    # update_source_item_status(source_id, platform_item_id, status, *, audio_path, ...)
     assert call["args"][0] == job["source_id"]
     assert call["args"][1] == "vid-42"
     assert call["args"][2] == "queued_transcription"
-    assert call["kwargs"]["audio_s3_key"] == "tenant/role/source/vid-42.mp3"
+    assert call["kwargs"]["audio_path"] == "/mnt/corpus-audio/tenant/v2/source/vid-42.mp3"
 
 
 async def test_handle_item_done_creates_transcription_job_shared_default(
@@ -223,7 +223,7 @@ async def test_handle_item_done_creates_transcription_job_shared_default(
         {
             "type": "item_done",
             "item_id": "vid-2",
-            "audio_s3_key": "tenant/v2/src/vid-2.mp3",
+            "audio_path": "/mnt/corpus-audio/tenant/v2/src/vid-2.mp3",
         },
         job,
         pool=pool,
@@ -231,7 +231,7 @@ async def test_handle_item_done_creates_transcription_job_shared_default(
 
     assert captured_insert["worker_pool_id"] == "shared_default"
     assert captured_insert["source_item_id"] == item_uuid
-    assert captured_insert["audio_s3_key"] == "tenant/v2/src/vid-2.mp3"
+    assert captured_insert["audio_path"] == "/mnt/corpus-audio/tenant/v2/src/vid-2.mp3"
     assert captured_insert["tenant_id"] == job["tenant_id"]
 
 
