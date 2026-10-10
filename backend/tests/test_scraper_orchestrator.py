@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
@@ -12,10 +14,22 @@ import pytest
 def _default_audio_volume_host_dir(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ces tests exercent process_one_job au-delà du garde-fou host_dir (hors
     sujet ici, défaut "" sinon) : leur poser une valeur évite de le dupliquer
-    partout. Refus couvert à part, dans test_scraper_orchestrator_audio_volume.py."""
+    partout. Refus couvert à part, dans test_scraper_orchestrator_audio_volume.py.
+
+    La garde disque (tâche 6) appelle `shutil.disk_usage(audio_volume_dir)`,
+    qui exigerait un répertoire RÉEL — `audio_volume_dir` garde ici sa valeur
+    fictive par défaut ("/mnt/corpus-audio"), hors sujet de ce fichier. On
+    neutralise `disk_usage` plutôt que de câbler un vrai répertoire partout :
+    ces tests portent sur le pipeline, pas sur la garde, couverte à part dans
+    test_audio_sweeper.py::test_orchestrator_refuses_new_job_below_min_free_gb."""
     from role_builder.config import settings as _settings
 
     monkeypatch.setattr(_settings, "audio_volume_host_dir", "/srv/audio-host", raising=False)
+    monkeypatch.setattr(
+        shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(total=0, used=0, free=10**15),
+    )
 
 
 @pytest.fixture()

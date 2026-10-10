@@ -11,6 +11,7 @@ Cap simultané : `settings.max_concurrent_scrapers` via `asyncio.Semaphore`.
 from __future__ import annotations
 
 import asyncio
+import shutil
 from typing import Any
 
 import asyncpg
@@ -28,6 +29,8 @@ from role_builder.services.secret_store import (
 )
 
 log = structlog.get_logger(__name__)
+
+_BYTES_PER_GB = 1024**3
 
 # Defaults applied to the stdin payload when not overridden at the job level.
 _DEFAULT_OPTIONS = {
@@ -68,6 +71,50 @@ class ScraperOrchestrator:
                 "l'audio écrit serait perdu avec le conteneur éphémère (BUG-01)"
             )
             log.error("orchestrator.audio_volume_host_dir_missing", job_id=str(job_id))
+            await sj.mark_job_failed(job_id, err, pool=self._pool)
+            await self._propagate_discover_failure(job, err)
+            return
+
+        # Garde disque (tâche 6) : un répertoire monté n'a aucun cycle de vie
+        # propre (le balayeur d'orphelins ratisse ce que la rétention laisse
+        # passer, mais un pic d'arrivées peut remplir le disque plus vite
+        # qu'elle ne le vide). shutil.disk_usage fait un appel système
+        # bloquant (statvfs) : jamais en direct dans cette coroutine — d'où
+        # l'asyncio.to_thread, pas une justification de confort.
+        try:
+            free_gb = await asyncio.to_thread(self._free_disk_gb)
+        except OSError as exc:
+            # audio_volume_dir illisible ou absent DEPUIS CE PROCESSUS (hors
+            # de son contrôle : droits, montage manquant) — on ne sait donc
+            # pas s'il reste de la place. Refuser plutôt que de laisser le
+            # job avancer sur une garde qu'on ne peut pas vérifier : même
+            # discipline fail closed que audio_volume_host_dir vide
+            # ci-dessus, pas un relâchement pour ce cas-ci.
+            err = (
+                f"garde disque indisponible : {settings.audio_volume_dir} "
+                f"inaccessible depuis l'orchestrateur ({exc}) — refus du job "
+                "plutôt que de tourner sans visibilité sur l'espace restant"
+            )
+            log.error(
+                "orchestrator.disk_guard_unavailable",
+                job_id=str(job_id),
+                audio_volume_dir=settings.audio_volume_dir,
+            )
+            await sj.mark_job_failed(job_id, err, pool=self._pool)
+            await self._propagate_discover_failure(job, err)
+            return
+        if free_gb < settings.audio_min_free_gb:
+            err = (
+                f"espace disque insuffisant sur {settings.audio_volume_dir} : "
+                f"{free_gb:.1f} Go libres < {settings.audio_min_free_gb} Go requis "
+                "(fail closed : refus du job plutôt que de remplir le disque en silence)"
+            )
+            log.error(
+                "orchestrator.disk_space_low",
+                job_id=str(job_id),
+                free_gb=round(free_gb, 1),
+                min_free_gb=settings.audio_min_free_gb,
+            )
             await sj.mark_job_failed(job_id, err, pool=self._pool)
             await self._propagate_discover_failure(job, err)
             return
@@ -175,6 +222,12 @@ class ScraperOrchestrator:
             self._semaphore.release()
 
     # --- internals -------------------------------------------------------
+
+    def _free_disk_gb(self) -> float:
+        """Go libres sur le volume audio. Bloquant (statvfs) : à appeler via
+        `asyncio.to_thread`, jamais directement depuis une coroutine."""
+        usage = shutil.disk_usage(settings.audio_volume_dir)
+        return usage.free / _BYTES_PER_GB
 
     async def _propagate_discover_failure(self, job: dict[str, Any], reason: str) -> None:
         """Un job `discover` échoué doit sortir la requête de `discovering`.

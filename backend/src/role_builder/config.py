@@ -58,6 +58,19 @@ class Settings(BaseSettings):
     # au point d'application), plutôt que de lancer un scraper dont l'écriture
     # audio serait perdue avec son système de fichiers éphémère.
     audio_volume_host_dir: str = ""
+    # Balayeur d'orphelins (tâche 6, cf. services/audio_sweeper.py) : un
+    # répertoire monté n'a aucun cycle de vie propre — MinIO portait
+    # `keep_audio`, ce paramètre en tient lieu. Un fichier reste tant qu'un
+    # transcription_job encore vivant (pending/claimed/processing) le
+    # référence, quel que soit son âge ; sinon il est supprimé après ce
+    # délai, pour couvrir le job abandonné, le worker mort ou l'item `failed`
+    # définitif que le cas nominal de la tâche 4 ne traite pas.
+    audio_orphan_retention_h: int = 48
+    # Garde disque (tâche 6) : en dessous de ce seuil de Go libres sur
+    # audio_volume_dir, l'orchestrateur refuse tout nouveau job plutôt que de
+    # remplir le disque en silence — même discipline fail closed que
+    # audio_volume_host_dir vide (BUG-01).
+    audio_min_free_gb: int = 5
 
     # Sprint 3 — Transcription (clés API SaaS, vides = fallback shared)
     openai_api_key: str = ""

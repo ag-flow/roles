@@ -92,6 +92,15 @@ la requête n'est pas close).
 
 ### 2.2 Soumission — upload direct
 
+> ⚠️ **RETIRÉ (lot "relais audio volume local", 2026-10-10).** Les quatre tools
+> de cette section (`create_upload_request`, `request_upload_slot`,
+> `finalize_upload`, `close_upload_request`) **n'existent plus** : la façade
+> n'expose plus que 8 tools. Le worker de transcription n'a désormais qu'une
+> seule provenance d'audio (le volume monté scraper → worker). Section
+> conservée telle quelle en tant qu'**archive de l'état antérieur** — ne pas
+> coder contre ces tools. Voir `docs/specs/v3/00-cadrage-service-de-transcription.md`
+> pour le cadrage en cours.
+
 Pour les médias hors plateformes (enregistrements perso, conférences,
 podcasts fournis en fichier). Le fichier ne transite jamais par MCP :
 **URL présignée MinIO**, PUT direct par le client.
@@ -194,6 +203,10 @@ Re-queue les items `failed` (tous, ou une sélection). Réutilise
 `attempts`/`max_attempts` existants.
 
 ## 3. Cycle de vie d'une requête
+
+> ⚠️ La branche **Upload** ci-dessous décrit l'état **antérieur** au retrait
+> du cycle d'upload (cf. bannière §2.2) — conservée pour archive, pas un
+> chemin disponible aujourd'hui.
 
 ```
 Scrape :

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime as dt
+
 import asyncpg
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -10,6 +12,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from role_builder.db_helpers import transcription_jobs as transcription_jobs_helper
 from role_builder.db_helpers import transcription_keys as keys_helper
+from role_builder.services.audio_sweeper import sweep_orphan_audio
 from role_builder.services.credit_monitor import poll_all_balances
 
 log = structlog.get_logger(__name__)
@@ -18,6 +21,11 @@ _BALANCE_POLL_INTERVAL_HOURS = 1
 _RESET_SPEND_DAY = 1
 _CLEANUP_HOUR = 3
 _TRANSCRIPTION_RECONCILE_INTERVAL_MIN = 2
+# Horaire plutôt qu'alignée sur la rétention (48h par défaut) : un balayage
+# fréquent coûte peu (un parcours de répertoire + une requête indexée) et
+# raccourcit la fenêtre où le disque continue de se remplir après un pic
+# d'arrivées, sans attendre un cycle entier de rétention.
+_AUDIO_SWEEP_INTERVAL_MIN = 60
 
 
 class RoleBuilderScheduler:
@@ -59,6 +67,12 @@ class RoleBuilderScheduler:
             id="reconcile_dead_transcriptions",
             replace_existing=True,
         )
+        self._scheduler.add_job(
+            self._sweep_orphan_audio,
+            IntervalTrigger(minutes=_AUDIO_SWEEP_INTERVAL_MIN),
+            id="sweep_orphan_audio",
+            replace_existing=True,
+        )
         self._scheduler.start()
         self._started = True
         log.info("scheduler.started", jobs=[j.id for j in self._scheduler.get_jobs()])
@@ -95,6 +109,18 @@ class RoleBuilderScheduler:
         except Exception:
             log.exception("scheduler.reconcile_transcriptions_failed")
 
+    async def _sweep_orphan_audio(self) -> None:
+        """Balaie les fichiers audio orphelins du volume local (tâche 6).
+
+        `now` est injecté ici plutôt que lu dans `sweep_orphan_audio` lui-même
+        — l'horloge appartient à l'appelant, pas à la logique de balayage."""
+        try:
+            deleted = await sweep_orphan_audio(pool=self._pool, now=dt.datetime.now(dt.UTC))
+            if deleted:
+                log.info("scheduler.audio_orphans_swept", deleted=deleted)
+        except Exception:
+            log.exception("scheduler.sweep_orphan_audio_failed")
+
     async def _cleanup_revoked_secrets(self) -> None:
         """Best-effort : nettoyage des secrets vault liés à des credentials
         révoqués depuis > 7 jours. MVP : logs uniquement, le delete est déjà
@@ -103,4 +129,3 @@ class RoleBuilderScheduler:
             "scheduler.cleanup_revoked_secrets_skipped",
             reason="MVP: cleanup déjà géré par DELETE endpoints",
         )
-

@@ -10,6 +10,8 @@ de migration de ce dépôt (chaque fichier de test reste autoporteur).
 
 from __future__ import annotations
 
+import shutil
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
@@ -99,6 +101,15 @@ async def test_process_one_job_mounts_audio_volume_before_image(
 
     monkeypatch.setattr(_settings, "audio_volume_host_dir", "/srv/audio-host", raising=False)
     monkeypatch.setattr(_settings, "audio_volume_dir", "/mnt/corpus-audio", raising=False)
+    # Garde disque (tâche 6) : ce test porte sur le montage `-v`, pas sur la
+    # garde elle-même (couverte dans test_audio_sweeper.py) — neutraliser
+    # shutil.disk_usage plutôt que d'exiger que "/mnt/corpus-audio" existe
+    # réellement sur la machine qui exécute les tests.
+    monkeypatch.setattr(
+        shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(total=0, used=0, free=10**15),
+    )
 
     runner = _make_runner([{"type": "_exit", "returncode": 0}])
     monkeypatch.setattr(scraper_orchestrator, "run_container", runner)

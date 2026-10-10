@@ -53,10 +53,11 @@ def test_scheduler_instantiation(monkeypatch: pytest.MonkeyPatch, stubbed_env: N
 # ---------------------------------------------------------------------------
 
 
-def test_scheduler_start_schedules_four_jobs(
+def test_scheduler_start_schedules_five_jobs(
     monkeypatch: pytest.MonkeyPatch, stubbed_env: None
 ) -> None:
-    """Après start(), 4 jobs enregistrés avec les ids attendus."""
+    """Après start(), 5 jobs enregistrés avec les ids attendus (tâche 6 :
+    sweep_orphan_audio rejoint les 4 jobs du Sprint 6)."""
     monkeypatch.setattr(
         "role_builder.services.scheduler.AsyncIOScheduler",
         _FakeAsyncIOScheduler,
@@ -73,6 +74,7 @@ def test_scheduler_start_schedules_four_jobs(
         "reset_monthly_spend",
         "cleanup_revoked_secrets",
         "reconcile_dead_transcriptions",
+        "sweep_orphan_audio",
     }
     assert rbs._started is True
 
@@ -83,7 +85,7 @@ def test_scheduler_start_schedules_four_jobs(
 
 
 def test_scheduler_start_idempotent(monkeypatch: pytest.MonkeyPatch, stubbed_env: None) -> None:
-    """Deux appels start() → toujours 4 jobs (pas 8)."""
+    """Deux appels start() → toujours 5 jobs (pas 10)."""
     monkeypatch.setattr(
         "role_builder.services.scheduler.AsyncIOScheduler",
         _FakeAsyncIOScheduler,
@@ -95,7 +97,7 @@ def test_scheduler_start_idempotent(monkeypatch: pytest.MonkeyPatch, stubbed_env
     rbs.start()  # deuxième appel — no-op
 
     jobs = rbs.scheduler.get_jobs()
-    assert len(jobs) == 4
+    assert len(jobs) == 5
 
 
 # ---------------------------------------------------------------------------
@@ -174,3 +176,55 @@ async def test_scheduler_reset_monthly_spend_calls_helper(
     assert reset_calls[0] is pool
 
 
+# ---------------------------------------------------------------------------
+# Test 7 — _sweep_orphan_audio appelle sweep_orphan_audio (tâche 6)
+# ---------------------------------------------------------------------------
+
+
+async def test_scheduler_sweep_orphan_audio_calls_sweeper(
+    monkeypatch: pytest.MonkeyPatch, stubbed_env: None
+) -> None:
+    """_sweep_orphan_audio() → sweep_orphan_audio(pool=..., now=...) appelé."""
+    monkeypatch.setattr(
+        "role_builder.services.scheduler.AsyncIOScheduler",
+        _FakeAsyncIOScheduler,
+    )
+    from role_builder.services import scheduler as scheduler_module
+    from role_builder.services.scheduler import RoleBuilderScheduler
+
+    sweep_calls: list[Any] = []
+
+    async def fake_sweep(*, pool: Any, now: Any) -> int:
+        sweep_calls.append((pool, now))
+        return 2
+
+    monkeypatch.setattr(scheduler_module, "sweep_orphan_audio", fake_sweep)
+
+    pool = _StubPool()
+    rbs = RoleBuilderScheduler(pool=pool)
+    await rbs._sweep_orphan_audio()
+
+    assert len(sweep_calls) == 1
+    assert sweep_calls[0][0] is pool
+
+
+async def test_scheduler_sweep_orphan_audio_survives_sweeper_error(
+    monkeypatch: pytest.MonkeyPatch, stubbed_env: None
+) -> None:
+    """Une exception du balayeur est journalisée, pas propagée — la boucle
+    périodique du scheduler ne doit pas s'arrêter sur une erreur transitoire
+    (même discipline que les autres jobs de ce scheduler)."""
+    monkeypatch.setattr(
+        "role_builder.services.scheduler.AsyncIOScheduler",
+        _FakeAsyncIOScheduler,
+    )
+    from role_builder.services import scheduler as scheduler_module
+    from role_builder.services.scheduler import RoleBuilderScheduler
+
+    async def fake_sweep(*, pool: Any, now: Any) -> int:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(scheduler_module, "sweep_orphan_audio", fake_sweep)
+
+    rbs = RoleBuilderScheduler(pool=_StubPool())
+    await rbs._sweep_orphan_audio()  # ne doit pas lever
