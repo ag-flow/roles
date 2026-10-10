@@ -283,7 +283,7 @@ async def execute_scraping_job(job: ScrapingJob) -> None:
         "url": job.source.url,
         "options": {...},
         "output": {
-            "dir": settings.scraper_output_dir,
+            "dir": settings.audio_volume_dir,
             "prefix": f"{job.tenant_id}/v2/{job.source.id}/",
         },
     }

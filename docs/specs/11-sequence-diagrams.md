@@ -93,6 +93,15 @@ sequenceDiagram
 
 ## 3. Pipeline événementiel scraping → transcription
 
+> ⚠️ **Relais audio modifié par le lot "relais audio volume local"
+> (2026-10-10).** L'audio ne passe plus par MinIO : le scraper l'écrit dans
+> un **volume monté sur le host**, partagé avec le worker de transcription,
+> qui le lit sur disque puis le supprime après un succès. L'event
+> `item_done` porte `audio_path` (un chemin de fichier) et non
+> `audio_s3_key` ; la colonne a été renommée par la migration `0012`. MinIO
+> ne porte plus que le pivot JSON de sortie. Voir
+> `docs/specs/v3/00-cadrage-service-de-transcription.md`.
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -100,6 +109,7 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant OB as OpenBao
     participant SC as Scraper container
+    participant VOL as Volume audio (host)
     participant MIO as MinIO
     participant TW as Transcription Worker
     participant PR as Provider
@@ -115,9 +125,8 @@ sequenceDiagram
     activate SC
 
     SC->>SC: yt-dlp -x audio mp3 16kHz mono
-    SC->>MIO: PUT corpus-audio/{tenant}/{role}/{src}/{item_1}.mp3
-    MIO-->>SC: ok
-    SC-->>BE: {type:"item_done", audio_s3_key:"..."}
+    SC->>VOL: écrit {tenant}/v2/{src}/{item_1}.mp3<br/>(volume monté, plus de MinIO)
+    SC-->>BE: {type:"item_done", audio_path:"..."}
     BE->>DB: UPDATE source_items SET status=audio_ready
     BE->>DB: INSERT transcription_jobs (worker_pool_id, status=pending)
     BE-->>FE: WS: item_1 audio_ready
@@ -128,8 +137,8 @@ sequenceDiagram
 
     TW->>DB: SELECT transcription_jobs<br/>WHERE worker_pool_id=$1<br/>FOR UPDATE SKIP LOCKED LIMIT 1
     DB-->>TW: job (item_1)
-    TW->>MIO: GET audio item_1
-    MIO-->>TW: audio bytes
+    TW->>VOL: lit audio item_1 sur le volume monté
+    VOL-->>TW: audio bytes
     TW->>PR: provider.transcribe(audio, language=auto)
 
     alt Provider = local faster-whisper
@@ -139,7 +148,8 @@ sequenceDiagram
     end
 
     PR-->>TW: PivotTranscript
-    TW->>MIO: PUT corpus-transcripts/{...}/{item_1}.json
+    TW->>MIO: PUT corpus-transcripts/{item_1}.json
+    TW->>VOL: supprime l'audio (succès seulement — un échec le conserve<br/>pour le retry)
     TW->>DB: UPDATE last_activity_at, status=transcribed
     TW->>DB: INSERT chunking_job
     TW-->>FE: WS: item_1 transcribed

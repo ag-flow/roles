@@ -389,10 +389,20 @@ if __name__ == "__main__":
 
 ### Process d'un job
 
+> ⚠️ **Réécrit par le lot "relais audio volume local" (2026-10-10).**
+> L'audio ne vient plus de MinIO : le scraper l'écrit dans un volume monté
+> sur le host (`audio_path`, cf. migration `0012`) et le worker le lit
+> directement sur disque, puis le **supprime** après un succès. La clef du
+> transcript n'est plus dérivée de la clef audio : elle vaut
+> `<source_item_id>.json` dans le bucket `corpus-transcripts` (le nom du
+> bucket n'appartient pas à la clef). Seul le pivot JSON de sortie reste
+> dans MinIO. Voir `docs/specs/v3/00-cadrage-service-de-transcription.md`
+> et l'implémentation réelle dans `docker/transcription-worker/worker/main.py`.
+
 ```python
 async def process_job(job, provider):
-    # 1. Download audio depuis MinIO
-    audio_path = await minio.download(job.audio_s3_key)
+    # 1. L'audio est déjà sur le volume monté : aucun download.
+    audio_path = Path(job.audio_path)
 
     # 2. Transcribe
     transcript = await provider.transcribe(audio_path, language=job.language)
@@ -402,8 +412,8 @@ async def process_job(job, provider):
     pivot["metadata"]["transcribed_at"] = datetime.now(timezone.utc).isoformat()
     pivot["metadata"]["cost_estimate_usd"] = provider.estimate_cost(transcript.duration_s)
 
-    # 4. Upload vers MinIO
-    transcript_s3_key = job.audio_s3_key.replace("corpus-audio/", "corpus-transcripts/").replace(".mp3", ".json")
+    # 4. Upload du pivot vers MinIO (seul objet qui y reste)
+    transcript_s3_key = f"{job.source_item_id}.json"
     await minio.upload_json("corpus-transcripts", transcript_s3_key, pivot)
 
     # 5. Update DB

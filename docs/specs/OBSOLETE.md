@@ -28,7 +28,10 @@
 - `02-foundations.md` — infra conservée (compose, MinIO, coffre) ; cible
   de déploiement = host `usage=ressources` du portail devpod ; extension
   pgvector plus requise.
-- `03-scrapers.md` — conservée intégralement (contrats figés).
+- `03-scrapers.md` — conservée ; contrats figés **sauf le bloc `output`**,
+  révisé par le lot "relais audio volume local" (2026-10-10) : le scraper
+  écrit l'audio dans un volume monté (`{dir, prefix}`) au lieu de l'uploader
+  vers MinIO. Le contrat stdin JSON / stdout NDJSON reste figé par ailleurs.
 - `04-transcription.md` — conservée ; l'étape post-transcription devient
   le dépôt docflow (plus de chunking).
 - `07-user-stack.md` — conservée moins la configuration Mistral.

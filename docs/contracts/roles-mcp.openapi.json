@@ -77,8 +77,7 @@
         "description": "Codes stables. Ajouter un code est compatible ; en retirer ou en changer le sens est une rupture.",
         "enum": [
           "INVALID_URL", "UNSUPPORTED_PLATFORM", "UNKNOWN_REQUEST", "INVALID_FILTERS",
-          "INVALID_CURSOR", "INVALID_LIMIT", "ALREADY_CANCELLED", "REQUEST_CLOSED",
-          "UNSUPPORTED_MEDIA", "INVALID_PUBLISHED_AT", "UPLOAD_EXPIRED", "UPLOAD_NOT_FOUND"
+          "INVALID_CURSOR", "INVALID_LIMIT", "ALREADY_CANCELLED", "REQUEST_CLOSED"
         ]
       },
       "Platform": { "type": "string", "enum": ["youtube", "instagram", "tiktok"] },
@@ -89,17 +88,16 @@
       },
       "ItemStatus": {
         "type": "string",
-        "description": "Pipeline par item. `awaiting_upload` / `pending_extraction` / `extracting_audio` ne concernent que le cycle upload.",
+        "description": "Pipeline par item.",
         "enum": [
-          "pending_download", "downloading", "awaiting_upload", "pending_extraction",
-          "extracting_audio", "audio_ready", "queued_transcription", "transcribing",
-          "transcribed", "depositing", "deposited", "failed"
+          "pending_download", "downloading", "audio_ready", "queued_transcription",
+          "transcribing", "transcribed", "depositing", "deposited", "failed"
         ]
       },
       "RequestDisplayStatus": {
         "type": "string",
         "description": "Statut EXPOSÉ d'une requête. `completed` et `partially_failed` sont recalculés à chaque lecture depuis l'état des items — jamais figés en base. Une requête entrée en acquisition avec 0 item sélectionné est `completed` (corpus vide mais terminé), pour qu'un pilote ne pull pas sans fin.",
-        "enum": ["discovering", "discovered", "open_for_upload", "acquiring", "completed", "partially_failed", "cancelled", "failed"]
+        "enum": ["discovering", "discovered", "acquiring", "completed", "partially_failed", "cancelled", "failed"]
       },
       "Counts": {
         "type": "object",
@@ -236,7 +234,7 @@
             "type": "object",
             "properties": {
               "request_key": { "$ref": "#/components/schemas/RequestKey" },
-              "kind": { "type": "string", "description": "Nature de la requête (source scrapée ou intake upload)." },
+              "kind": { "type": "string", "description": "Nature de la requête. Seule valeur émise : `scrape`.", "examples": ["scrape"] },
               "status": { "$ref": "#/components/schemas/RequestDisplayStatus" },
               "submitted_by": { "type": "string" },
               "submitted_at": { "type": "string", "format": "date-time" },
@@ -279,7 +277,7 @@
             "request_key": { "$ref": "#/components/schemas/RequestKey" },
             "kind": { "type": "string" },
             "status": { "$ref": "#/components/schemas/RequestDisplayStatus" },
-            "url": { "type": ["string", "null"], "description": "null pour une requête de type upload." },
+            "url": { "type": ["string", "null"], "description": "URL de la source scrapée." },
             "counts_summary": { "$ref": "#/components/schemas/Counts" },
             "submitted_by": { "type": "string" },
             "submitted_at": { "type": "string", "format": "date-time" }

@@ -63,7 +63,7 @@ un document docflow par vidéo*.
 - **La consommation est une lecture simple**, répétable, **sans flag** : la donnée est disponible
   le temps du stockage, et pas une seconde de plus.
 - Scrapers : containers Docker one-shot (yt-dlp + ffmpeg), contrat **stdin JSON / stdout NDJSON**
-  — son bloc `output` est **à revoir** avec la chute de MinIO (voir le cadrage V3). L'audio passe
+  — son bloc `output` vaut `{dir, prefix}` (révisé avec la chute de MinIO). L'audio passe
   par un **volume mappé sur un chemin local** du host — plus de MinIO, plus d'upload, pour
   l'audio : `audio_volume_dir`/`audio_volume_host_dir` (chemins conteneur/host du montage) et la
   garde `audio_orphan_retention_h`/`audio_min_free_gb`/`audio_sweep_interval_min` (balayeur d'orphelins, `audio_sweeper.py`).
@@ -72,8 +72,9 @@ un document docflow par vidéo*.
   local, plus de GPU, plus de pve2. Conséquence : tout est payant, et c'est la **clé de
   l'utilisateur** qui paie — son quota est le garde-fou.
 - **Hébergement** : VM dédiée devpod. Le backend pilote le Docker **du host** en **`DOCKER_HOST=ssh://`**
-  — pas de mTLS, pas de socket monté. Les conteneurs lancés reçoivent `--network <projet>_default`,
-  sinon ils ne résolvent pas la base. La clé SSH est un **secret système** posé dans l'application
+  — pas de mTLS, pas de socket monté. Les scrapers ne reçoivent **pas** `--network <projet>_default`
+  (retiré : ils n'appellent plus aucun service interne ; leur env ne porte que `LOG_LEVEL` et les
+  cookies). La clé SSH est un **secret système** posé dans l'application
   (portée sans `user_id`, administrateur seulement, **écriture seule**).
 - Frontend Next.js 14 **en sursis** : ne rien y développer de nouveau sans décision de l'architecte.
 

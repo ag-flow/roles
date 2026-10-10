@@ -77,6 +77,13 @@ CREATE INDEX sources_role_project_idx ON sources (role_project_id);
 
 ### `source_items`
 
+> ⚠️ **`audio_s3_key` → `audio_path` (migration `0012`, lot "relais audio
+> volume local", 2026-10-10).** L'audio ne transite plus par MinIO : le
+> scraper l'écrit dans un volume monté sur le host et le worker de
+> transcription le lit sur disque. La colonne porte donc un **chemin de
+> fichier**, pas une clef S3. Voir
+> `docs/specs/v3/00-cadrage-service-de-transcription.md`.
+
 Un item = une vidéo découverte ou ingérée d'une source.
 
 ```sql
@@ -90,7 +97,7 @@ CREATE TABLE source_items (
     published_at timestamptz,
     thumbnail_url text,
     status text NOT NULL,           -- voir § États ci-dessous
-    audio_s3_key text,
+    audio_path text,                -- chemin sur le volume audio monté (ex-audio_s3_key)
     transcript_s3_key text,
     selected boolean DEFAULT false, -- l'user a sélectionné cet item pour ingestion
     error text,
@@ -180,12 +187,19 @@ CREATE INDEX scraping_jobs_status_priority_idx
 
 ### `transcription_jobs`
 
+> ⚠️ **`audio_s3_key` → `audio_path` (migration `0012`, lot "relais audio
+> volume local", 2026-10-10).** L'audio ne transite plus par MinIO : le
+> scraper l'écrit dans un volume monté sur le host et le worker de
+> transcription le lit sur disque. La colonne porte donc un **chemin de
+> fichier**, pas une clef S3. Voir
+> `docs/specs/v3/00-cadrage-service-de-transcription.md`.
+
 ```sql
 CREATE TABLE transcription_jobs (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     source_item_id uuid NOT NULL REFERENCES source_items(id) ON DELETE CASCADE,
     tenant_id uuid NOT NULL,
-    audio_s3_key text NOT NULL,
+    audio_path text NOT NULL,       -- chemin sur le volume audio monté (ex-audio_s3_key)
     language text,                  -- ou null = auto-detect
     worker_pool_id text NOT NULL,   -- shared_default | user_{user_id}
     status text NOT NULL,           -- pending|claimed|processing|done|failed
@@ -608,8 +622,8 @@ GROUP BY rp.id;
 | `_at` | Timestamp | `created_at`, `claimed_at` |
 | `_s` | Durée en secondes (real) | `duration_s`, `start_s` |
 | `_usd` | Montant en USD | `cost_usd`, `monthly_cap_usd` |
-| `_s3_key` | Clé d'objet MinIO/S3 | `audio_s3_key` |
-| `_path` | Chemin OpenBao | `openbao_path` |
+| `_s3_key` | Clé d'objet MinIO/S3 | `transcript_s3_key`, `result_s3_key` |
+| `_path` | Chemin — système de fichiers **ou** coffre | `audio_path`, `openbao_path` |
 | `_count` | Compteur entier | `attempts`, `workers_count` |
 
 ## Section 9 — Patterns de queue (à utiliser partout)

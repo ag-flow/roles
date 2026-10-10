@@ -121,8 +121,13 @@ du host** de cette VM.
 **Pas de mTLS : connexion SSH** — `DOCKER_HOST=ssh://<user>@<host>`, supporté nativement par le
 CLI Docker. L'image backend a donc besoin de `docker-ce-cli` **et** `openssh-client`.
 
-- Les conteneurs lancés doivent recevoir **`--network <projet>_default`**, sinon ils ne résolvent
-  pas la base.
+- ~~Les conteneurs lancés doivent recevoir **`--network <projet>_default`**, sinon ils ne résolvent
+  pas la base.~~ **Amendé (2026-10-10, lot "relais audio volume local")** : l'option a été
+  retirée pour les **scrapers**. Depuis que l'audio passe par un volume monté et non plus par
+  MinIO, un scraper n'appelle plus aucun service interne — son env ne porte que `LOG_LEVEL` et
+  les cookies, et le bridge par défaut lui suffit pour joindre Internet. Lui donner le réseau du
+  projet lui ouvrirait la base et MinIO sans aucun besoin. La règle reste valable pour un
+  conteneur qui, lui, aurait besoin de résoudre un service du projet.
 - Une entrée **`known_hosts`** doit être provisionnée : sans elle, soit la connexion échoue, soit
   on désactive la vérification d'hôte et le dispositif perd son intérêt.
 - À savoir, sans que ça remette la décision en cause : **SSH au lieu de mTLS change le type de
