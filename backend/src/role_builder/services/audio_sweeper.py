@@ -65,8 +65,12 @@ async def _db_fetch_live_audio_paths(*, pool: asyncpg.Pool) -> set[str]:
     return {row["audio_path"] for row in rows}
 
 
-def _file_sweep_orphans(*, audio_dir: Path, cutoff: dt.datetime, keep: set[str]) -> tuple[int, int]:
+def _file_sweep_orphans(
+    *, audio_dir: Path, cutoff: dt.datetime, keep: set[str]
+) -> tuple[int, int, int]:
     """Parcours et suppression, bloquants par nature (os.walk + stat + unlink).
+
+    Retourne `(supprimés, octets_récupérés, sautés)`.
 
     DOIT être appelé via `asyncio.to_thread` par l'appelant : jamais en
     direct depuis une coroutine. Le linter ASYNC240 ne voit pas à travers cet
@@ -75,20 +79,38 @@ def _file_sweep_orphans(*, audio_dir: Path, cutoff: dt.datetime, keep: set[str])
     """
     deleted = 0
     reclaimed_bytes = 0
+    skipped = 0
     if not audio_dir.exists():
-        return deleted, reclaimed_bytes
+        return deleted, reclaimed_bytes, skipped
     for path in audio_dir.rglob("*"):
-        if not path.is_file() or str(path) in keep:
+        # Le worker de transcription supprime l'audio sur CE MÊME arbre après
+        # un succès (tâche 4) : entre le `is_file()` et le `unlink()` ci-
+        # dessous, le fichier peut disparaître sous nos pieds. Sans ce
+        # try/except par fichier, le premier `FileNotFoundError` remonterait à
+        # travers `to_thread` et abandonnerait le balayage ENTIER jusqu'au run
+        # suivant — un balayeur qui s'arrête au premier fichier disparu ne
+        # balaie pas. On attrape `OSError` (et non la seule
+        # `FileNotFoundError`) pour couvrir aussi un droit retiré ou un
+        # montage qui s'en va en cours de parcours : la bonne réponse est la
+        # même, passer au fichier suivant. Repli volontaire, donc, et compté
+        # dans `skipped` pour qu'il reste visible au lieu d'être silencieux.
+        try:
+            if not path.is_file() or str(path) in keep:
+                continue
+            stat = path.stat()
+            mtime = dt.datetime.fromtimestamp(stat.st_mtime, tz=dt.UTC)
+            if mtime >= cutoff:
+                continue
+            size = stat.st_size
+            # missing_ok : course avec le worker, cf. ci-dessus. Un fichier
+            # déjà parti est le résultat voulu, pas une erreur.
+            path.unlink(missing_ok=True)
+        except OSError:
+            skipped += 1
             continue
-        stat = path.stat()
-        mtime = dt.datetime.fromtimestamp(stat.st_mtime, tz=dt.UTC)
-        if mtime >= cutoff:
-            continue
-        size = stat.st_size
-        path.unlink()
         deleted += 1
         reclaimed_bytes += size
-    return deleted, reclaimed_bytes
+    return deleted, reclaimed_bytes, skipped
 
 
 async def sweep_orphan_audio(*, now: dt.datetime, pool: asyncpg.Pool) -> int:
@@ -101,7 +123,7 @@ async def sweep_orphan_audio(*, now: dt.datetime, pool: asyncpg.Pool) -> int:
     cutoff = now - dt.timedelta(hours=settings.audio_orphan_retention_h)
     keep = await _db_fetch_live_audio_paths(pool=pool)
     audio_dir = Path(settings.audio_volume_dir)
-    deleted, reclaimed_bytes = await asyncio.to_thread(
+    deleted, reclaimed_bytes, skipped = await asyncio.to_thread(
         _file_sweep_orphans, audio_dir=audio_dir, cutoff=cutoff, keep=keep
     )
     # Décision journalisée uniquement si elle a eu un effet : une ligne par
@@ -113,6 +135,14 @@ async def sweep_orphan_audio(*, now: dt.datetime, pool: asyncpg.Pool) -> int:
             reclaimed_bytes=reclaimed_bytes,
             retention_h=settings.audio_orphan_retention_h,
         )
+    # Événement SÉPARÉ, pas un champ de la ligne ci-dessus : un saut peut
+    # arriver sans aucune suppression (et inversement), et ces sauts doivent
+    # rester filtrables seuls — quelques-uns sont la course normale avec le
+    # worker, un volume soudain élevé signale un problème de droits ou de
+    # montage. `warning` et non `info` : aucun saut n'est attendu en régime
+    # établi.
+    if skipped:
+        log.warning("audio_sweeper.orphans_skipped", skipped=skipped)
     return deleted
 
 
@@ -123,14 +153,23 @@ def _free_disk_gb() -> float:
     return usage.free / _BYTES_PER_GB
 
 
-async def check_disk_guard() -> tuple[str, dict[str, Any]] | None:
+async def check_disk_guard() -> tuple[str, dict[str, Any], str] | None:
     """Garde disque avant d'admettre un nouveau job scraper (tâche 6).
 
-    Retourne `(message_erreur, champs_a_journaliser)` si le job doit être
-    refusé — répertoire inaccessible ou espace sous le seuil — sinon `None`.
-    Ne journalise rien ici : l'appelant (`scraper_orchestrator`) décide seul
-    du log et du marquage `failed`, pour n'avoir qu'une ligne de décision par
-    refus plutôt que deux (une ici, une là) qui diraient la même chose.
+    Retourne `(message_erreur, champs_a_journaliser, nom_d_event)` si le job
+    doit être refusé — répertoire inaccessible ou espace sous le seuil —
+    sinon `None`. Ne journalise rien ici : l'appelant
+    (`scraper_orchestrator`) décide seul du log et du marquage `failed`, pour
+    n'avoir qu'une ligne de décision par refus plutôt que deux (une ici, une
+    là) qui diraient la même chose.
+
+    Le nom d'event fait partie du retour, et n'est PAS choisi par l'appelant :
+    les deux refus sont deux modes de défaillance distincts, qui appellent
+    deux réponses opérationnelles distinctes (réparer un montage ≠ libérer du
+    disque). Un nom unique les rendrait indiscernables par un filtre
+    d'alerte, qui ne sait trier que sur `event` — pas sur la présence d'un
+    champ. C'est l'appelant qui journalise, mais c'est cette fonction qui
+    sait lequel des deux cas s'est produit.
     """
     try:
         free_gb = await asyncio.to_thread(_free_disk_gb)
@@ -145,12 +184,20 @@ async def check_disk_guard() -> tuple[str, dict[str, Any]] | None:
             f"inaccessible depuis l'orchestrateur ({exc}) — refus du job "
             "plutôt que de tourner sans visibilité sur l'espace restant"
         )
-        return err, {"audio_volume_dir": settings.audio_volume_dir}
+        return (
+            err,
+            {"audio_volume_dir": settings.audio_volume_dir},
+            "orchestrator.disk_guard_unavailable",
+        )
     if free_gb < settings.audio_min_free_gb:
         err = (
             f"espace disque insuffisant sur {settings.audio_volume_dir} : "
             f"{free_gb:.1f} Go libres < {settings.audio_min_free_gb} Go requis "
             "(fail closed : refus du job plutôt que de remplir le disque en silence)"
         )
-        return err, {"free_gb": round(free_gb, 1), "min_free_gb": settings.audio_min_free_gb}
+        return (
+            err,
+            {"free_gb": round(free_gb, 1), "min_free_gb": settings.audio_min_free_gb},
+            "orchestrator.disk_space_low",
+        )
     return None

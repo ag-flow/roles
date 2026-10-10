@@ -286,3 +286,147 @@ async def test_orchestrator_refuses_job_when_audio_volume_dir_unreachable(
     failed_job_id, error_msg = mark_failed_calls[0]
     assert failed_job_id == job["id"]
     assert "garde disque indisponible" in error_msg
+
+
+async def test_sweeper_continues_when_a_file_vanishes_mid_scan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Course avec le worker de transcription, qui supprime l'audio sur le MÊME
+    arbre après un succès : un fichier peut disparaître entre le `is_file()` et
+    le `stat()`. Avant correctif, le `FileNotFoundError` remontait à travers
+    `asyncio.to_thread` et abandonnait le balayage ENTIER jusqu'au run suivant.
+
+    Preuve déterministe quel que soit l'ordre de `rglob` : trois orphelins
+    normaux plus un qui s'évapore. Si le balayage avorte, l'exception remonte
+    (ordre indifférent) ; il faut donc à la fois qu'aucune exception ne sorte
+    ET que les trois autres soient bien supprimés."""
+    from role_builder.config import settings
+    from role_builder.services import audio_sweeper
+
+    monkeypatch.setattr(settings, "audio_volume_dir", str(tmp_path), raising=False)
+    monkeypatch.setattr(settings, "audio_orphan_retention_h", 48, raising=False)
+
+    now = dt.datetime(2026, 10, 10, 12, 0, tzinfo=dt.UTC)
+    normals = [tmp_path / "tenant" / f"orphan{i}.mp3" for i in range(3)]
+    for path in normals:
+        _write_file(path, age_h=_OLD_AGE_H, now=now)
+    vanishing = tmp_path / "tenant" / "vanishing.mp3"
+    _write_file(vanishing, age_h=_OLD_AGE_H, now=now)
+
+    # On simule la course en remplaçant `is_file`, PAS `stat` : `Path.is_file`
+    # appelle `stat` en interne et avale l'OSError (il répondrait False, et le
+    # fichier serait ignoré en silence au lieu d'exercer la course). En
+    # supprimant le fichier dans `is_file` qui répond True, c'est le VRAI
+    # `stat()` du code de production qui rencontre l'absence — exactement la
+    # fenêtre dénoncée, sans dépendre du nombre d'appels à `stat`.
+    real_is_file = Path.is_file
+
+    def is_file_then_vanish(self: Path, *args: Any, **kwargs: Any) -> bool:
+        if self.name == "vanishing.mp3":
+            os.unlink(self)  # le worker a gagné la course
+            return True
+        return bool(real_is_file(self, *args, **kwargs))
+
+    monkeypatch.setattr(Path, "is_file", is_file_then_vanish)
+
+    pool = _StubPool(live_audio_paths=[])
+    with structlog.testing.capture_logs() as captured:
+        deleted = await audio_sweeper.sweep_orphan_audio(now=now, pool=pool)  # type: ignore[arg-type]
+
+    assert deleted == 3
+    assert all(not path.exists() for path in normals)
+    skipped_events = [e for e in captured if e.get("event") == "audio_sweeper.orphans_skipped"]
+    assert len(skipped_events) == 1
+    assert skipped_events[0]["skipped"] == 1
+
+
+async def test_sweeper_tolerates_file_deleted_between_stat_and_unlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Même course, un cran plus tard : le fichier passe `is_file()` et
+    `stat()`, puis disparaît avant le `unlink()`. C'est le cas que couvre
+    `missing_ok=True` — sans lui, `unlink()` lève et le balayage s'arrête.
+    Le fichier est réellement supprimé pendant le `stat` pour que ce soit le
+    VRAI `unlink` du code de production qui rencontre l'absence, et non une
+    doublure qui lèverait à sa place."""
+    from role_builder.config import settings
+    from role_builder.services import audio_sweeper
+
+    monkeypatch.setattr(settings, "audio_volume_dir", str(tmp_path), raising=False)
+    monkeypatch.setattr(settings, "audio_orphan_retention_h", 48, raising=False)
+
+    now = dt.datetime(2026, 10, 10, 12, 0, tzinfo=dt.UTC)
+    racing = tmp_path / "tenant" / "racing.mp3"
+    _write_file(racing, age_h=_OLD_AGE_H, now=now)
+
+    # `is_file` est court-circuité pour qu'il ne consomme aucun `stat` : le
+    # seul `stat` qui s'exécute est donc celui du code de production, et c'est
+    # LUI qui déclenche la disparition. Le `unlink` qui suit est le vrai, et
+    # c'est bien `missing_ok=True` qui est éprouvé ici — pas une doublure.
+    real_stat = Path.stat
+    monkeypatch.setattr(Path, "is_file", lambda self: True)
+
+    def stat_then_vanish(self: Path, *args: Any, **kwargs: Any) -> Any:
+        result = real_stat(self, *args, **kwargs)
+        if self.name == "racing.mp3":
+            os.unlink(self)  # le worker a gagné la course
+        return result
+
+    monkeypatch.setattr(Path, "stat", stat_then_vanish)
+
+    pool = _StubPool(live_audio_paths=[])
+    # Ne doit pas lever : c'est tout l'enjeu.
+    deleted = await audio_sweeper.sweep_orphan_audio(now=now, pool=pool)  # type: ignore[arg-type]
+
+    assert deleted == 1
+    assert not racing.exists()
+
+
+async def test_disk_guard_names_distinct_events_for_its_two_refusals() -> None:
+    """Montage injoignable et pression disque réelle sont deux pannes à deux
+    réponses opérationnelles distinctes (réparer un montage ≠ libérer du
+    disque). Un filtre d'alerte ne trie que sur `event` : elles doivent donc
+    porter deux NOMS, pas deux jeux de champs sous un nom commun. Test de
+    non-régression du refusionnement constaté en revue."""
+    from role_builder.config import settings
+    from role_builder.services import audio_sweeper
+
+    assert audio_sweeper._free_disk_gb is not None  # garde-fou de renommage
+
+    # Cas 1 : répertoire injoignable depuis ce processus.
+    unreachable = await _guard_with(
+        audio_sweeper, settings, audio_volume_dir="/this/path/does/not/exist/ever"
+    )
+    assert unreachable is not None
+    assert unreachable[2] == "orchestrator.disk_guard_unavailable"
+
+    # Cas 2 : répertoire lisible, mais sous le seuil.
+    low = await _guard_with(audio_sweeper, settings, audio_volume_dir=".", min_free_gb=10**9)
+    assert low is not None
+    assert low[2] == "orchestrator.disk_space_low"
+
+    assert unreachable[2] != low[2]
+
+
+async def _guard_with(
+    audio_sweeper: Any,
+    settings: Any,
+    *,
+    audio_volume_dir: str,
+    min_free_gb: float | None = None,
+) -> Any:
+    """Appelle check_disk_guard sous une configuration donnée, puis restaure.
+
+    monkeypatch n'est pas utilisable ici : le helper est appelé deux fois dans
+    le même test, avec deux configurations qui doivent être défaites entre les
+    deux."""
+    saved_dir = settings.audio_volume_dir
+    saved_min = settings.audio_min_free_gb
+    settings.audio_volume_dir = audio_volume_dir
+    if min_free_gb is not None:
+        settings.audio_min_free_gb = min_free_gb
+    try:
+        return await audio_sweeper.check_disk_guard()
+    finally:
+        settings.audio_volume_dir = saved_dir
+        settings.audio_min_free_gb = saved_min

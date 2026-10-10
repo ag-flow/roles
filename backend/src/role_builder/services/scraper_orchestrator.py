@@ -74,8 +74,11 @@ class ScraperOrchestrator:
         # pas une responsabilité de cet orchestrateur.
         guard = await check_disk_guard()
         if guard is not None:
-            err, log_fields = guard
-            await self._fail_job(job, job_id, err, "orchestrator.disk_guard_refused", **log_fields)
+            # Le nom d'event vient de la garde, pas d'ici : montage injoignable
+            # et pression disque réelle sont deux pannes à réponses
+            # différentes, et seul `event` est filtrable par une alerte.
+            err, log_fields, event_name = guard
+            await self._fail_job(job, job_id, err, event_name, **log_fields)
             return
 
         source = await sm.get_source(source_id, pool=self._pool)
