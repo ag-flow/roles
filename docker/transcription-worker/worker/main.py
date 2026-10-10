@@ -107,7 +107,12 @@ async def process_job(
 ) -> None:
     """Traite un job claimé : lit l'audio sur disque → transcribe → upload → mark_done."""
     audio_path = Path(job["audio_path"])
-    _ensure_audio_readable(audio_path)
+    # `_ensure_audio_readable` fait des appels bloquants (exists/access/stat) :
+    # décalé sur un thread pour ne jamais geler la boucle événementielle du
+    # worker (règle inconditionnelle du dépôt). Un `def` simple appelé depuis
+    # une coroutine échappe à ASYNC240 — le linter ne voit pas à travers un
+    # appel de fonction — donc cette ligne, pas un commentaire, est la garde.
+    await asyncio.to_thread(_ensure_audio_readable, audio_path)
 
     pivot = await provider.transcribe(
         str(audio_path), language=job.get("language"),
